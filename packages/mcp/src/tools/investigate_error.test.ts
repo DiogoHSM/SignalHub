@@ -6,13 +6,23 @@ function fakeClient(overrides: Partial<Record<keyof SigmonClient, unknown>> = {}
   return {
     getErrorGroupIncident: vi.fn(async () => ({
       group: { id: "grp_1", latestErrorId: "err_1", status: "open" },
-      primaryOccurrence: { id: "err_1" },
+      primaryOccurrence: {
+        id: "err_1",
+        stack: "primary stack",
+        payload: { raw: true },
+        body: "primary body",
+        pageUrl: "https://app.test/checkout?token=secret",
+        context: { apiToken: "secret" }
+      },
       priority: "high",
       suggestedPriority: "high",
       sourceMapResolution: { status: "cached", frameCount: 3 },
       stronglyRelated: { items: [{ id: "grp_2" }], truncated: false },
       nearbyContext: { items: [{ id: "grp_3" }], truncated: false },
-      replay: { id: "replay_1" },
+      replay: {
+        id: "replay_1",
+        events: [{ type: "click", data: { apiToken: "secret", pageUrl: "/checkout?token=secret" } }]
+      },
       related: { traceId: "trace_1", sessionId: "session_1", userId: "user_1", tenantId: "tenant_1", release: "v1.0.0" },
       incidentNumber: "INC-1",
       assignedTo: null,
@@ -85,6 +95,52 @@ describe("investigateErrorHandler", () => {
       context: { apiToken: "[REDACTED]" }
     });
     expect(result).toMatchObject({ rawDetailIncluded: true });
+  });
+
+  it("gates primary occurrence raw detail through the central policy", async () => {
+    const client = fakeClient();
+
+    const defaultResult = await investigateErrorHandler(client, { errorGroupId: "grp_1" });
+    expect(defaultResult.primaryOccurrence).toEqual({
+      id: "err_1",
+      pageUrl: "https://app.test/checkout?token=%5BREDACTED%5D",
+      context: { apiToken: "[REDACTED]" }
+    });
+
+    const perCallOnly = await investigateErrorHandler(client, { errorGroupId: "grp_1", includeRawDetail: true });
+    expect(perCallOnly.primaryOccurrence).toEqual({
+      id: "err_1",
+      pageUrl: "https://app.test/checkout?token=%5BREDACTED%5D",
+      context: { apiToken: "[REDACTED]" }
+    });
+
+    const authorized = await investigateErrorHandler(client, { errorGroupId: "grp_1", includeRawDetail: true }, { allowRawDetail: true });
+    expect(authorized.primaryOccurrence).toEqual({
+      id: "err_1",
+      stack: "primary stack",
+      payload: { raw: true },
+      body: "primary body",
+      pageUrl: "https://app.test/checkout?token=%5BREDACTED%5D",
+      context: { apiToken: "[REDACTED]" }
+    });
+    expect(authorized).toMatchObject({ rawDetailIncluded: true });
+  });
+
+  it("gates primary replay events through the central policy", async () => {
+    const client = fakeClient();
+
+    const defaultResult = await investigateErrorHandler(client, { errorGroupId: "grp_1" });
+    expect(defaultResult.primaryReplay).toEqual({ id: "replay_1" });
+
+    const perCallOnly = await investigateErrorHandler(client, { errorGroupId: "grp_1", includeRawDetail: true });
+    expect(perCallOnly.primaryReplay).toEqual({ id: "replay_1" });
+
+    const authorized = await investigateErrorHandler(client, { errorGroupId: "grp_1", includeRawDetail: true }, { allowRawDetail: true });
+    expect(authorized.primaryReplay).toEqual({
+      id: "replay_1",
+      events: [{ type: "click", data: { apiToken: "[REDACTED]", pageUrl: "/checkout?token=%5BREDACTED%5D" } }]
+    });
+    expect(authorized).toMatchObject({ rawDetailIncluded: true });
   });
 
   it("marks the occurrences section as truncated when the list is oversized", async () => {
