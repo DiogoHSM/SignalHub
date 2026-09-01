@@ -65,6 +65,10 @@ export type BuildAppOptions = {
     max: number;
     timeWindow: number | string;
   };
+  loginSourceRateLimit?: {
+    max: number;
+    timeWindow: number;
+  };
 };
 
 const browserIngestionCorsPaths = new Set([
@@ -209,7 +213,8 @@ export async function buildApp(options: BuildAppOptions) {
   registerAuthRoutes(app, {
     auth: options.auth,
     googleOAuthEnabled: options.googleOAuthEnabled,
-    nodeEnv
+    nodeEnv,
+    loginSourceRateLimit: options.loginSourceRateLimit
   });
   await registerConsoleRoutes(app, {
     enabled: options.console?.enabled ?? false,

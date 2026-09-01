@@ -2,6 +2,49 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/index.js";
 
 describe("loadConfig", () => {
+  it("loads login abuse-control defaults", () => {
+    expect(loadConfig(baseEnv()).auth.login).toEqual({
+      sourceMaxAttempts: 10,
+      sourceWindowMs: 60_000,
+      accountMaxAttempts: 8,
+      accountWindowMs: 15 * 60_000,
+      argon2Concurrency: 4,
+      progressiveDelayMaxMs: 2_000
+    });
+  });
+
+  it("loads and validates explicit login abuse-control settings", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      LOGIN_SOURCE_MAX_ATTEMPTS: "12",
+      LOGIN_SOURCE_WINDOW_MS: "30000",
+      LOGIN_ACCOUNT_MAX_ATTEMPTS: "6",
+      LOGIN_ACCOUNT_WINDOW_MS: "600000",
+      LOGIN_ARGON2_CONCURRENCY: "2",
+      LOGIN_PROGRESSIVE_DELAY_MAX_MS: "1500"
+    });
+
+    expect(config.auth.login).toEqual({
+      sourceMaxAttempts: 12,
+      sourceWindowMs: 30_000,
+      accountMaxAttempts: 6,
+      accountWindowMs: 600_000,
+      argon2Concurrency: 2,
+      progressiveDelayMaxMs: 1_500
+    });
+  });
+
+  it.each([
+    "LOGIN_SOURCE_MAX_ATTEMPTS",
+    "LOGIN_SOURCE_WINDOW_MS",
+    "LOGIN_ACCOUNT_MAX_ATTEMPTS",
+    "LOGIN_ACCOUNT_WINDOW_MS",
+    "LOGIN_ARGON2_CONCURRENCY",
+    "LOGIN_PROGRESSIVE_DELAY_MAX_MS"
+  ] as const)("rejects non-positive %s", (fieldName) => {
+    expect(() => loadConfig({ ...baseEnv(), [fieldName]: "0" })).toThrow();
+  });
+
   const validEnv = {
     NODE_ENV: "production",
     PORT: "3000",

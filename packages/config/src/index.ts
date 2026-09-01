@@ -198,6 +198,12 @@ const rawConfigSchema = z.object({
     .transform((value) => value === "true"),
   SYSTEM_HEALTH_SAMPLE_INTERVAL_MINUTES: optionalPositiveInteger(5),
   SYSTEM_HEALTH_HISTORY_RETENTION_HOURS: optionalPositiveInteger(48),
+  LOGIN_SOURCE_MAX_ATTEMPTS: optionalPositiveInteger(10),
+  LOGIN_SOURCE_WINDOW_MS: optionalPositiveInteger(60_000),
+  LOGIN_ACCOUNT_MAX_ATTEMPTS: optionalPositiveInteger(8),
+  LOGIN_ACCOUNT_WINDOW_MS: optionalPositiveInteger(15 * 60_000),
+  LOGIN_ARGON2_CONCURRENCY: optionalPositiveInteger(4),
+  LOGIN_PROGRESSIVE_DELAY_MAX_MS: optionalPositiveInteger(2_000),
   // PER-449: statement_timeout (ms) for the API's request-serving Postgres pool. 0 disables it.
   // Migrations run on a separate, timeout-free pool (see apps/api/src/main.ts) so a slow one-time
   // migration on a large table can't be killed by this value.
@@ -294,6 +300,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     },
     browserCors: {
       origins: parseOriginList(parsed.BROWSER_CORS_ORIGINS)
+    },
+    auth: {
+      login: {
+        sourceMaxAttempts: parsed.LOGIN_SOURCE_MAX_ATTEMPTS,
+        sourceWindowMs: parsed.LOGIN_SOURCE_WINDOW_MS,
+        accountMaxAttempts: parsed.LOGIN_ACCOUNT_MAX_ATTEMPTS,
+        accountWindowMs: parsed.LOGIN_ACCOUNT_WINDOW_MS,
+        argon2Concurrency: parsed.LOGIN_ARGON2_CONCURRENCY,
+        progressiveDelayMaxMs: parsed.LOGIN_PROGRESSIVE_DELAY_MAX_MS
+      }
     },
     retention: {
       enabled: parsed.RETENTION_ENABLED,

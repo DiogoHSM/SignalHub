@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { DUMMY_PASSWORD_HASH } from "@sigmon/telemetry/auth";
 import { buildApp } from "../src/app.js";
+import { Argon2Semaphore, LoginGuard, createGuardedLogin } from "../src/auth/login-guard.js";
 import {
   authenticateOpaqueSession,
   createOpaqueSession,
@@ -77,6 +79,82 @@ function createSessionAuthHarness() {
     advanceTime(milliseconds: number) {
       currentTime = new Date(currentTime.getTime() + milliseconds);
     }
+  };
+}
+
+function createGuardedAuthHarness(options: { accountLimit?: number; redisUnavailable?: boolean } = {}) {
+  const counts = new Map<string, number>();
+  const users = new Map([
+    [
+      "admin@example.com",
+      {
+        id: "usr_admin",
+        email: "admin@example.com",
+        passwordHash: "real-password-hash",
+        archivedAt: null,
+        isAdmin: true
+      }
+    ],
+    [
+      "oauth@example.com",
+      {
+        id: "usr_oauth",
+        email: "oauth@example.com",
+        passwordHash: null,
+        archivedAt: null,
+        isAdmin: false
+      }
+    ],
+    [
+      "archived@example.com",
+      {
+        id: "usr_archived",
+        email: "archived@example.com",
+        passwordHash: "real-password-hash",
+        archivedAt: new Date("2026-08-01T00:00:00.000Z"),
+        isAdmin: true
+      }
+    ]
+  ]);
+  const verify = vi.fn(async (hash: string, password: string) => hash === "real-password-hash" && password === "correct");
+  const sessionUserIds: string[] = [];
+  const guard = new LoginGuard({
+    sessionSecret: "unit-test-session-secret",
+    accountLimit: options.accountLimit,
+    delay: async () => undefined,
+    redis: {
+      eval: async (_script, _numberOfKeys, key) => {
+        if (options.redisUnavailable) throw new Error("redis unavailable");
+        const count = (counts.get(key) ?? 0) + 1;
+        counts.set(key, count);
+        return count;
+      },
+      del: async (key) => {
+        if (options.redisUnavailable) throw new Error("redis unavailable");
+        counts.delete(key);
+        return 1;
+      }
+    }
+  });
+  const login = createGuardedLogin({
+    guard,
+    semaphore: new Argon2Semaphore(2),
+    findUser: async (email) => users.get(email),
+    verifyPassword: verify,
+    createSession: async (user, { reply }) => {
+      sessionUserIds.push(user.id);
+      reply.setCookie("sigmon_session", `session-${user.id}`, { httpOnly: true, sameSite: "lax", path: "/" });
+    }
+  });
+
+  return {
+    auth: {
+      loginGuard: guard,
+      login,
+      findSessionUser: async () => null
+    } satisfies AuthDependencies,
+    sessionUserIds,
+    verify
   };
 }
 
@@ -441,5 +519,161 @@ describe("auth routes", () => {
         expect.stringContaining("sigmon_oauth_state=;")
       ])
     );
+  });
+
+  it("performs one dummy password verification for an absent account", async () => {
+    const harness = createGuardedAuthHarness();
+    app = await buildApp({ readiness: async () => ({ postgres: true, redis: true }), auth: harness.auth });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "missing@example.com", password: "submitted" }
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: "invalid_credentials" });
+    expect(harness.verify).toHaveBeenCalledTimes(1);
+    expect(harness.verify).toHaveBeenCalledWith(DUMMY_PASSWORD_HASH, "submitted");
+  });
+
+  it("performs one dummy password verification for an OAuth-only account", async () => {
+    const harness = createGuardedAuthHarness();
+    app = await buildApp({ readiness: async () => ({ postgres: true, redis: true }), auth: harness.auth });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "oauth@example.com", password: "submitted" }
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: "invalid_credentials" });
+    expect(harness.verify).toHaveBeenCalledTimes(1);
+    expect(harness.verify).toHaveBeenCalledWith(DUMMY_PASSWORD_HASH, "submitted");
+  });
+
+  it("rejects passwords larger than 1024 UTF-8 bytes before verification", async () => {
+    const harness = createGuardedAuthHarness();
+    app = await buildApp({ readiness: async () => ({ postgres: true, redis: true }), auth: harness.auth });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "admin@example.com", password: "é".repeat(513) }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_login_request" });
+    expect(harness.verify).not.toHaveBeenCalled();
+  });
+
+  it("enforces a login-specific source quota using request.ip", async () => {
+    const harness = createGuardedAuthHarness();
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      auth: harness.auth,
+      loginSourceRateLimit: { max: 2, timeWindow: 60_000 }
+    });
+
+    const responses = [];
+    for (const email of ["first@example.com", "second@example.com", "third@example.com"]) {
+      responses.push(
+        await app.inject({ method: "POST", url: "/auth/login", payload: { email, password: "submitted" } })
+      );
+    }
+
+    expect(responses.map((response) => response.statusCode)).toEqual([401, 401, 429]);
+    expect(responses[2]?.json()).toEqual({ error: "too_many_login_attempts" });
+    expect(harness.verify).toHaveBeenCalledTimes(2);
+  });
+
+  it("enforces the shared normalized-account quota", async () => {
+    const harness = createGuardedAuthHarness({ accountLimit: 2 });
+    app = await buildApp({ readiness: async () => ({ postgres: true, redis: true }), auth: harness.auth });
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "Missing@Example.com", password: "submitted" }
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: " missing@example.com ", password: "submitted" }
+    });
+    const third = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "missing@example.com", password: "submitted" }
+    });
+
+    expect([first.statusCode, second.statusCode, third.statusCode]).toEqual([401, 401, 429]);
+    expect(third.json()).toEqual({ error: "too_many_login_attempts" });
+    expect(harness.verify).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails login closed with a 503 when the account guard is unavailable", async () => {
+    const harness = createGuardedAuthHarness({ redisUnavailable: true });
+    app = await buildApp({ readiness: async () => ({ postgres: true, redis: true }), auth: harness.auth });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "admin@example.com", password: "correct" }
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "auth_unavailable" });
+    expect(harness.verify).not.toHaveBeenCalled();
+    expect(harness.sessionUserIds).toEqual([]);
+  });
+
+  it("keeps missing, OAuth-only, archived, and wrong-password failures publicly identical", async () => {
+    const harness = createGuardedAuthHarness();
+    app = await buildApp({ readiness: async () => ({ postgres: true, redis: true }), auth: harness.auth });
+
+    const credentials = [
+      ["missing@example.com", "submitted"],
+      ["oauth@example.com", "submitted"],
+      ["archived@example.com", "correct"],
+      ["admin@example.com", "wrong"]
+    ] as const;
+    const results = [];
+    for (const [email, password] of credentials) {
+      const response = await app.inject({ method: "POST", url: "/auth/login", payload: { email, password } });
+      results.push({ statusCode: response.statusCode, body: response.json() });
+    }
+
+    expect(results).toEqual(
+      credentials.map(() => ({ statusCode: 401, body: { error: "invalid_credentials" } }))
+    );
+    expect(harness.verify).toHaveBeenCalledTimes(4);
+    expect(harness.verify.mock.calls.map(([hash]) => hash)).toEqual([
+      DUMMY_PASSWORD_HASH,
+      DUMMY_PASSWORD_HASH,
+      "real-password-hash",
+      "real-password-hash"
+    ]);
+  });
+
+  it("records account success and creates the normal opaque session", async () => {
+    const harness = createGuardedAuthHarness();
+    app = await buildApp({ readiness: async () => ({ postgres: true, redis: true }), auth: harness.auth });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "ADMIN@example.com", password: "correct" }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["set-cookie"]).toContain("sigmon_session=session-usr_admin");
+    expect(response.json()).toEqual({
+      user: { id: "usr_admin", email: "admin@example.com", isAdmin: true }
+    });
+    expect(harness.verify).toHaveBeenCalledTimes(1);
+    expect(harness.verify).toHaveBeenCalledWith("real-password-hash", "correct");
+    expect(harness.sessionUserIds).toEqual(["usr_admin"]);
   });
 });

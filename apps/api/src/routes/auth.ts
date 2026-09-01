@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
+import { LoginGuardError, type LoginGuard } from "../auth/login-guard.js";
 import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-context.js";
 
 export type AuthUser = AuthenticatedUser;
@@ -29,6 +30,7 @@ export type AuthSessionContext = {
 };
 
 export type AuthDependencies = {
+  loginGuard?: LoginGuard;
   login: (email: string, password: string, context: AuthSessionContext) => Promise<AuthUser | null | undefined>;
   findSessionUser: (request: CookieCapableRequest) => Promise<AuthUser | null | undefined>;
   logout?: (context: AuthSessionContext) => Promise<void>;
@@ -42,11 +44,15 @@ export type AuthRouteOptions = {
   auth?: AuthDependencies;
   googleOAuthEnabled?: boolean;
   nodeEnv?: string;
+  loginSourceRateLimit?: {
+    max: number;
+    timeWindow: number;
+  };
 };
 
 const loginBodySchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1)
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(1).refine((password) => Buffer.byteLength(password, "utf8") <= 1_024)
 });
 const googleCallbackQuerySchema = z.object({
   code: z.string().min(1),
@@ -87,6 +93,13 @@ function googleOAuthUnavailable(reply: FastifyReply) {
 
 export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptions): void {
   const auth = options.auth ?? authUnavailable();
+  const sourceQuota = auth.loginGuard
+    ? app.createRateLimit({
+        max: options.loginSourceRateLimit?.max ?? 10,
+        timeWindow: options.loginSourceRateLimit?.timeWindow ?? 60_000,
+        keyGenerator: (request) => request.ip
+      })
+    : undefined;
 
   app.post("/auth/login", async (request, reply) => {
     const parsed = loginBodySchema.safeParse(request.body);
@@ -94,10 +107,24 @@ export function registerAuthRoutes(app: FastifyInstance, options: AuthRouteOptio
       return reply.status(400).send({ error: "invalid_login_request" });
     }
 
-    const user = await auth.login(parsed.data.email, parsed.data.password, {
-      request: request as CookieCapableRequest,
-      reply: reply as CookieCapableReply
-    });
+    let user: AuthUser | null | undefined;
+    try {
+      if (auth.loginGuard && sourceQuota) {
+        await auth.loginGuard.checkSource(() => sourceQuota(request));
+      }
+      user = await auth.login(parsed.data.email, parsed.data.password, {
+        request: request as CookieCapableRequest,
+        reply: reply as CookieCapableReply
+      });
+    } catch (error) {
+      if (error instanceof LoginGuardError) {
+        if (error.code === "auth_unavailable") {
+          return reply.status(503).send({ error: "auth_unavailable" });
+        }
+        return reply.status(429).send({ error: "too_many_login_attempts" });
+      }
+      throw error;
+    }
     if (!user) {
       return reply.status(401).send({ error: "invalid_credentials" });
     }

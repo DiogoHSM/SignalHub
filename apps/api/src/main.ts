@@ -251,7 +251,7 @@ import { identifyTenantProfile, identifyUserProfile } from "@sigmon/db/repositor
 import { getFleetRollup, getProjectFleetEnvironments } from "@sigmon/db/repositories/fleet-query.js";
 import { getUserDetail, listUsersActivity } from "@sigmon/db/repositories/users-query.js";
 import { createTelemetryQueue, enqueueTelemetryJob, replayTelemetryJob } from "@sigmon/queues";
-import { hashPassword, verifyPassword } from "@sigmon/telemetry/auth";
+import { createAuthLoginTelemetry, hashPassword, verifyPassword } from "@sigmon/telemetry/auth";
 import { verifyApiKey } from "@sigmon/telemetry/api-keys";
 import { createId } from "@sigmon/telemetry/ids";
 import { fileURLToPath } from "node:url";
@@ -288,6 +288,7 @@ import {
   revokeCurrentSession,
   type OpaqueSessionServiceDependencies
 } from "./auth/session-service.js";
+import { Argon2Semaphore, LoginGuard, createGuardedLogin } from "./auth/login-guard.js";
 
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
 
@@ -348,6 +349,21 @@ const opaqueSessions: OpaqueSessionServiceDependencies = {
   findSessionUser: (input) => findActiveSessionUser(db, input),
   revokeSession: (input) => revokeAuthSession(db, input)
 };
+
+const loginGuard = new LoginGuard({
+  sessionSecret: config.sessionSecret,
+  accountLimit: config.auth.login.accountMaxAttempts,
+  accountWindowMs: config.auth.login.accountWindowMs,
+  progressiveDelayMaxMs: config.auth.login.progressiveDelayMaxMs,
+  redis: {
+    eval: (script, numberOfKeys, key, ttlMs) => redis.eval(script, numberOfKeys, key, ttlMs),
+    del: (key) => redis.del(key)
+  },
+  recordTelemetry: (outcome) => {
+    logger.info(createAuthLoginTelemetry(outcome), "Authentication attempt");
+  }
+});
+const argon2Semaphore = new Argon2Semaphore(config.auth.login.argon2Concurrency);
 
 function setSessionCookie(reply: CookieCapableReply, userId: string): Promise<void> {
   return createOpaqueSession(opaqueSessions, userId, reply);
@@ -441,21 +457,14 @@ async function verifyIngestionApiKey(secret: string): Promise<ApiKeyScope | null
 }
 
 const auth: AuthDependencies = {
-  login: async (email, password, { reply }) => {
-    const user = await findUserByEmail(db, email);
-    if (!user?.passwordHash) {
-      return null;
-    }
-
-    const validPassword = await verifyPassword(user.passwordHash, password);
-    if (!validPassword) {
-      return null;
-    }
-
-    await setSessionCookie(reply, user.id);
-
-    return toAuthUser(user);
-  },
+  loginGuard,
+  login: createGuardedLogin({
+    guard: loginGuard,
+    semaphore: argon2Semaphore,
+    findUser: (email) => findUserByEmail(db, email),
+    verifyPassword,
+    createSession: (user, { reply }) => setSessionCookie(reply, user.id)
+  }),
   findSessionUser: async (request) => {
     const user = await authenticateOpaqueSession(opaqueSessions, request);
     return user ? toAuthUser(user) : null;
@@ -600,6 +609,10 @@ const app = await buildApp({
     return { postgres, redis: redisReady };
   },
   auth,
+  loginSourceRateLimit: {
+    max: config.auth.login.sourceMaxAttempts,
+    timeWindow: config.auth.login.sourceWindowMs
+  },
   users: {
     listUsers: async () => (await listUsers(db)).map(toAuthUser),
     createUser: async (input) =>
