@@ -90,7 +90,7 @@ describe("opaque session service", () => {
   });
 
   it("hashes a well-formed cookie before session lookup", async () => {
-    const token = "B".repeat(43);
+    const token = Buffer.alloc(32, 1).toString("base64url");
     const findSessionUser = vi.fn(async () => user);
 
     await expect(
@@ -104,7 +104,7 @@ describe("opaque session service", () => {
     });
   });
 
-  it.each(["short", "payload.signature", "A".repeat(42), `${"A".repeat(42)}!`])(
+  it.each(["short", "payload.signature", "A".repeat(42), `${"A".repeat(42)}!`, `${"A".repeat(42)}B`])(
     "rejects malformed or legacy cookie %s without a database lookup",
     async (token) => {
       const findSessionUser = vi.fn(async () => user);
@@ -120,7 +120,7 @@ describe("opaque session service", () => {
 
   it("revokes a valid token before clearing its cookie", async () => {
     const operations: string[] = [];
-    const token = "C".repeat(43);
+    const token = Buffer.alloc(32, 2).toString("base64url");
     const revokeSession = vi.fn(async () => {
       operations.push("revoke");
     });
@@ -140,7 +140,26 @@ describe("opaque session service", () => {
       tokenHash: hashSessionToken(token),
       now: new Date("2026-09-01T12:00:00.000Z")
     });
-    expect(reply.clearCookie).toHaveBeenCalledWith("sigmon_session", { path: "/" });
+    expect(reply.clearCookie).toHaveBeenCalledWith("sigmon_session", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: false,
+      path: "/",
+      maxAge: 3600
+    });
+  });
+
+  it("does not revoke a noncanonical token before clearing its cookie", async () => {
+    const revokeSession = vi.fn(async () => undefined);
+    const reply = { clearCookie: vi.fn() };
+
+    await revokeCurrentSession(dependencies({ revokeSession }), {
+      request: { cookies: { sigmon_session: `${"A".repeat(42)}B` } },
+      reply
+    });
+
+    expect(revokeSession).not.toHaveBeenCalled();
+    expect(reply.clearCookie).toHaveBeenCalledOnce();
   });
 
   it("does not clear the cookie when revocation fails", async () => {
@@ -150,7 +169,7 @@ describe("opaque session service", () => {
       revokeCurrentSession(
         dependencies({ revokeSession: vi.fn(async () => Promise.reject(new Error("database unavailable"))) }),
         {
-          request: { cookies: { sigmon_session: "D".repeat(43) } },
+          request: { cookies: { sigmon_session: Buffer.alloc(32, 3).toString("base64url") } },
           reply
         }
       )

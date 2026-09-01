@@ -43,7 +43,9 @@ export function hashSessionToken(token: string): string {
 }
 
 function isOpaqueSessionToken(token: string): boolean {
-  return opaqueSessionTokenPattern.test(token);
+  if (!opaqueSessionTokenPattern.test(token)) return false;
+  const decoded = Buffer.from(token, "base64url");
+  return decoded.length === 32 && decoded.toString("base64url") === token;
 }
 
 export async function createOpaqueSession(
@@ -88,5 +90,5 @@ export async function revokeCurrentSession(
       now: dependencies.now?.() ?? new Date()
     });
   }
-  context.reply.clearCookie(dependencies.cookieName, { path: "/" });
+  context.reply.clearCookie(dependencies.cookieName, dependencies.cookieOptions);
 }

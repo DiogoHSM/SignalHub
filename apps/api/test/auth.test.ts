@@ -139,6 +139,43 @@ describe("auth routes", () => {
     expect(response.headers["set-cookie"]).toContain("Path=/");
   });
 
+  it("clears the host-prefixed production cookie with all required attributes", async () => {
+    const token = Buffer.alloc(32, 4).toString("base64url");
+    const service: OpaqueSessionServiceDependencies = {
+      cookieName: "__Host-sigmon_session",
+      cookieOptions: getSessionCookieOptions("production", 123),
+      maxAgeSeconds: 123,
+      now: () => new Date("2026-09-01T12:00:00.000Z"),
+      createSession: async () => undefined,
+      findSessionUser: async () => undefined,
+      revokeSession: async () => undefined
+    };
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      nodeEnv: "production",
+      auth: {
+        login: async () => null,
+        findSessionUser: async () => null,
+        logout: (context) => revokeCurrentSession(service, context)
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/logout",
+      headers: { cookie: `__Host-sigmon_session=${token}` }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["set-cookie"]).toContain("__Host-sigmon_session=;");
+    expect(response.headers["set-cookie"]).toContain("HttpOnly");
+    expect(response.headers["set-cookie"]).toContain("Secure");
+    expect(response.headers["set-cookie"]).toContain("SameSite=Lax");
+    expect(response.headers["set-cookie"]).toContain("Path=/");
+    expect(response.headers["set-cookie"]).toContain("Max-Age=0");
+    expect(response.headers["set-cookie"]).toContain("Expires=Thu, 01 Jan 1970 00:00:00 GMT");
+  });
+
   it("logs in with a session-capable auth dependency", async () => {
     app = await buildApp({
       readiness: async () => ({ postgres: true, redis: true }),
@@ -232,18 +269,21 @@ describe("auth routes", () => {
     expect((await app.inject({ method: "GET", url: "/auth/me", headers: { cookie } })).statusCode).toBe(401);
   });
 
-  it.each(["malformed", "payload.signature"])("rejects a copied %s session cookie", async (token) => {
-    const harness = createSessionAuthHarness();
-    app = await buildApp({ readiness: async () => ({ postgres: true, redis: true }), auth: harness.auth });
+  it.each(["malformed", "payload.signature", `${"A".repeat(42)}B`])(
+    "rejects a copied %s session cookie",
+    async (token) => {
+      const harness = createSessionAuthHarness();
+      app = await buildApp({ readiness: async () => ({ postgres: true, redis: true }), auth: harness.auth });
 
-    const response = await app.inject({
-      method: "GET",
-      url: "/auth/me",
-      headers: { cookie: `sigmon_session=${token}` }
-    });
+      const response = await app.inject({
+        method: "GET",
+        url: "/auth/me",
+        headers: { cookie: `sigmon_session=${token}` }
+      });
 
-    expect(response.statusCode).toBe(401);
-  });
+      expect(response.statusCode).toBe(401);
+    }
+  );
 
   it("keeps password login compatible with the existing cookie name and options", async () => {
     const harness = createSessionAuthHarness();
