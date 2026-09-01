@@ -393,7 +393,8 @@ export interface WarehouseDestinationsTable {
   environment_id: string;
   name: string;
   destination_type: WarehouseDestinationType;
-  connection_url: string;
+  connection_url: string | null;
+  connection_url_encrypted: string | null;
   datasets: JsonColumn;
   cursor: JsonColumn;
   batch_size: DefaultedInteger;
@@ -898,6 +899,7 @@ export interface NotificationChannelsTable {
   email_recipients: JsonColumn;
   secret_header_name: string | null;
   secret_header_value: string | null;
+  secret_header_value_encrypted: string | null;
   enabled: DefaultedBoolean;
   created_at: Timestamp;
   updated_at: Timestamp;

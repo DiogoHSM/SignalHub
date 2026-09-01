@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import type { Selectable, Transaction } from "kysely";
 import { sql } from "kysely";
+import type { SecretBox } from "@sigmon/config";
 import type { Db } from "../client.js";
 import type {
   AlertEventsTable,
@@ -196,7 +198,10 @@ function jsonb(value: unknown) {
   return sql`${JSON.stringify(value)}::jsonb`;
 }
 
-export function toNotificationChannel(row: NotificationChannelRow): NotificationChannelRecord {
+export function toNotificationChannel(
+  row: NotificationChannelRow,
+  options: { includeSecret?: boolean; secretBox?: SecretBox } = {}
+): NotificationChannelRecord {
   if (row.type === "email") {
     const emailRecipients = parseEmailRecipients(row.email_recipients);
     if (emailRecipients.length === 0) {
@@ -223,6 +228,18 @@ export function toNotificationChannel(row: NotificationChannelRow): Notification
     throw new Error("invalid_webhook_notification_channel");
   }
 
+  const hasSecret = row.secret_header_value_encrypted !== null || row.secret_header_value !== null;
+  let secretHeaderValue: string | null = null;
+  if (options.includeSecret && hasSecret) {
+    if (row.secret_header_value_encrypted === null) throw new Error("legacy_plaintext_secret_present");
+    if (!options.secretBox) throw new Error("secret_box_required");
+    secretHeaderValue = options.secretBox.decrypt(row.secret_header_value_encrypted, {
+      table: "notification_channels",
+      rowId: row.id,
+      field: "secret_header_value"
+    });
+  }
+
   return {
     id: row.id,
     name: row.name,
@@ -230,8 +247,8 @@ export function toNotificationChannel(row: NotificationChannelRow): Notification
     url: row.url,
     emailRecipients: [],
     secretHeaderName: row.secret_header_name,
-    secretHeaderValue: row.secret_header_value,
-    hasSecret: row.secret_header_value !== null,
+    secretHeaderValue,
+    hasSecret,
     enabled: row.enabled,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -340,28 +357,42 @@ async function assertActiveAlertRuleScope(
 
 export async function createNotificationChannel(
   db: AlertDb,
-  input: CreateNotificationChannelInput
+  input: CreateNotificationChannelInput,
+  secretBox?: SecretBox
 ): Promise<NotificationChannelRecord> {
+  const secretHeaderValue = input.type !== "email" ? input.secretHeaderValue ?? null : null;
+  if (secretHeaderValue !== null && !secretBox) throw new Error("secret_box_required");
+  const id = randomUUID();
   const row = await db
     .insertInto("notification_channels")
     .values(
       input.type === "email"
-        ? {
+          ? {
+            id,
             name: input.name,
             type: input.type,
             url: null,
             email_recipients: jsonb(normalizeEmailRecipients(input.emailRecipients)),
             secret_header_name: null,
             secret_header_value: null,
+            secret_header_value_encrypted: null,
             enabled: input.enabled
           }
-        : {
+          : {
+            id,
             name: input.name,
             type: input.type,
             url: input.url,
             email_recipients: jsonb([]),
             secret_header_name: input.secretHeaderName ?? null,
-            secret_header_value: input.secretHeaderValue ?? null,
+            secret_header_value: null,
+            secret_header_value_encrypted: secretHeaderValue === null
+              ? null
+              : secretBox!.encrypt(secretHeaderValue, {
+                  table: "notification_channels",
+                  rowId: id,
+                  field: "secret_header_value"
+                }),
             enabled: input.enabled
           }
     )
@@ -379,12 +410,13 @@ export async function listNotificationChannels(db: AlertDb): Promise<Notificatio
     .orderBy("created_at", "asc")
     .execute();
 
-  return rows.map(toNotificationChannel);
+  return rows.map((row) => toNotificationChannel(row));
 }
 
 export async function getNotificationChannel(
   db: AlertDb,
-  id: string
+  id: string,
+  options: { includeSecret?: boolean; secretBox?: SecretBox } = {}
 ): Promise<NotificationChannelRecord | undefined> {
   const row = await db
     .selectFrom("notification_channels")
@@ -393,13 +425,14 @@ export async function getNotificationChannel(
     .where("archived_at", "is", null)
     .executeTakeFirst();
 
-  return row ? toNotificationChannel(row) : undefined;
+  return row ? toNotificationChannel(row, options) : undefined;
 }
 
 export async function updateNotificationChannel(
   db: AlertDb,
   id: string,
-  input: UpdateNotificationChannelInput
+  input: UpdateNotificationChannelInput,
+  secretBox?: SecretBox
 ): Promise<NotificationChannelRecord | undefined> {
   const current = await db
     .selectFrom("notification_channels")
@@ -435,6 +468,16 @@ export async function updateNotificationChannel(
   if (targetIsWebhookLike && input.emailRecipients !== undefined) {
     throw new Error("invalid_webhook_notification_channel");
   }
+  if (input.secretHeaderValue !== undefined && input.secretHeaderValue !== null && !secretBox) {
+    throw new Error("secret_box_required");
+  }
+  const encryptedSecretHeaderValue = input.secretHeaderValue !== undefined && input.secretHeaderValue !== null
+    ? secretBox!.encrypt(input.secretHeaderValue, {
+        table: "notification_channels",
+        rowId: id,
+        field: "secret_header_value"
+      })
+    : undefined;
 
   const row = await db
     .updateTable("notification_channels")
@@ -447,14 +490,18 @@ export async function updateNotificationChannel(
         ? { secret_header_name: input.secretHeaderName }
         : {}),
       ...(targetIsWebhookLike && input.secretHeaderValue !== undefined
-        ? { secret_header_value: input.secretHeaderValue }
+        ? {
+            secret_header_value: null,
+            secret_header_value_encrypted: encryptedSecretHeaderValue ?? null
+          }
         : {}),
       ...(targetIsWebhookLike ? { email_recipients: jsonb([]) } : {}),
       ...(targetType === "email"
         ? {
             url: null,
             secret_header_name: null,
-            secret_header_value: null
+            secret_header_value: null,
+            secret_header_value_encrypted: null
           }
         : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),

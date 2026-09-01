@@ -1,15 +1,23 @@
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { SecretBox } from "@sigmon/config";
 import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
 import { createTestDb } from "./test-db.js";
-import { evaluateAlertRule } from "../src/repositories/alerts.js";
+import {
+  createNotificationChannel,
+  evaluateAlertRule,
+  getNotificationChannel,
+  listNotificationChannels,
+  updateNotificationChannel
+} from "../src/repositories/alerts.js";
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
 
 const windowStart = new Date("2026-06-24T11:00:00Z");
 const windowEnd = new Date("2026-06-24T12:00:00Z");
+const box = new SecretBox({ currentKey: Buffer.alloc(32, 12).toString("base64") });
 
 describe("evaluateAlertRule", () => {
   beforeAll(async () => {
@@ -202,6 +210,98 @@ describe("evaluateAlertRule", () => {
         windowEnd
       });
       expect(result.observedValue).toBe("1");
+    });
+  });
+
+  it("stores notification header secrets encrypted and only decrypts for explicit privileged reads", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const channel = await createNotificationChannel(db, {
+        name: "Synthetic webhook",
+        type: "webhook",
+        url: "https://hooks.invalid/synthetic",
+        secretHeaderName: "X-Synthetic-Token",
+        secretHeaderValue: "synthetic-notification-value",
+        enabled: true
+      }, box);
+
+      const storedAfterCreate = await db
+        .selectFrom("notification_channels")
+        .selectAll()
+        .where("id", "=", channel.id)
+        .executeTakeFirstOrThrow() as { secret_header_value: string | null; secret_header_value_encrypted?: string | null };
+      expect(storedAfterCreate.secret_header_value).toBeNull();
+      expect(storedAfterCreate.secret_header_value_encrypted).toMatch(/^v1\./);
+
+      const adminChannel = (await listNotificationChannels(db))[0];
+      expect(adminChannel?.hasSecret).toBe(true);
+      expect(adminChannel?.secretHeaderValue).toBeNull();
+      expect(adminChannel).not.toHaveProperty("secretHeaderValueEncrypted");
+
+      const encryptedBeforeOmittedUpdate = storedAfterCreate.secret_header_value_encrypted;
+      await updateNotificationChannel(db, channel.id, { name: "Synthetic renamed" }, box);
+      const storedAfterOmittedUpdate = await db
+        .selectFrom("notification_channels")
+        .selectAll()
+        .where("id", "=", channel.id)
+        .executeTakeFirstOrThrow() as { secret_header_value: string | null; secret_header_value_encrypted?: string | null };
+      expect(storedAfterOmittedUpdate.secret_header_value).toBeNull();
+      expect(storedAfterOmittedUpdate.secret_header_value_encrypted).toBe(encryptedBeforeOmittedUpdate);
+
+      await updateNotificationChannel(db, channel.id, {
+        secretHeaderValue: "synthetic-notification-replacement"
+      }, box);
+      const storedAfterSecretUpdate = await db
+        .selectFrom("notification_channels")
+        .selectAll()
+        .where("id", "=", channel.id)
+        .executeTakeFirstOrThrow() as { secret_header_value: string | null; secret_header_value_encrypted?: string | null };
+      expect(storedAfterSecretUpdate.secret_header_value).toBeNull();
+      expect(storedAfterSecretUpdate.secret_header_value_encrypted).toMatch(/^v1\./);
+      expect(storedAfterSecretUpdate.secret_header_value_encrypted).not.toBe(encryptedBeforeOmittedUpdate);
+
+      const privileged = await getNotificationChannel(db, channel.id, { includeSecret: true, secretBox: box });
+      expect(privileged?.secretHeaderValue).toBe("synthetic-notification-replacement");
+    });
+  });
+
+  it("fails privileged notification reads closed for missing, legacy, and invalid ciphertext", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const channel = await createNotificationChannel(db, {
+        name: "Synthetic fail closed webhook",
+        type: "webhook",
+        url: "https://hooks.invalid/fail-closed",
+        secretHeaderName: "X-Synthetic-Token",
+        secretHeaderValue: "synthetic-fail-closed-value",
+        enabled: true
+      }, box);
+
+      await expect(getNotificationChannel(db, channel.id, { includeSecret: true })).rejects.toThrow("secret_box_required");
+
+      await sql`
+        update notification_channels
+        set secret_header_value = 'synthetic-legacy-value', secret_header_value_encrypted = null
+        where id = ${channel.id}
+      `.execute(db);
+      await expect(
+        getNotificationChannel(db, channel.id, { includeSecret: true, secretBox: box })
+      ).rejects.toThrow("legacy_plaintext_secret_present");
+
+      const otherBox = new SecretBox({ currentKey: Buffer.alloc(32, 13).toString("base64") });
+      const unknownCiphertext = otherBox.encrypt("synthetic-unknown-key", {
+        table: "notification_channels",
+        rowId: channel.id,
+        field: "secret_header_value"
+      });
+      await sql`
+        update notification_channels
+        set secret_header_value = null, secret_header_value_encrypted = ${unknownCiphertext}
+        where id = ${channel.id}
+      `.execute(db);
+      await expect(
+        getNotificationChannel(db, channel.id, { includeSecret: true, secretBox: box })
+      ).rejects.toThrow("secret_key_unknown");
     });
   });
 });

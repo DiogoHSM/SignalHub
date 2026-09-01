@@ -1,4 +1,6 @@
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { SecretBox } from "@sigmon/config";
+import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
@@ -9,6 +11,8 @@ import { insertError, insertEvent, insertLlmCall, insertTrace } from "../src/rep
 import {
   archiveWarehouseDestination,
   createWarehouseDestination,
+  getWarehouseDestination,
+  listActiveWarehouseDestinations,
   listWarehouseDestinations,
   listWarehouseExportRuns,
   recordWarehouseExportRun,
@@ -19,6 +23,7 @@ import {
 
 let container: Awaited<ReturnType<PostgreSqlContainer["start"]>>;
 let db: Db;
+const box = new SecretBox({ currentKey: Buffer.alloc(32, 11).toString("base64") });
 
 beforeAll(async () => {
   container = await new PostgreSqlContainer("postgres:16-alpine")
@@ -54,7 +59,18 @@ describe("warehouse export repositories", () => {
       datasets: ["events", "errors"],
       batchSize: 250,
       enabled: true
-    });
+    }, box);
+
+    const storedAfterCreate = await db
+      .selectFrom("warehouse_destinations")
+      .selectAll()
+      .where("id", "=", destination.id)
+      .executeTakeFirstOrThrow() as unknown as {
+        connection_url: string | null;
+        connection_url_encrypted?: string | null;
+      };
+    expect(storedAfterCreate.connection_url).toBeNull();
+    expect(storedAfterCreate.connection_url_encrypted).toMatch(/^v1\./);
 
     expect(destination.connectionUrlPreview).toBe(
       "postgres://writer:***@warehouse.internal:5432/analytics?sslmode=require&token=***&api_key=***&application_name=sigmon",
@@ -64,10 +80,15 @@ describe("warehouse export repositories", () => {
     expect(destination.datasets).toEqual(["events", "errors"]);
     expect(destination.cursor).toEqual({});
 
-    const listed = await listWarehouseDestinations(db, { projectId: project.id, environmentId: environment.id });
+    const listed = await listWarehouseDestinations(db, {
+      projectId: project.id,
+      environmentId: environment.id,
+      secretBox: box
+    });
     expect(listed).toHaveLength(1);
     expect(listed[0]?.connectionUrlPreview).toBe(destination.connectionUrlPreview);
 
+    const encryptedBeforeOmittedSecretUpdate = storedAfterCreate.connection_url_encrypted;
     const updated = await updateWarehouseDestination(db, {
       id: destination.id,
       projectId: project.id,
@@ -76,17 +97,54 @@ describe("warehouse export repositories", () => {
       datasets: ["events", "traces", "llmCalls"],
       batchSize: 100,
       enabled: false
-    });
+    }, box);
     expect(updated?.name).toBe("Warehouse prod");
     expect(updated?.datasets).toEqual(["events", "traces", "llmCalls"]);
     expect(updated?.enabled).toBe(false);
+
+    const storedAfterOmittedSecretUpdate = await db
+      .selectFrom("warehouse_destinations")
+      .selectAll()
+      .where("id", "=", destination.id)
+      .executeTakeFirstOrThrow() as { connection_url: string | null; connection_url_encrypted?: string | null };
+    expect(storedAfterOmittedSecretUpdate.connection_url).toBeNull();
+    expect(storedAfterOmittedSecretUpdate.connection_url_encrypted).toBe(encryptedBeforeOmittedSecretUpdate);
+
+    await updateWarehouseDestination(db, {
+      id: destination.id,
+      projectId: project.id,
+      environmentId: environment.id,
+      connectionUrl: "postgres://synthetic-user:replacement@warehouse.invalid/analytics"
+    }, box);
+    const storedAfterSecretUpdate = await db
+      .selectFrom("warehouse_destinations")
+      .selectAll()
+      .where("id", "=", destination.id)
+      .executeTakeFirstOrThrow() as { connection_url: string | null; connection_url_encrypted?: string | null };
+    expect(storedAfterSecretUpdate.connection_url).toBeNull();
+    expect(storedAfterSecretUpdate.connection_url_encrypted).toMatch(/^v1\./);
+    expect(storedAfterSecretUpdate.connection_url_encrypted).not.toBe(encryptedBeforeOmittedSecretUpdate);
+
+    const privileged = await getWarehouseDestination(db, {
+      id: destination.id,
+      projectId: project.id,
+      environmentId: environment.id,
+      includeSecret: true,
+      secretBox: box
+    });
+    expect(privileged?.connectionUrl).toBe("postgres://synthetic-user:replacement@warehouse.invalid/analytics");
+    expect(privileged).not.toHaveProperty("connectionUrlEncrypted");
 
     await archiveWarehouseDestination(db, {
       id: destination.id,
       projectId: project.id,
       environmentId: environment.id
     });
-    await expect(listWarehouseDestinations(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([]);
+    await expect(listWarehouseDestinations(db, {
+      projectId: project.id,
+      environmentId: environment.id,
+      secretBox: box
+    })).resolves.toEqual([]);
   });
 
   it("selects incremental batches and records auditable export runs", async () => {
@@ -146,7 +204,7 @@ describe("warehouse export repositories", () => {
       datasets: ["events", "errors", "traces", "llmCalls"],
       batchSize: 10,
       enabled: true
-    });
+    }, box);
 
     const batch = await selectWarehouseExportBatch(db, destination, { now: new Date("2026-01-01T01:00:00.000Z") });
     expect(batch.rows.events.map((row) => row.id)).toEqual(["evt_wh_1"]);
@@ -163,7 +221,11 @@ describe("warehouse export repositories", () => {
       cursor: batch.nextCursor
     });
 
-    const nextDestination = (await listWarehouseDestinations(db, { projectId: project.id, environmentId: environment.id }))[0];
+    const nextDestination = (await listWarehouseDestinations(db, {
+      projectId: project.id,
+      environmentId: environment.id,
+      secretBox: box
+    }))[0];
     const emptyBatch = await selectWarehouseExportBatch(db, nextDestination!, { now: new Date("2026-01-01T02:00:00.000Z") });
     expect(emptyBatch.rowCount).toBe(0);
 
@@ -233,7 +295,7 @@ describe("warehouse export repositories", () => {
       datasets: ["userProfiles", "tenantProfiles"],
       batchSize: 1,
       enabled: true
-    });
+    }, box);
 
     const first = await selectWarehouseExportBatch(db, destination, { now: sharedTimestamp });
     expect(first.rows.userProfiles).toEqual([
@@ -315,6 +377,48 @@ describe("warehouse export repositories", () => {
         traits: expect.objectContaining({ plan: "updated-behind-active-cursor" })
       })
     ]);
+  });
+
+  it("fails privileged warehouse reads closed without a valid encrypted secret", async () => {
+    const { project, environment } = await createScope();
+    const first = await createWarehouseDestination(db, {
+      projectId: project.id,
+      environmentId: environment.id,
+      name: "Fail closed one",
+      destinationType: "postgres",
+      connectionUrl: "postgres://synthetic-one@warehouse.invalid/db",
+      datasets: ["events"]
+    }, box);
+    const second = await createWarehouseDestination(db, {
+      projectId: project.id,
+      environmentId: environment.id,
+      name: "Fail closed two",
+      destinationType: "postgres",
+      connectionUrl: "postgres://synthetic-two@warehouse.invalid/db",
+      datasets: ["events"]
+    }, box);
+
+    await expect(listActiveWarehouseDestinations(db)).rejects.toThrow("secret_box_required");
+
+    const firstRow = await db
+      .selectFrom("warehouse_destinations")
+      .selectAll()
+      .where("id", "=", first.id)
+      .executeTakeFirstOrThrow() as { connection_url_encrypted?: string | null };
+    await sql`
+      update warehouse_destinations
+      set connection_url_encrypted = ${firstRow.connection_url_encrypted ?? null}
+      where id = ${second.id}
+    `.execute(db);
+    await expect(listActiveWarehouseDestinations(db, box)).rejects.toThrow("secret_authentication_failed");
+
+    await sql`
+      update warehouse_destinations
+      set connection_url = 'postgres://legacy.invalid/db', connection_url_encrypted = null
+      where id = ${first.id}
+    `.execute(db);
+    await sql`update warehouse_destinations set archived_at = now() where id = ${second.id}`.execute(db);
+    await expect(listActiveWarehouseDestinations(db, box)).rejects.toThrow("legacy_plaintext_secret_present");
   });
 
 });

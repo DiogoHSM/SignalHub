@@ -1,7 +1,7 @@
 import { Worker } from "bullmq";
 import { Redis } from "ioredis";
 import { sql } from "kysely";
-import { createStructuredLogger, loadConfig } from "@sigmon/config";
+import { createStructuredLogger, loadConfig, SecretBox } from "@sigmon/config";
 import { createDb } from "@sigmon/db";
 import { createTelemetryQueue } from "@sigmon/queues";
 import type { TelemetryJobPayload } from "@sigmon/queues";
@@ -99,6 +99,12 @@ import { recordFeedbackItem } from "@sigmon/db/repositories/feedback-widget.js";
 
 const logger = createStructuredLogger("worker");
 const config = loadConfig();
+const secretBox = config.dataEncryption.currentKey
+  ? new SecretBox({
+      currentKey: config.dataEncryption.currentKey,
+      previousKey: config.dataEncryption.previousKey
+    })
+  : undefined;
 // PER-449: the worker runs long-lived jobs (rollups, retention, backups, source-map cleanup) that
 // can legitimately exceed the timeout applied to the API's read pool, so it defaults to disabled
 // (DB_WORKER_STATEMENT_TIMEOUT_MS=0) and is opt-in via its own env var.
@@ -261,7 +267,7 @@ const stopAlerts = runsScheduler && config.alerts.enabled
           now: () => new Date(),
           withLock: (run) => withAlertEvaluationLock(db, run),
           listActiveRules: () => listActiveAlertRules(db),
-          getNotificationChannel: (id) => getNotificationChannel(db, id),
+          getNotificationChannel: (id) => getNotificationChannel(db, id, { includeSecret: true, secretBox }),
           evaluateRule: (rule, windowStart, windowEnd) =>
             evaluateAlertRule(db, {
               projectId: rule.projectId,
@@ -307,7 +313,7 @@ const stopMonitors = runsScheduler && config.monitors.enabled
             checkHttpMonitor({ monitor, timeoutMs: config.monitors.httpTimeoutMs }),
           recordMonitorCheck: (input) => recordMonitorCheck(db, input),
           recordAlertEvent: (input) => recordMonitorAlertEvent(db, input),
-          getNotificationChannel: (id) => getNotificationChannel(db, id),
+          getNotificationChannel: (id) => getNotificationChannel(db, id, { includeSecret: true, secretBox }),
           deliver: (channel, payload) =>
             deliverNotification({
               channel,
@@ -329,7 +335,7 @@ const stopWarehouseExports = runsScheduler && config.warehouseExports.enabled
         runWarehouseExportOnce({
           now: () => new Date(),
           withLock: (run) => withWarehouseExportLock(db, run),
-          listActiveDestinations: () => listActiveWarehouseDestinations(db),
+          listActiveDestinations: () => listActiveWarehouseDestinations(db, secretBox),
           selectBatch: (destination, input) => selectWarehouseExportBatch(db, destination, input),
           writeBatch: (input) => writePostgresWarehouseBatch(input),
           updateCursor: (input) => updateWarehouseDestinationCursor(db, input),

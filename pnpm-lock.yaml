@@ -233,6 +233,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@sigmon/config':
+        specifier: workspace:*
+        version: link:../config
       '@sigmon/telemetry':
         specifier: workspace:*
         version: link:../telemetry

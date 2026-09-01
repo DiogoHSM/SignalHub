@@ -1,4 +1,4 @@
-import { createStructuredLogger, loadConfig } from "@sigmon/config";
+import { createStructuredLogger, loadConfig, SecretBox } from "@sigmon/config";
 import { createDb } from "@sigmon/db";
 import { migrate } from "@sigmon/db/migrate.js";
 import type { ApiKeyScope } from "./routes/api-key-auth.js";
@@ -312,6 +312,12 @@ const googleUserInfoSchema = z.object({
 
 const logger = createStructuredLogger("api");
 const config = loadConfig();
+const secretBox = config.dataEncryption.currentKey
+  ? new SecretBox({
+      currentKey: config.dataEncryption.currentKey,
+      previousKey: config.dataEncryption.previousKey
+    })
+  : undefined;
 const sessionCookieName = getSessionCookieName(config.nodeEnv);
 
 // PER-449: migrations run on a short-lived, timeout-free pool. A one-time schema change (e.g. a
@@ -750,9 +756,13 @@ const app = await buildApp({
       upsert: (input) => upsertDataGovernancePolicy(db, input)
     },
     warehouseExports: {
-      listDestinations: (input) => listWarehouseDestinations(db, { ...input, includeDisabled: true }),
-      createDestination: (input) => createWarehouseDestination(db, input),
-      updateDestination: (input) => updateWarehouseDestination(db, input),
+      listDestinations: (input) => listWarehouseDestinations(db, {
+        ...input,
+        includeDisabled: true,
+        secretBox
+      }),
+      createDestination: (input) => createWarehouseDestination(db, input, secretBox!),
+      updateDestination: (input) => updateWarehouseDestination(db, input, secretBox),
       archiveDestination: (input) => archiveWarehouseDestination(db, input),
       listRuns: (input) => listWarehouseExportRuns(db, input),
       runDestination: async (input) => {
@@ -760,7 +770,8 @@ const app = await buildApp({
           id: input.destinationId,
           projectId: input.projectId,
           environmentId: input.environmentId,
-          includeSecret: true
+          includeSecret: true,
+          secretBox
         });
         if (!destination) {
           return { ran: true, skipped: false, exported: 0, failed: 1 };
@@ -896,8 +907,8 @@ const app = await buildApp({
   },
   alerts: {
     listNotificationChannels: () => listNotificationChannels(db),
-    createNotificationChannel: (input) => createNotificationChannel(db, input),
-    updateNotificationChannel: (id, input) => updateNotificationChannel(db, id, input),
+    createNotificationChannel: (input) => createNotificationChannel(db, input, secretBox),
+    updateNotificationChannel: (id, input) => updateNotificationChannel(db, id, input, secretBox),
     archiveNotificationChannel: (id) => archiveNotificationChannel(db, id),
     getNotificationChannel: (id) => getNotificationChannel(db, id),
     listAlertRules: (filters) => listAlertRules(db, filters),

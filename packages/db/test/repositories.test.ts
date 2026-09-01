@@ -1,10 +1,13 @@
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
+import { SecretBox } from "@sigmon/config";
 import { sql } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
 import { createTestDb } from "./test-db.js";
+
+const integrationSecretBox = new SecretBox({ currentKey: Buffer.alloc(32, 14).toString("base64") });
 import { compileSegmentDefinition } from "../src/repositories/analytics-segment-compiler.js";
 import {
   deleteDeadLetterJob,
@@ -109,6 +112,7 @@ import {
   createAlertRule,
   createNotificationChannel,
   evaluateAlertRule,
+  getNotificationChannel,
   isErrorGroupSilenced,
   listAlertEscalationsDue,
   listActiveAlertRules,
@@ -3588,7 +3592,7 @@ describe("repositories", () => {
         secretHeaderName: "X-Sigmon-Secret",
         secretHeaderValue: "secret-value",
         enabled: true
-      });
+      }, integrationSecretBox);
       expect(discord).toMatchObject({
         type: "discord",
         url: "https://discord.com/api/webhooks/1/token",
@@ -3621,9 +3625,14 @@ describe("repositories", () => {
         secretHeaderName: "X-SignalMonitor-Secret",
         secretHeaderValue: "secret-value",
         enabled: true
-      });
+      }, integrationSecretBox);
       expect(channel.hasSecret).toBe(true);
-      expect(channel.secretHeaderValue).toBe("secret-value");
+      expect(channel.secretHeaderValue).toBeNull();
+      const deliveryChannel = await getNotificationChannel(db, channel.id, {
+        includeSecret: true,
+        secretBox: integrationSecretBox
+      });
+      expect(deliveryChannel?.secretHeaderValue).toBe("secret-value");
 
       const rule = await createAlertRule(db, {
         projectId: project.id,
