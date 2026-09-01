@@ -3,6 +3,7 @@ import type { Selectable, Transaction } from "kysely";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
 import type { Database, UsersTable } from "../schema.js";
+import { revokeUserSessions } from "./auth-sessions.js";
 
 type UserRow = Selectable<UsersTable>;
 type UserDb = Db | Transaction<Database>;
@@ -232,7 +233,11 @@ export async function updateUserAsAdmin(
         activeAdminCount
       });
     }
-    return updateUser(trx, id, input);
+    const user = await updateUser(trx, id, input);
+    if (user && input.passwordHash !== undefined) {
+      await revokeUserSessions(trx, { userId: id, now: new Date() });
+    }
+    return user;
   });
 }
 
@@ -248,5 +253,6 @@ export async function archiveUserAsAdmin(db: Db, actorUserId: string, id: string
       activeAdminCount
     });
     await archiveUser(trx, id);
+    await revokeUserSessions(trx, { userId: id, now: new Date() });
   });
 }

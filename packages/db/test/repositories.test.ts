@@ -147,6 +147,7 @@ import {
   updateUser,
   updateUserAsAdmin
 } from "../src/repositories/users.js";
+import { createAuthSession, findActiveSessionUser } from "../src/repositories/auth-sessions.js";
 import {
   insertBreadcrumb,
   insertClickEvent,
@@ -7096,6 +7097,141 @@ describe("repositories", () => {
       await expect(archiveUserAsAdmin(db, actor.id, actor.id))
         .rejects.toMatchObject({ code: "cannot_archive_current_admin" });
       await expect(findUserById(db, actor.id)).resolves.toMatchObject({ id: actor.id, isAdmin: true });
+    });
+  });
+
+  it("revokes every session when an administrator changes a password", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const actor = await createUser(db, {
+        email: "password-session-admin@example.com",
+        passwordHash: "old-hash",
+        isAdmin: true
+      });
+      const now = new Date("2026-09-01T12:00:00.000Z");
+      await createAuthSession(db, {
+        userId: actor.id,
+        tokenHash: "password-session-hash",
+        now,
+        expiresAt: new Date("2026-09-02T12:00:00.000Z")
+      });
+
+      await expect(
+        updateUserAsAdmin(db, actor.id, actor.id, { passwordHash: "replacement-hash" })
+      ).resolves.toMatchObject({ passwordHash: "replacement-hash" });
+      await expect(
+        findActiveSessionUser(db, { tokenHash: "password-session-hash", now })
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  it("keeps sessions active for profile-only administrator updates", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const actor = await createUser(db, {
+        email: "profile-session-admin@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const now = new Date("2026-09-01T12:00:00.000Z");
+      await createAuthSession(db, {
+        userId: actor.id,
+        tokenHash: "profile-session-hash",
+        now,
+        expiresAt: new Date("2026-09-02T12:00:00.000Z")
+      });
+
+      await updateUserAsAdmin(db, actor.id, actor.id, { email: "profile-session-renamed@example.com" });
+
+      await expect(
+        findActiveSessionUser(db, { tokenHash: "profile-session-hash", now })
+      ).resolves.toMatchObject({ id: actor.id, email: "profile-session-renamed@example.com" });
+    });
+  });
+
+  it("revokes every session when an administrator archives a user", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const actor = await createUser(db, {
+        email: "archive-session-actor@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const target = await createUser(db, {
+        email: "archive-session-target@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const now = new Date("2026-09-01T12:00:00.000Z");
+      await createAuthSession(db, {
+        userId: target.id,
+        tokenHash: "archive-session-hash",
+        now,
+        expiresAt: new Date("2026-09-02T12:00:00.000Z")
+      });
+
+      await archiveUserAsAdmin(db, actor.id, target.id);
+
+      const session = await db
+        .selectFrom("auth_sessions")
+        .select("revoked_at")
+        .where("token_hash", "=", "archive-session-hash")
+        .executeTakeFirstOrThrow();
+      expect(session.revoked_at).not.toBeNull();
+    });
+  });
+
+  it("rolls back password and archive changes when session revocation fails", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const actor = await createUser(db, {
+        email: "rollback-session-actor@example.com",
+        passwordHash: "old-hash",
+        isAdmin: true
+      });
+      const target = await createUser(db, {
+        email: "rollback-session-target@example.com",
+        passwordHash: "target-hash",
+        isAdmin: true
+      });
+      const now = new Date("2026-09-01T12:00:00.000Z");
+      await createAuthSession(db, {
+        userId: actor.id,
+        tokenHash: "rollback-password-session-hash",
+        now,
+        expiresAt: new Date("2026-09-02T12:00:00.000Z")
+      });
+      await createAuthSession(db, {
+        userId: target.id,
+        tokenHash: "rollback-archive-session-hash",
+        now,
+        expiresAt: new Date("2026-09-02T12:00:00.000Z")
+      });
+      await sql`
+        create function reject_auth_session_revocation() returns trigger as $$
+        begin
+          raise exception 'session revocation failed';
+        end;
+        $$ language plpgsql
+      `.execute(db);
+      await sql`
+        create trigger reject_auth_session_revocation
+        before update of revoked_at on auth_sessions
+        for each row execute function reject_auth_session_revocation()
+      `.execute(db);
+
+      try {
+        await expect(
+          updateUserAsAdmin(db, actor.id, actor.id, { passwordHash: "replacement-hash" })
+        ).rejects.toThrow("session revocation failed");
+        await expect(findUserById(db, actor.id)).resolves.toMatchObject({ passwordHash: "old-hash" });
+
+        await expect(archiveUserAsAdmin(db, actor.id, target.id)).rejects.toThrow("session revocation failed");
+        await expect(findUserById(db, target.id)).resolves.toMatchObject({ id: target.id, archivedAt: null });
+      } finally {
+        await sql`drop trigger if exists reject_auth_session_revocation on auth_sessions`.execute(db);
+        await sql`drop function if exists reject_auth_session_revocation()`.execute(db);
+      }
     });
   });
 

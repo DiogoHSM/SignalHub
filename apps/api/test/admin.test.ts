@@ -32,6 +32,14 @@ import type {
 import type { FeedbackWidgetSettings } from "../../../packages/db/src/repositories/feedback-widget.js";
 import { AdminUserInvariantError } from "../../../packages/db/src/repositories/users.js";
 import { buildApp } from "../src/app.js";
+import {
+  authenticateOpaqueSession,
+  createOpaqueSession,
+  revokeCurrentSession,
+  type OpaqueSessionServiceDependencies
+} from "../src/auth/session-service.js";
+import { getSessionCookieOptions, type AuthDependencies } from "../src/routes/auth.js";
+import type { UserAdministrationDependencies } from "../src/routes/admin.js";
 
 let app: FastifyInstance | undefined;
 
@@ -46,6 +54,77 @@ const userAuth = {
 };
 
 const readiness = async () => ({ postgres: true, redis: true });
+
+type LifecycleUser = { id: string; email: string; isAdmin: boolean };
+
+function readSessionCookie(response: { headers: { "set-cookie"?: string | string[] | number } }): string {
+  const header = response.headers["set-cookie"];
+  const values = Array.isArray(header) ? header : typeof header === "string" ? [header] : [];
+  const session = values.find((value) => value?.startsWith("sigmon_session="));
+  if (!session) throw new Error("session cookie not set");
+  return session.split(";", 1)[0]!;
+}
+
+function createLifecycleHarness() {
+  let tokenNumber = 0;
+  const now = new Date("2026-09-01T12:00:00.000Z");
+  const users = new Map<string, LifecycleUser>([
+    ["admin@example.com", { id: "usr_1", email: "admin@example.com", isAdmin: true }],
+    ["admin-2@example.com", { id: "usr_2", email: "admin-2@example.com", isAdmin: true }]
+  ]);
+  const sessions = new Map<string, { userId: string; revoked: boolean }>();
+  const service: OpaqueSessionServiceDependencies = {
+    cookieName: "sigmon_session",
+    cookieOptions: getSessionCookieOptions("test", 3600),
+    maxAgeSeconds: 3600,
+    now: () => now,
+    generateToken: () => Buffer.alloc(32, ++tokenNumber).toString("base64url"),
+    createSession: async ({ userId, tokenHash }) => {
+      sessions.set(tokenHash, { userId, revoked: false });
+    },
+    findSessionUser: async ({ tokenHash }) => {
+      const session = sessions.get(tokenHash);
+      if (!session || session.revoked) return undefined;
+      return [...users.values()].find((user) => user.id === session.userId);
+    },
+    revokeSession: async ({ tokenHash }) => {
+      const session = sessions.get(tokenHash);
+      if (session) session.revoked = true;
+    }
+  };
+  const revokeUserSessions = (userId: string) => {
+    for (const session of sessions.values()) {
+      if (session.userId === userId) session.revoked = true;
+    }
+  };
+
+  const auth: AuthDependencies = {
+    login: async (email: string, password: string, { reply }) => {
+      const user = password === "password" ? users.get(email) : undefined;
+      if (!user) return null;
+      await createOpaqueSession(service, user.id, reply);
+      return user;
+    },
+    findSessionUser: (request) => authenticateOpaqueSession(service, request),
+    logout: (context) => revokeCurrentSession(service, context)
+  };
+  const userDependencies: UserAdministrationDependencies = {
+    updateUser: async (id: string, input: { password?: string }) => {
+      const user = [...users.values()].find((candidate) => candidate.id === id);
+      if (!user) return null;
+      if (input.password !== undefined) revokeUserSessions(id);
+      return user;
+    },
+    archiveUser: async (id: string) => {
+      revokeUserSessions(id);
+    }
+  };
+
+  return {
+    auth,
+    users: userDependencies
+  };
+}
 
 function sourceMapArtifact(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -933,6 +1012,55 @@ describe("admin routes", () => {
     expect(updateUser).toHaveBeenCalledWith("usr_2", { isAdmin: false }, { actorUserId: "usr_1" });
     expect(updateUser).toHaveBeenCalledWith("usr_3", { isAdmin: false }, { actorUserId: "usr_1" });
     expect(archiveUser).toHaveBeenCalledWith("usr_2", { actorUserId: "usr_1" });
+  });
+
+  it("rejects a copied cookie after an administrator changes its user's password", async () => {
+    const harness = createLifecycleHarness();
+    app = await buildApp({ readiness, auth: harness.auth, users: harness.users });
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "admin@example.com", password: "password" }
+    });
+    const cookie = readSessionCookie(login);
+
+    const changed = await app.inject({
+      method: "PATCH",
+      url: "/admin/users/usr_1",
+      headers: { cookie },
+      payload: { password: "replacement-password" }
+    });
+
+    expect(changed.statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/auth/me", headers: { cookie } })).statusCode).toBe(401);
+  });
+
+  it("rejects a copied cookie after an administrator archives its user", async () => {
+    const harness = createLifecycleHarness();
+    app = await buildApp({ readiness, auth: harness.auth, users: harness.users });
+    const actorLogin = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "admin@example.com", password: "password" }
+    });
+    const targetLogin = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "admin-2@example.com", password: "password" }
+    });
+    const actorCookie = readSessionCookie(actorLogin);
+    const copiedTargetCookie = readSessionCookie(targetLogin);
+
+    const archived = await app.inject({
+      method: "DELETE",
+      url: "/admin/users/usr_2",
+      headers: { cookie: actorCookie }
+    });
+
+    expect(archived.statusCode).toBe(204);
+    expect(
+      (await app.inject({ method: "GET", url: "/auth/me", headers: { cookie: copiedTargetCookie } })).statusCode
+    ).toBe(401);
   });
 
   it("rejects unsafe webhook notification-channel URLs in development", async () => {

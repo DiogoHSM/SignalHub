@@ -5,7 +5,7 @@ import { setCurrentUser, type AuthenticatedUser } from "../plugins/request-conte
 
 export type AuthUser = AuthenticatedUser;
 
-type CookieOptions = {
+export type SessionCookieOptions = {
   httpOnly?: boolean;
   sameSite?: "lax" | "none" | "strict" | boolean;
   secure?: boolean | "auto";
@@ -19,8 +19,8 @@ export type CookieCapableRequest = FastifyRequest & {
 };
 
 export type CookieCapableReply = FastifyReply & {
-  setCookie: (name: string, value: string, options?: CookieOptions) => FastifyReply;
-  clearCookie: (name: string, options?: CookieOptions) => FastifyReply;
+  setCookie: (name: string, value: string, options?: SessionCookieOptions) => FastifyReply;
+  clearCookie: (name: string, options?: SessionCookieOptions) => FastifyReply;
 };
 
 export type AuthSessionContext = {
@@ -60,7 +60,7 @@ export function getSessionCookieName(nodeEnv: string | undefined): string {
   return nodeEnv === "production" ? "__Host-sigmon_session" : "sigmon_session";
 }
 
-export function getSessionCookieOptions(nodeEnv: string | undefined, maxAge: number): CookieOptions {
+export function getSessionCookieOptions(nodeEnv: string | undefined, maxAge: number): SessionCookieOptions {
   return {
     httpOnly: true,
     sameSite: "lax",

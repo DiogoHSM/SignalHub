@@ -1,6 +1,10 @@
 import { createId } from "../../../telemetry/src/ids.js";
+import type { Transaction } from "kysely";
 import type { Db } from "../client.js";
+import type { Database } from "../schema.js";
 import type { User } from "./users.js";
+
+type AuthSessionDb = Db | Transaction<Database>;
 
 const lastSeenIntervalMs = 15 * 60 * 1000;
 
@@ -99,7 +103,7 @@ export async function revokeAuthSession(db: Db, input: RevokeAuthSessionInput): 
     .execute();
 }
 
-export async function revokeUserSessions(db: Db, input: RevokeUserSessionsInput): Promise<void> {
+export async function revokeUserSessions(db: AuthSessionDb, input: RevokeUserSessionsInput): Promise<void> {
   await db
     .updateTable("auth_sessions")
     .set({ revoked_at: input.now })
