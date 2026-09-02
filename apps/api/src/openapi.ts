@@ -173,6 +173,23 @@ const systemActionOperation = (summary: string, description: string) => ({
   }
 });
 
+const backupActionOperation = (summary: string, description: string) => ({
+  tags: ["Session authenticated"],
+  summary,
+  description,
+  security: [{ sessionCookie: [] }],
+  responses: {
+    "202": {
+      description: "Backup job accepted",
+      content: { "application/json": { schema: { $ref: "#/components/schemas/SystemBackupActionResponse" } } }
+    },
+    "401": { $ref: "#/components/responses/Unauthorized" },
+    "403": { $ref: "#/components/responses/Forbidden" },
+    "501": { $ref: "#/components/responses/Unavailable" },
+    "503": { $ref: "#/components/responses/Unavailable" }
+  }
+});
+
 export const openApiDocument = {
   openapi: "3.1.0",
   info: {
@@ -1726,11 +1743,23 @@ export const openApiDocument = {
         required: ["ok", "action", "status", "message", "generatedAt"],
         properties: {
           ok: { type: "boolean", const: true },
-          action: { type: "string", enum: ["doctor", "backup", "retention"] },
+          action: { type: "string", enum: ["doctor", "retention"] },
           status: { type: "string", enum: ["success", "skipped"] },
           message: { type: "string" },
           ran: { type: "boolean" },
           skipped: { type: "boolean" },
+          generatedAt: { type: "string", format: "date-time" }
+        }
+      },
+      SystemBackupActionResponse: {
+        type: "object",
+        required: ["ok", "action", "status", "message", "jobId", "generatedAt"],
+        properties: {
+          ok: { type: "boolean", const: true },
+          action: { type: "string", const: "backup" },
+          status: { type: "string", const: "accepted" },
+          message: { type: "string", const: "Backup queued." },
+          jobId: { type: "string" },
           generatedAt: { type: "string", format: "date-time" }
         }
       },
@@ -6022,9 +6051,9 @@ export const openApiDocument = {
       )
     },
     "/system/actions/backup": {
-      post: systemActionOperation(
+      post: backupActionOperation(
         "Trigger manual backup",
-        "Admin-only action that runs the same backup workflow used by the scheduler, guarded by the backup advisory lock."
+        "Admin-only action that queues the same backup workflow used by the scheduler. The worker runs it asynchronously under the backup advisory lock."
       )
     },
     "/system/actions/retention": {

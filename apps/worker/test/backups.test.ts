@@ -1254,6 +1254,7 @@ describe("runBackupOnce", () => {
         runBackupOnce({
           now: () => new Date("2026-05-06T12:00:00.000Z"),
           trigger: "manual",
+          throwOnFailure: true,
           config: {
             enabled: true,
             intervalHours: 24,
@@ -1268,7 +1269,7 @@ describe("runBackupOnce", () => {
           },
           recordBackupRun
         })
-      ).resolves.toEqual({ ran: true, skipped: false });
+      ).rejects.toThrow("backup_failed");
 
       expect(recordBackupRun).toHaveBeenCalledWith(
         expect.objectContaining({

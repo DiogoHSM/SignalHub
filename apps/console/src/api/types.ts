@@ -2605,11 +2605,20 @@ export type SystemHealthSampleResponse = {
 
 export type SystemActionResponse = {
   ok: true;
-  action: "doctor" | "backup" | "retention";
+  action: "doctor" | "retention";
   status: "success" | "skipped";
   message: string;
   ran?: boolean;
   skipped?: boolean;
+  generatedAt: string;
+};
+
+export type SystemBackupActionResponse = {
+  ok: true;
+  action: "backup";
+  status: "accepted";
+  message: string;
+  jobId: string;
   generatedAt: string;
 };
 

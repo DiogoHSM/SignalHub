@@ -118,6 +118,17 @@ describe("API docs", () => {
     expect(spec.paths["/v1/identify/tenant"].post.security).toEqual([{ ingestionApiKey: [] }]);
     expect(Object.keys(spec.paths["/v1/identify/user"].post.responses)).toEqual(["202", "400", "401", "503"]);
     expect(Object.keys(spec.paths["/v1/identify/tenant"].post.responses)).toEqual(["202", "400", "401", "503"]);
+    expect(Object.keys(spec.paths["/system/actions/backup"].post.responses)).toEqual(["202", "401", "403", "501", "503"]);
+    expect(spec.paths["/system/actions/backup"].post.description).toContain("queues");
+    expect(spec.components.schemas.SystemBackupActionResponse).toMatchObject({
+      required: ["ok", "action", "status", "message", "jobId", "generatedAt"],
+      properties: {
+        action: { const: "backup" },
+        status: { const: "accepted" },
+        message: { const: "Backup queued." }
+      }
+    });
+    expect(spec.components.schemas.SystemActionResponse.properties.action.enum).toEqual(["doctor", "retention"]);
     expect(spec.paths["/v1/heartbeats/{id}"].post.security).toEqual([{ heartbeatSecret: [] }]);
     expect(spec.paths["/v1/source-maps"].post.security).toEqual([{ sourceMapUploadToken: [] }]);
     expect(spec.paths["/admin/dead-letter-jobs"].get.security).toEqual([{ sessionCookie: [] }]);

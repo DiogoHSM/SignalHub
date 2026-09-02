@@ -89,6 +89,7 @@ import {
   recordSystemHealthSample
 } from "@sigmon/db/repositories/system-health-samples.js";
 import { collectHealthSample, runHealthSampleOnce, startHealthSampleScheduler } from "./system-health-samples.js";
+import { createMaintenanceWorkerForRole } from "./maintenance-worker.js";
 import {
   runWarehouseExportOnce,
   startWarehouseExportScheduler,
@@ -364,20 +365,32 @@ const backupConfig = {
   s3: config.backups.s3
 };
 
+function runBackup(trigger: "scheduled" | "manual", throwOnFailure = false) {
+  return runBackupOnce({
+    now: () => new Date(),
+    trigger,
+    throwOnFailure,
+    config: backupConfig,
+    outboundPolicy,
+    withLock: (run) => withBackupLock(db, run),
+    recordBackupRun: (input) => recordBackupRun(db, input)
+  });
+}
+
 const stopBackups = runsScheduler && config.backups.enabled
   ? startBackupScheduler({
       intervalHours: config.backups.intervalHours,
-      runOnce: () =>
-        runBackupOnce({
-          now: () => new Date(),
-          trigger: "scheduled",
-          config: backupConfig,
-          outboundPolicy,
-          withLock: (run) => withBackupLock(db, run),
-          recordBackupRun: (input) => recordBackupRun(db, input)
-        })
+      runOnce: () => runBackup("scheduled")
     })
   : async () => {};
+
+const maintenanceWorker = createMaintenanceWorkerForRole({
+  role: config.worker.role,
+  redisUrl: config.redisUrl,
+  backupsEnabled: config.backups.enabled,
+  runBackupOnce: ({ trigger, throwOnFailure }) => runBackup(trigger, throwOnFailure),
+  onError: (error) => logger.error({ error }, "Maintenance worker error")
+});
 
 const healthSampleConnection =
   runsScheduler && config.systemHealthHistory.enabled
@@ -463,6 +476,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
       { name: "stopEventRollups", run: () => stopEventRollups() },
       { name: "stopSchedulerHeartbeat", run: () => stopSchedulerHeartbeat() },
       { name: "stopWorkerHeartbeat", run: () => stopWorkerHeartbeat() },
+      { name: "maintenanceWorker.close", run: () => maintenanceWorker?.close() ?? Promise.resolve() },
       { name: "worker.close", run: () => worker?.close() ?? Promise.resolve() },
       { name: "healthSampleQueue.close", run: () => healthSampleQueue?.close() ?? Promise.resolve() },
       { name: "healthSampleConnection.quit", run: () => healthSampleConnection?.quit() ?? Promise.resolve() },

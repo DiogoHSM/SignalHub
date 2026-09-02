@@ -117,6 +117,7 @@ import type {
   SurveyResultsQuery,
   SurveyResultsResponse,
   SystemActionResponse,
+  SystemBackupActionResponse,
   SystemHealthResponse,
   SystemHealthSampleResponse,
   TenantDetailQuery,
@@ -547,7 +548,7 @@ export type ApiClient = {
   getSystemHealth: () => Promise<AggregateResponse<SystemHealthResponse>>;
   getSystemHealthHistory: (params?: { limit?: number }) => Promise<AggregateResponse<SystemHealthSampleResponse[]>>;
   runSystemDoctor?: () => Promise<SystemActionResponse>;
-  runSystemBackup?: () => Promise<SystemActionResponse>;
+  runSystemBackup?: () => Promise<SystemBackupActionResponse>;
   runSystemRetention?: () => Promise<SystemActionResponse>;
   listEntityTenants: (query: TenantListQuery) => Promise<AggregateResponse<TenantListResponse>>;
   getEntityTenantDetail: (tenantId: string, query: TenantDetailQuery) => Promise<AggregateResponse<TenantDetailResponse>>;
@@ -1852,7 +1853,7 @@ export function createApiClient(
     runSystemDoctor: () =>
       request<SystemActionResponse>(path(apiBasePath, "/system/actions/doctor"), { method: "POST" }),
     runSystemBackup: () =>
-      request<SystemActionResponse>(path(apiBasePath, "/system/actions/backup"), { method: "POST" }),
+      request<SystemBackupActionResponse>(path(apiBasePath, "/system/actions/backup"), { method: "POST" }),
     runSystemRetention: () =>
       request<SystemActionResponse>(path(apiBasePath, "/system/actions/retention"), { method: "POST" }),
     listEntityTenants: (query) =>

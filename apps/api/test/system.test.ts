@@ -215,13 +215,17 @@ describe("system health routes", () => {
     expect(response.json()).toEqual({ error: "system_backup_unavailable" });
   });
 
-  it("runs system actions for admins", async () => {
+  it("runs synchronous system actions for admins and accepts a manual backup asynchronously", async () => {
+    const enqueued: Array<{ requestedBy: string; requestedAt: string }> = [];
     app = await buildApp({
       readiness: async () => ({ postgres: true, redis: true }),
       auth,
       system: {
         runDoctor: async () => ({ status: "success", message: "Doctor completed: system is operational." }),
-        runBackup: async () => ({ status: "skipped", message: "Backup skipped because another backup is active.", ran: false, skipped: true }),
+        enqueueBackup: async (input) => {
+          enqueued.push(input);
+          return { jobId: "backup-create-20260901T1234Z" };
+        },
         runRetention: async () => ({ status: "success", message: "Retention completed.", ran: true, skipped: false })
       }
     });
@@ -237,14 +241,16 @@ describe("system health routes", () => {
     expect(doctor.json().generatedAt).toEqual(expect.any(String));
 
     const backup = await app.inject({ method: "POST", url: "/system/actions/backup" });
-    expect(backup.statusCode).toBe(200);
-    expect(backup.json()).toMatchObject({
+    expect(backup.statusCode).toBe(202);
+    expect(backup.json()).toEqual({
       ok: true,
       action: "backup",
-      status: "skipped",
-      ran: false,
-      skipped: true
+      status: "accepted",
+      message: "Backup queued.",
+      jobId: "backup-create-20260901T1234Z",
+      generatedAt: expect.any(String)
     });
+    expect(enqueued).toEqual([{ requestedBy: "usr_1", requestedAt: backup.json().generatedAt }]);
 
     const retention = await app.inject({ method: "POST", url: "/system/actions/retention" });
     expect(retention.statusCode).toBe(200);
@@ -255,6 +261,22 @@ describe("system health routes", () => {
       ran: true,
       skipped: false
     });
+  });
+
+  it("returns a stable 503 when a manual backup cannot be enqueued", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      auth,
+      system: {
+        enqueueBackup: async () => {
+          throw new Error("Redis password=secret is unavailable");
+        }
+      }
+    });
+
+    const response = await app.inject({ method: "POST", url: "/system/actions/backup" });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "system_backup_failed" });
   });
 
   it("returns unavailable when system actions fail", async () => {

@@ -137,7 +137,7 @@ import {
   findActiveSessionUser,
   revokeAuthSession
 } from "@sigmon/db/repositories/auth-sessions.js";
-import { getBackupStatus, recordBackupRun, withBackupLock } from "@sigmon/db/repositories/backups.js";
+import { getBackupStatus } from "@sigmon/db/repositories/backups.js";
 import {
   deleteExpiredTelemetry,
   getHeartbeat,
@@ -250,7 +250,13 @@ import { getEntityTenantDetail, listEntityTenants } from "@sigmon/db/repositorie
 import { identifyTenantProfile, identifyUserProfile } from "@sigmon/db/repositories/identity-profiles.js";
 import { getFleetRollup, getProjectFleetEnvironments } from "@sigmon/db/repositories/fleet-query.js";
 import { getUserDetail, listUsersActivity } from "@sigmon/db/repositories/users-query.js";
-import { createTelemetryQueue, enqueueTelemetryJob, replayTelemetryJob } from "@sigmon/queues";
+import {
+  createMaintenanceQueue,
+  createTelemetryQueue,
+  enqueueBackupCreation,
+  enqueueTelemetryJob,
+  replayTelemetryJob
+} from "@sigmon/queues";
 import { createAuthLoginTelemetry, hashPassword, verifyPassword } from "@sigmon/telemetry/auth";
 import { verifyApiKey } from "@sigmon/telemetry/api-keys";
 import { createId } from "@sigmon/telemetry/ids";
@@ -278,7 +284,6 @@ import { resolveErrorStackWithSourceMaps } from "./source-maps/resolver.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
 import { listenWithCleanup, runShutdownSteps, runSignalShutdown } from "./runtime.js";
 import { fetchWithTimeoutAndRetry } from "./fetch-retry.js";
-import { runBackupOnce } from "../../worker/src/backups.js";
 import { runWarehouseExportOnce, writePostgresWarehouseBatch } from "../../worker/src/warehouse-exports.js";
 import { runRetentionOnce } from "../../worker/src/retention.js";
 import { deleteExpiredSourceMapArtifacts } from "../../worker/src/source-map-retention.js";
@@ -346,6 +351,8 @@ const authQuotaRedis = createAuthQuotaRedis(config.redisUrl, {
   onError: (error) => logger.warn({ err: error }, "Auth quota Redis unavailable")
 });
 const telemetryQueue = createTelemetryQueue(config.redisUrl);
+const maintenanceQueue = createMaintenanceQueue(config.redisUrl);
+maintenanceQueue.on("error", (error) => logger.warn({ error }, "Maintenance queue unavailable"));
 const retentionPolicy = {
   eventsDays: config.retention.eventsDays,
   errorsDays: config.retention.errorsDays,
@@ -585,26 +592,6 @@ function runManualRetention() {
   }).then((result) => ({
     status: result.skipped ? ("skipped" as const) : ("success" as const),
     message: result.skipped ? "Retention skipped because another run is active." : "Retention completed.",
-    ran: result.ran,
-    skipped: result.skipped
-  }));
-}
-
-function runManualBackup() {
-  return runBackupOnce({
-    now: () => new Date(),
-    trigger: "manual",
-    config: {
-      ...config.backups,
-      enabled: true,
-      databaseUrl: config.databaseUrl
-    },
-    outboundPolicy,
-    withLock: (run) => withBackupLock(db, run),
-    recordBackupRun: (input) => recordBackupRun(db, input)
-  }).then((result) => ({
-    status: result.skipped ? ("skipped" as const) : ("success" as const),
-    message: result.skipped ? "Backup skipped because another backup is active." : "Backup completed.",
     ran: result.ran,
     skipped: result.skipped
   }));
@@ -921,7 +908,11 @@ const app = await buildApp({
         }))
       ),
     runDoctor: runSystemDoctor,
-    runBackup: runManualBackup,
+    enqueueBackup: (payload) =>
+      enqueueBackupCreation(maintenanceQueue, { kind: "backup.create", ...payload }).then((job) => {
+        if (!job.id) throw new Error("maintenance_queue_invalid_job");
+        return { jobId: job.id };
+      }),
     runRetention: runManualRetention
   },
   alerts: {
@@ -1089,6 +1080,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   await runShutdownSteps(
     [
       { name: "app.close", run: () => app.close() },
+      { name: "maintenanceQueue.close", run: () => maintenanceQueue.close() },
       { name: "telemetryQueue.close", run: () => telemetryQueue.close() },
       { name: "authQuotaRedis.close", run: () => authQuotaRedis.close() },
       { name: "rateLimitRedis.close", run: () => closeRateLimitRedis(rateLimitRedis) },

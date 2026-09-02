@@ -84,6 +84,7 @@ export type UploadBackupInput = {
 export type RunBackupOnceInput = {
   now: () => Date;
   trigger: BackupTrigger;
+  throwOnFailure?: boolean;
   config: BackupRuntimeConfig;
   withLock: <T>(run: () => Promise<T>) => Promise<{ locked: false } | { locked: true; result: T }>;
   dumpDatabase?: (input: DumpDatabaseInput) => Promise<void>;
@@ -468,6 +469,10 @@ export async function runBackupOnce(runtime: RunBackupOnceInput): Promise<{ ran:
       s3Key: null,
       errorMessage: sanitizeBackupError(error)
     });
+
+    if (runtime.throwOnFailure) {
+      throw new Error("backup_failed");
+    }
 
     return { ran: true, skipped: false };
   }

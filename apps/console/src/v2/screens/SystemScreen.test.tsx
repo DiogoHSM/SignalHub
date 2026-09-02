@@ -16,7 +16,7 @@ function makeCtx(over: Partial<ScreenCtx> = {}): ScreenCtx {
   return {
     client: {
       runSystemDoctor: vi.fn().mockResolvedValue({ message: "Doctor completed: system is operational." }),
-      runSystemBackup: vi.fn().mockResolvedValue({ message: "Backup completed." }),
+      runSystemBackup: vi.fn().mockResolvedValue({ message: "Backup queued." }),
       runSystemRetention: vi.fn().mockResolvedValue({ message: "Retention completed." }),
     } as never,
     project: undefined,
@@ -221,7 +221,7 @@ describe("SystemScreen", () => {
     await userEvent.click(btn); // arms
     await userEvent.click(screen.getByRole("button", { name: /Confirm/i })); // confirms
     expect(ctx.client.runSystemBackup).toHaveBeenCalled();
-    expect(ctx.pushToast).toHaveBeenCalledWith("Backup completed.");
+    expect(ctx.pushToast).toHaveBeenCalledWith("Backup queued.");
     expect(reload).toHaveBeenCalled();
   });
 
