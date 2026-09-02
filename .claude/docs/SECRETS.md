@@ -94,7 +94,7 @@ Operational rules:
 - Coolify deploy webhook URLs can trigger production deploys. They are called manually by the operator; store them only in the uncommitted root `SECRETS.md`, never in committed files, GitHub Actions secrets, or shared shell history.
 - SDK publishing uses npm Trusted Publishing through GitHub Actions OIDC. Do not create or store a long-lived npm publish token for the SDK workflow.
 - Source-map upload tokens are separate from ingestion API keys. They should be stored only in CI secret storage and never shipped to browser clients.
-- Webhook notification channel secret header values are write-only. The API and console only expose whether a secret is saved; saved values are redacted.
+- Generic, Slack, and Discord notification delivery URLs are write-only credentials, as are optional webhook secret-header values. The API and console expose only configured flags and persisted redacted URL previews; saved values and ciphertext are never returned.
 - Source-map settings are not secrets. Uploaded source maps may contain sensitive source paths or embedded `sourcesContent`; SignalMonitor stores them locally and the console displays resolved frame metadata only, not source content.
 - Source-map retention deletes local source-map files, artifact metadata, and cached stack resolutions. It does not configure object-storage lifecycle policies.
 - `RETENTION_BREADCRUMBS_DAYS` is not a secret. Breadcrumb payloads can still contain sensitive application data if callers misuse the API, so SDK/browser helpers sanitize aggressively and documentation forbids secrets, form values, bodies, cookies, and headers.

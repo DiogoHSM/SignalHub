@@ -297,6 +297,9 @@ export async function deliverWebhook(input: {
   retryDelayMs?: number;
   sleepFn?: (ms: number) => Promise<void>;
 }): Promise<DeliveryResult> {
+  if (input.channel.url === null) {
+    return { status: "failed", responseStatus: null, errorMessage: "Webhook URL unavailable" };
+  }
   let url: URL;
   try {
     url = validateWebhookTarget(input.channel.url, input.nodeEnv);

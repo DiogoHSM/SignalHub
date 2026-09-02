@@ -585,12 +585,23 @@ describe("admin alert routes", () => {
     expect(response.body).not.toContain("verysecrettoken");
   });
 
-  it("keeps the full url for generic webhook channels in list responses (out of scope for masking)", async () => {
+  it("masks generic webhook URLs and strips repository secret fields from list responses", async () => {
     app = await buildApp({
       readiness,
       auth: adminAuth,
       alerts: {
-        listNotificationChannels: async () => [notificationChannel({ id: "chn_webhook", type: "webhook" })]
+        listNotificationChannels: async () => [{
+          ...notificationChannel({
+            id: "chn_webhook",
+            type: "webhook",
+            url: "https://hooks.example.com/synthetic-token"
+          }),
+          urlEncrypted: "v1.synthetic-url-envelope",
+          secretHeaderValueEncrypted: "v1.synthetic-header-envelope",
+          url_encrypted: "v1.synthetic-legacy-url-envelope",
+          secret_header_value: "synthetic-legacy-header-token",
+          secret_header_value_encrypted: "v1.synthetic-legacy-header-envelope"
+        }]
       }
     });
 
@@ -599,10 +610,19 @@ describe("admin alert routes", () => {
     expect(response.json().channels[0]).toMatchObject({
       id: "chn_webhook",
       type: "webhook",
-      url: "https://hooks.example.com/sigmon"
+      url: null,
+      hasUrl: true
     });
-    expect(response.json().channels[0].urlPreview).toBeUndefined();
-    expect(response.json().channels[0].hasUrl).toBeUndefined();
+    expect(response.json().channels[0].urlPreview).toBe("https://hooks.example.com/…");
+    expect(response.json().channels[0]).not.toHaveProperty("urlEncrypted");
+    expect(response.json().channels[0]).not.toHaveProperty("secretHeaderValueEncrypted");
+    expect(response.json().channels[0]).not.toHaveProperty("url_encrypted");
+    expect(response.json().channels[0]).not.toHaveProperty("secret_header_value");
+    expect(response.json().channels[0]).not.toHaveProperty("secret_header_value_encrypted");
+    expect(response.body).not.toContain("synthetic-token");
+    expect(response.body).not.toContain("synthetic-url-envelope");
+    expect(response.body).not.toContain("synthetic-header-envelope");
+    expect(response.body).not.toContain("synthetic-legacy-header-token");
   });
 
   it("preserves the existing Slack webhook url when updating a channel without a url field", async () => {

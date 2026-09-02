@@ -3561,7 +3561,7 @@ describe("repositories", () => {
         type: "webhook",
         url: "https://hooks.example.com/sigmon",
         enabled: true
-      });
+      }, integrationSecretBox);
       await expect(updateNotificationChannel(db, webhook.id, { url: null })).rejects.toThrow(
         "webhook_url_required"
       );
@@ -3577,10 +3577,12 @@ describe("repositories", () => {
         type: "slack",
         url: "https://hooks.slack.com/services/T0/xyz",
         enabled: true
-      });
+      }, integrationSecretBox);
       expect(slack).toMatchObject({
         type: "slack",
-        url: "https://hooks.slack.com/services/T0/xyz",
+        url: null,
+        hasUrl: true,
+        urlPreview: "https://hooks.slack.com/service…",
         emailRecipients: [],
         hasSecret: false
       });
@@ -3595,9 +3597,16 @@ describe("repositories", () => {
       }, integrationSecretBox);
       expect(discord).toMatchObject({
         type: "discord",
-        url: "https://discord.com/api/webhooks/1/token",
+        url: null,
+        hasUrl: true,
+        urlPreview: "https://discord.com/api/web…",
         hasSecret: true
       });
+
+      await expect(getNotificationChannel(db, slack.id, {
+        includeSecret: true,
+        secretBox: integrationSecretBox
+      })).resolves.toMatchObject({ url: "https://hooks.slack.com/services/T0/xyz" });
 
       await expect(updateNotificationChannel(db, slack.id, { url: null })).rejects.toThrow(
         "webhook_url_required"
@@ -3606,8 +3615,13 @@ describe("repositories", () => {
       const retyped = await updateNotificationChannel(db, slack.id, {
         type: "discord",
         url: "https://discord.com/api/webhooks/2/other"
+      }, integrationSecretBox);
+      expect(retyped).toMatchObject({
+        type: "discord",
+        url: null,
+        hasUrl: true,
+        urlPreview: "https://discord.com/api/web…"
       });
-      expect(retyped).toMatchObject({ type: "discord", url: "https://discord.com/api/webhooks/2/other" });
     });
   });
 

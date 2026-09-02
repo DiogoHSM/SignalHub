@@ -49,9 +49,8 @@ export type ChannelRowVM = {
   target: string;
   ok: boolean;
   type: WebhookLikeChannelType | "email";
-  // Full url is only ever populated for generic webhook channels. For slack/discord
-  // the url IS the credential, so the API never returns it — hasUrl/urlPreview
-  // stand in for it, mirroring the secretHeaderName/hasSecret contract below.
+  // Webhook URLs are write-only credentials. The API returns only hasUrl/urlPreview,
+  // mirroring the secretHeaderName/hasSecret contract below.
   url: string | null;
   hasUrl: boolean;
   urlPreview: string | null;
@@ -254,34 +253,17 @@ export function buildAlertsVM(input: AlertsInput, nowMs: number): AlertsVM {
       };
     }
 
-    if (c.type === "slack" || c.type === "discord") {
-      const urlPreview = c.urlPreview ?? null;
-      return {
-        id: c.id,
-        name: c.name,
-        icon: c.type,
-        target: urlPreview ?? "•••• configured",
-        ok: c.enabled,
-        type: c.type,
-        url: null,
-        hasUrl: c.hasUrl,
-        urlPreview,
-        emailRecipients: [],
-        secretHeaderName: c.secretHeaderName,
-        hasSecret: c.hasSecret,
-      };
-    }
-
+    const urlPreview = c.urlPreview ?? null;
     return {
       id: c.id,
       name: c.name,
       icon: c.type,
-      target: c.url,
+      target: urlPreview ?? "•••• configured",
       ok: c.enabled,
       type: c.type,
-      url: c.url,
-      hasUrl: true,
-      urlPreview: null,
+      url: null,
+      hasUrl: c.hasUrl,
+      urlPreview,
       emailRecipients: [],
       secretHeaderName: c.secretHeaderName,
       hasSecret: c.hasSecret,

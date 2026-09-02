@@ -111,14 +111,14 @@ describe("auth session repository", () => {
     await expect(findActiveSessionUser(db, { tokenHash: secondTokenHash, now })).resolves.toBeUndefined();
   });
 
-  it("prunes expired sessions without removing active sessions", async () => {
+  it("prunes sessions expiring exactly now without removing active sessions", async () => {
     const user = await createUserFixture();
     const expiredTokenHash = "0".repeat(64);
     const activeTokenHash = "1".repeat(64);
     await createAuthSession(db, {
       userId: user.id,
       tokenHash: expiredTokenHash,
-      expiresAt: new Date(now.getTime() - 1),
+      expiresAt: now,
       now
     });
     await createAuthSession(db, { userId: user.id, tokenHash: activeTokenHash, expiresAt: future, now });

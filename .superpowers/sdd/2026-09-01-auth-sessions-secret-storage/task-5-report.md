@@ -2,82 +2,79 @@
 
 ## Status and commits
 
-- Status: review round 1 implemented; all scoped security, regression, migration, CLI, and exact owning-package build gates pass.
+- Status: final whole-plan review fix implemented; all focused security gates, the constrained full suite, and exact owning-package builds pass.
 - Original Task 5 commit: `5878811` (`fix(security): encrypt privileged integration credentials`).
-- Review fix: this commit (`fix(security): isolate integration secret boundaries`).
-- The inherited Task 3 build repair in `b2830a8` is preserved unchanged.
+- Review round 1 commit: `388ebea` (`fix(security): isolate integration secret boundaries`).
+- Final review fix: this commit (`fix(security): encrypt notification delivery urls`).
+- The inherited Task 3 build repair in `b2830a8` and completed Tasks 1–6 are preserved.
 - No push, merge, publish, Linear update, worktree removal, or unrelated cleanup was performed.
 
 ## Security boundary
 
-- Warehouse create and secret-changing update operations encrypt before persistence and save a redacted preview alongside the ciphertext.
-- Ordinary warehouse create/list/non-secret-update mapping never decrypts stored credentials. It needs no `SecretBox` to return metadata, remains usable for unknown-key or malformed ciphertext, and returns neither plaintext nor ciphertext.
-- API list/create/update routes defensively strip both plaintext and ciphertext-shaped properties before serialization.
-- Only explicit privileged execution reads decrypt warehouse credentials; they retain exact table/row/field AAD and fail closed.
-- The migration candidate scan reads IDs only. Every row is reloaded with `SELECT ... FOR UPDATE`; legacy/current/previous-key classification, decrypt/authenticate, encrypt/verify, preview derivation, persistence, and plaintext clearing occur in that same transaction.
-- The migration CLI imports `loadConfig` and `SecretBox` only from the public `@sigmon/config` entrypoint. The root declares the workspace dependency, and the config package exports its public entrypoint.
+- Every generic webhook, Slack, and Discord delivery URL is encrypted before persistence with exact AAD `{ table: "notification_channels", rowId, field: "url" }`. The optional secret header retains its separate field-bound AAD.
+- Active notification rows store URL/header ciphertext, null plaintext credential columns, and only a masked URL preview. Create and secret-changing update write those fields atomically.
+- Ordinary repository, admin API, and console paths never decrypt and do not require a `SecretBox`. They expose only `hasUrl` and the masked preview, defensively remove plaintext/ciphertext-shaped fields, and remain usable when ciphertext is malformed, uses an unknown key, or has wrong AAD.
+- Only explicit worker delivery reads request decrypted URL/header values. Missing boxes, legacy plaintext, tamper, wrong AAD, and unknown keys fail closed before an outbound request.
+- Backups contain encrypted envelopes but omit raw URL/header credentials. Changed production files do not log credential values.
 
 ## TDD evidence
 
-### Control-plane RED/GREEN
+### Final review RED
 
 Command:
 
-`pnpm vitest run packages/db/test/warehouse-exports.test.ts apps/api/test/admin.test.ts -t "keeps ordinary control-plane paths|manages warehouse export destinations"`
+`pnpm vitest run packages/db/test/alert-evaluation.test.ts apps/api/test/alerts.test.ts scripts/migrate-integration-secrets.test.ts apps/worker/test/backups.test.ts packages/db/test/auth-sessions.test.ts`
 
-- RED: repository create attempted a decrypt during ordinary DTO construction and threw the synthetic `ordinary_path_must_not_decrypt` guard; the API route serialized synthetic plaintext/ciphertext properties.
-- GREEN: 2/2 focused tests passed after persisting previews, separating ordinary and privileged mapping, and adding route-level defensive serialization.
-- The final repository case also proves ordinary list and non-secret update tolerate unknown-key and malformed ciphertext without a decrypt call.
+- RED: 7 failed and 92 passed before production changes.
+- Failures proved generic webhook API responses exposed raw URLs, active rows retained URL plaintext, migration lacked the encrypted URL column and atomic two-field handling, backups contained raw notification credentials, and repository delivery boundaries did not meet the encrypted-URL contract.
+- The exact session equality fixture already passed because production SQL correctly uses the inclusive expiry boundary; the test now locks that behavior directly.
+- Self-review found that a generic-webhook preview could reveal the first characters of an arbitrary credential path. A second focused RED produced 2/2 expected failures; GREEN passed 2/2 after generic previews became origin-only while the established Slack/Discord provider-safe masks remained unchanged.
 
-### Migration RED/GREEN
+### Final review GREEN
 
-Command:
+- Core focused rerun: 99/99 passed.
+- Required Task 5 gate: 5 files, 66/66 passed.
+- API notification/admin wiring: 2 files, 128/128 passed.
+- Worker delivery: 85/85 passed.
+- Console client/hooks/monitor fixtures: 120/120 passed.
+- Updated security and Tasks 1–4 regression gate: 15 files, 603/603 passed.
+- Constrained full suite: 188 files, 2,868/2,868 passed.
 
-`pnpm vitest run scripts/migrate-integration-secrets.test.ts`
-
-- RED: the prior migration contract classified full secret rows outside the transaction and failed the new ID-candidate/locked-row processor tests (including deterministic batching and interruption behavior).
-- GREEN: 9/9 passed after moving all row decisions into the transactional processor.
-- Database-backed cases deterministically change a selected candidate to legacy plaintext, previous-key ciphertext, or current-key ciphertext before row locking and prove the locked state controls the outcome. Authentication and write-trigger failures prove rollback preserves the stored row.
-
-### Public-entrypoint RED/GREEN
-
-- RED: `pnpm exec tsx -e "import('@sigmon/config')..."` failed with `ERR_MODULE_NOT_FOUND` before the root dependency/public export was added.
-- GREEN: the same import printed only `public_config_entrypoint_loaded`.
+The tests prove ordinary paths make no decrypt call, serialize neither plaintext nor ciphertext, and remain available with tampered data. Privileged delivery receives the decrypted value only at the request boundary. Migration tests deterministically reclassify locked legacy/current/previous-key states, cover restart/count semantics, and prove a failed write rolls back both URL and header changes. The backup regression performs a real PostgreSQL dump and confirms synthetic raw credentials are absent.
 
 ## Fresh verification
 
-- Required Task 5 gate: 5 files, 62/62 passed.
-- Focused API wiring: 2 files, 128/128 passed.
-- Tasks 1–4 regression set: 8 files, 199/199 passed.
-- Migration registry subset: 8 passed, 249 skipped by the `migrations` filter.
+- Migration registry: the idempotent migration test passed (1 passed, 256 skipped by filter); `0050` remains registered immediately after `0049`.
 - Exact builds passed without workaround flags:
   - `pnpm --filter @sigmon/config build`
   - `pnpm --filter @sigmon/db build`
   - `pnpm --filter @sigmon/api build`
   - `pnpm --filter @sigmon/worker build`
-- CLI safe-failure smoke returned only the fixed application error payload `secret_migration_kind_invalid` (plus package-manager lifecycle framing) and exited 1.
+  - `pnpm --filter @sigmon/console build` (1,682 modules transformed)
+- CLI validation smoke exited nonzero and emitted only the fixed safe error code for an invalid kind.
 - `git diff --check` passed.
+- Credential-log and non-test serializer searches found no production leak path; API ciphertext-name occurrences are the defensive destructuring denylist.
+- Generic webhook previews now expose only the origin plus a mask; no arbitrary path prefix is persisted or serialized.
 
 ## Migration and rollback notes
 
-- Migration `0050_encrypted_integration_secrets.sql` remains registered immediately after `0049_auth_sessions.sql`; it adds the encrypted secret columns plus the non-secret warehouse preview column and makes the legacy warehouse plaintext nullable.
+- Unreleased additive migration `0050_encrypted_integration_secrets.sql` adds notification URL ciphertext and masked-preview columns alongside the existing encrypted header column, while retaining the staged legacy plaintext shape needed before data migration.
 - Run `pnpm secrets:migrate --kind all --batch-size 100` with the current data-encryption key configured. Batch size accepts 1–1000.
-- The command scans candidate IDs in stable order. Each candidate is then locked and freshly classified in its own transaction. Newly encrypted/rewrapped values are decrypt-verified before the atomic ciphertext write and plaintext clear.
-- Safe restart: rerun after interruption. Current-key rows are authenticated and revalidated under lock; previous-key rows rotate; legacy rows migrate.
+- The candidate scan reads IDs only. Each row is reloaded with `SELECT ... FOR UPDATE`; URL and optional header are classified from that locked state, legacy/current/previous ciphertext is authenticated, every new ciphertext is decrypt-verified, and both fields are written/cleared atomically in the same transaction.
+- Notification counts are row counts: a row with any legacy field counts once as migrated; otherwise any previous-key field counts once as rotated; an all-current/empty-optional row counts zero. Reruns are safe and current-key skips are revalidated under lock.
 - Keep the previous key configured until a subsequent run reports zero rotations.
-- There is no automatic down migration. Retain encryption keys. Application rollback requires either restoring a pre-migration backup or an explicitly reviewed reverse data migration before reverting to plaintext-only readers.
+- There is no automatic down migration. Retain encryption keys. Application rollback requires either restoring a protected pre-migration backup or an explicitly reviewed reverse data migration before reverting to plaintext-only readers.
 
 ## Self-review and concerns
 
-- Traced ordinary and privileged repository callers and API serialization boundaries.
-- Challenged no-box, malformed/unknown-key ciphertext, legacy/current/previous state changes, wrong authentication, interrupted batches, and failed writes using synthetic fixtures only.
-- Confirmed the lockfile diff is limited to the root `@sigmon/config` workspace dependency.
-- Confirmed no secret or ciphertext values are logged by the implementation or migration command.
-- No unresolved Task 5 concern remains. The planned worker warehouse test intentionally writes one expected synthetic error stack to stderr while asserting failure-history behavior; the suite passes.
+- Traced repository create/list/update/privileged reads, API serialization, console preview handling, worker delivery, migration/rotation, and backup/export boundaries.
+- Challenged no-box, legacy plaintext, malformed/tampered/unknown-key/wrong-AAD ciphertext, concurrent legacy/current/previous changes, interrupted reruns, and failed writes using synthetic fixtures only.
+- Canonical design, implementation plan, README, self-hosting runbook, and secret-handling guide now document encryption/migration/rotation for both delivery URLs and optional secret headers, including row-count semantics.
+- No unresolved Task 5 security concern remains.
 
 ## Docker
 
-- All Task 5 Testcontainers resources stopped and were removed automatically.
+- All Testcontainers resources created by the verification run stopped and were removed automatically.
 - No dangling images were present.
-- Existing Pinima containers/images and its stopped seed container were preserved as unrelated owned resources.
-- No Docker containers, images, volumes, or build cache were removed; no recovery action is needed.
+- Existing Pinima containers/images, its stopped seed container, and two older anonymous volumes were preserved because they are unrelated or their ownership cannot be proven safely.
+- No Docker resource was removed. No recovery action is needed.

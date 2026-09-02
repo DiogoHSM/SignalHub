@@ -39,7 +39,7 @@ Successful login clears the account failure counter. Failed attempts receive a b
 
 Add `DATA_ENCRYPTION_KEY` and optional `DATA_ENCRYPTION_KEY_PREVIOUS`, each a base64-encoded 32-byte key. Production requires the current key. AES-256-GCM ciphertext is versioned and includes a non-secret key identifier, random nonce, authentication tag, and ciphertext. Associated data binds the value to its table, row id, and field name so ciphertext cannot be copied to another record.
 
-Warehouse connection URLs and notification secret-header values move to encrypted columns. Repositories encrypt on write and decrypt only at the worker/API boundary that uses the value. List and admin responses never return plaintext.
+Warehouse connection URLs, notification delivery URLs, and notification secret-header values move to encrypted columns. All webhook endpoint URLs are treated uniformly as credentials, including generic, Slack, and Discord channels. Repositories encrypt on write and decrypt only at the worker/API boundary that uses the value. List and admin responses never return plaintext.
 
 An explicit restartable migration command encrypts legacy values in bounded transactions, verifies decryption, clears plaintext columns, and reports counts only. Application startup refuses privileged outbound work while legacy plaintext remains. After one release, a follow-up migration removes the plaintext columns.
 

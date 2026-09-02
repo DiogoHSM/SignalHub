@@ -1563,14 +1563,21 @@ function redactReadToken(token: ReadTokenResponse): Omit<ReadTokenResponse, "has
   };
 }
 
-function isUrlSecretNotificationChannelType(type: NotificationChannelRecord["type"]): boolean {
-  return type === "slack" || type === "discord";
+function isUrlSecretNotificationChannelType(
+  type: NotificationChannelRecord["type"]
+): type is Exclude<NotificationChannelRecord["type"], "email"> {
+  return type !== "email";
 }
 
-function maskNotificationChannelUrl(url: string): string {
+function maskNotificationChannelUrl(
+  url: string,
+  type: Exclude<NotificationChannelRecord["type"], "email">
+): string {
   try {
     const parsed = new URL(url);
-    return `${parsed.origin}${parsed.pathname.slice(0, 8)}…`;
+    return type === "webhook"
+      ? `${parsed.origin}/…`
+      : `${parsed.origin}${parsed.pathname.slice(0, 8)}…`;
   } catch {
     return "••••";
   }
@@ -1583,18 +1590,39 @@ type RedactedNotificationChannel = Omit<NotificationChannelRecord, "secretHeader
 };
 
 function redactNotificationChannel(channel: NotificationChannelRecord): RedactedNotificationChannel {
-  const { secretHeaderValue: _secretHeaderValue, url, ...safeChannel } = channel;
+  const {
+    secretHeaderValue: _secretHeaderValue,
+    secretHeaderValueEncrypted: _secretHeaderValueEncrypted,
+    secret_header_value: _legacySecretHeaderValue,
+    secret_header_value_encrypted: _legacySecretHeaderValueEncrypted,
+    urlEncrypted: _urlEncrypted,
+    url_encrypted: _legacyUrlEncrypted,
+    url: rawUrl,
+    urlPreview,
+    hasUrl,
+    ...safeChannel
+  } = channel as NotificationChannelRecord & {
+    secretHeaderValueEncrypted?: unknown;
+    secret_header_value?: unknown;
+    secret_header_value_encrypted?: unknown;
+    urlEncrypted?: unknown;
+    url_encrypted?: unknown;
+  };
 
-  if (isUrlSecretNotificationChannelType(channel.type) && url !== null) {
+  if (isUrlSecretNotificationChannelType(channel.type)) {
     return {
       ...safeChannel,
       url: null,
-      hasUrl: true,
-      urlPreview: maskNotificationChannelUrl(url)
+      hasUrl: hasUrl ?? rawUrl !== null,
+      ...(urlPreview !== undefined && urlPreview !== null
+        ? { urlPreview }
+        : rawUrl !== null
+          ? { urlPreview: maskNotificationChannelUrl(rawUrl, channel.type) }
+          : {})
     };
   }
 
-  return { ...safeChannel, url };
+  return { ...safeChannel, url: null };
 }
 
 type RedactedWarehouseDestination = Omit<WarehouseDestinationRecord, "connectionUrl">;

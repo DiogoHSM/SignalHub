@@ -3051,7 +3051,7 @@ describe("deliverWebhook", () => {
     expect(requestImpl).toHaveBeenCalledWith(expect.objectContaining({ body: JSON.stringify(payload) }));
   });
 
-  it("formats the request body as a Slack message for slack channels", async () => {
+  it("uses the explicitly resolved Slack URL only at delivery and formats the message", async () => {
     const requestImpl = vi.fn(async () => ({ status: 204 }));
 
     await deliverWebhook({
@@ -3077,7 +3077,10 @@ describe("deliverWebhook", () => {
     });
 
     expect(requestImpl).toHaveBeenCalledWith(
-      expect.objectContaining({ body: JSON.stringify(toSlackPayload(payload)) })
+      expect.objectContaining({
+        url: new URL("https://hooks.slack.com/services/T0/xyz"),
+        body: JSON.stringify(toSlackPayload(payload))
+      })
     );
   });
 

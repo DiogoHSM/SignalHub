@@ -3,6 +3,7 @@ import { loadConfig, SecretBox } from "@sigmon/config";
 import { sql } from "kysely";
 import { createDb, type Db } from "../packages/db/src/client.js";
 import { migrate } from "../packages/db/src/migrate.js";
+import { redactNotificationChannelUrl } from "../packages/db/src/repositories/alerts.js";
 import { redactWarehouseConnectionUrl } from "../packages/db/src/repositories/warehouse-exports.js";
 
 export type IntegrationSecretKind = "warehouse" | "notification";
@@ -16,12 +17,32 @@ type LockedSecretRow = {
   preview: string | null;
 };
 
+type LockedNotificationSecretRow = {
+  id: string;
+  type: "webhook" | "slack" | "discord" | "email";
+  urlPlaintext: string | null;
+  urlCiphertext: string | null;
+  urlPreview: string | null;
+  headerPlaintext: string | null;
+  headerCiphertext: string | null;
+};
+
+type ClassifiedSecret = {
+  action: "migrated" | "rotated" | "current" | "empty";
+  ciphertext: string | null;
+  plaintext: string | null;
+};
+
 type MigrationResult = { migrated: number; rotated: number };
 
 function secretContext(kind: IntegrationSecretKind, rowId: string) {
   return kind === "warehouse"
     ? { table: "warehouse_destinations", rowId, field: "connection_url" }
     : { table: "notification_channels", rowId, field: "secret_header_value" };
+}
+
+function notificationSecretContext(rowId: string, field: "url" | "secret_header_value") {
+  return { table: "notification_channels", rowId, field };
 }
 
 function assertOrderedBatch(rows: MigrationCandidate[], afterId: string | null, batchSize: number): void {
@@ -90,12 +111,48 @@ async function loadDatabaseBatch(
   return result.rows;
 }
 
-function verifiedCiphertext(box: SecretBox, plaintext: string, context: ReturnType<typeof secretContext>): string {
+function verifiedCiphertext(
+  box: SecretBox,
+  plaintext: string,
+  context: { table: string; rowId: string; field: string }
+): string {
   const ciphertext = box.encrypt(plaintext, context);
   if (box.decrypt(ciphertext, context) !== plaintext) {
     throw new Error("secret_migration_verification_failed");
   }
   return ciphertext;
+}
+
+function classifyLockedSecret(input: {
+  box: SecretBox;
+  plaintext: string | null;
+  ciphertext: string | null;
+  context: ReturnType<typeof notificationSecretContext>;
+  required: boolean;
+}): ClassifiedSecret {
+  if (input.plaintext !== null && input.ciphertext !== null) {
+    throw new Error("secret_migration_row_invalid");
+  }
+  if (input.plaintext !== null) {
+    return {
+      action: "migrated",
+      ciphertext: verifiedCiphertext(input.box, input.plaintext, input.context),
+      plaintext: input.plaintext
+    };
+  }
+  if (input.ciphertext !== null) {
+    const plaintext = input.box.decrypt(input.ciphertext, input.context);
+    if (input.box.needsRotation(input.ciphertext)) {
+      return {
+        action: "rotated",
+        ciphertext: verifiedCiphertext(input.box, plaintext, input.context),
+        plaintext
+      };
+    }
+    return { action: "current", ciphertext: input.ciphertext, plaintext };
+  }
+  if (input.required) throw new Error("notification_url_secret_missing");
+  return { action: "empty", ciphertext: null, plaintext: null };
 }
 
 export async function processDatabaseIntegrationSecretRow(input: {
@@ -105,77 +162,103 @@ export async function processDatabaseIntegrationSecretRow(input: {
   box: SecretBox;
 }): Promise<MigrationRowResult> {
   return input.db.transaction().execute(async (trx) => {
-    const locked = input.kind === "warehouse"
-      ? (await sql<LockedSecretRow>`
-          select id, connection_url as plaintext, connection_url_encrypted as ciphertext,
-            connection_url_preview as preview
-          from warehouse_destinations
-          where id = ${input.rowId}
-          for update
-        `.execute(trx)).rows[0]
-      : (await sql<LockedSecretRow>`
-          select id, secret_header_value as plaintext, secret_header_value_encrypted as ciphertext,
-            null::text as preview
-          from notification_channels
-          where id = ${input.rowId}
-          for update
-        `.execute(trx)).rows[0];
+    if (input.kind === "warehouse") {
+      const locked = (await sql<LockedSecretRow>`
+        select id, connection_url as plaintext, connection_url_encrypted as ciphertext,
+          connection_url_preview as preview
+        from warehouse_destinations
+        where id = ${input.rowId}
+        for update
+      `.execute(trx)).rows[0];
+      if (!locked) return "missing";
+      const context = secretContext("warehouse", locked.id);
 
-    if (!locked) return "missing";
-    const context = secretContext(input.kind, locked.id);
-
-    if (locked.plaintext !== null) {
-      const ciphertext = verifiedCiphertext(input.box, locked.plaintext, context);
-      if (input.kind === "warehouse") {
+      if (locked.plaintext !== null) {
+        const ciphertext = verifiedCiphertext(input.box, locked.plaintext, context);
         await sql`
           update warehouse_destinations
           set connection_url_encrypted = ${ciphertext}, connection_url = null,
             connection_url_preview = ${redactWarehouseConnectionUrl(locked.plaintext)}
           where id = ${locked.id}
         `.execute(trx);
-      } else {
-        await sql`
-          update notification_channels
-          set secret_header_value_encrypted = ${ciphertext}, secret_header_value = null
-          where id = ${locked.id}
-        `.execute(trx);
+        return "migrated";
       }
-      return "migrated";
-    }
 
-    if (locked.ciphertext !== null) {
-      const plaintext = input.box.decrypt(locked.ciphertext, context);
-      if (input.box.needsRotation(locked.ciphertext)) {
-        const ciphertext = verifiedCiphertext(input.box, plaintext, context);
-        if (input.kind === "warehouse") {
+      if (locked.ciphertext !== null) {
+        const plaintext = input.box.decrypt(locked.ciphertext, context);
+        if (input.box.needsRotation(locked.ciphertext)) {
+          const ciphertext = verifiedCiphertext(input.box, plaintext, context);
           await sql`
             update warehouse_destinations
             set connection_url_encrypted = ${ciphertext}, connection_url = null,
               connection_url_preview = ${redactWarehouseConnectionUrl(plaintext)}
             where id = ${locked.id}
           `.execute(trx);
-        } else {
+          return "rotated";
+        }
+        if (locked.preview === null) {
           await sql`
-            update notification_channels
-            set secret_header_value_encrypted = ${ciphertext}, secret_header_value = null
+            update warehouse_destinations
+            set connection_url_preview = ${redactWarehouseConnectionUrl(plaintext)}
             where id = ${locked.id}
           `.execute(trx);
         }
-        return "rotated";
+        return "current";
       }
-
-      if (input.kind === "warehouse" && locked.preview === null) {
-        await sql`
-          update warehouse_destinations
-          set connection_url_preview = ${redactWarehouseConnectionUrl(plaintext)}
-          where id = ${locked.id}
-        `.execute(trx);
-      }
-      return "current";
+      throw new Error("warehouse_connection_secret_missing");
     }
 
-    if (input.kind === "warehouse") throw new Error("warehouse_connection_secret_missing");
-    return "empty";
+    const locked = (await sql<LockedNotificationSecretRow>`
+      select id, type, url as "urlPlaintext", url_encrypted as "urlCiphertext",
+        url_preview as "urlPreview", secret_header_value as "headerPlaintext",
+        secret_header_value_encrypted as "headerCiphertext"
+      from notification_channels
+      where id = ${input.rowId}
+      for update
+    `.execute(trx)).rows[0];
+    if (!locked) return "missing";
+
+    if (locked.type === "email") {
+      if (
+        locked.urlPlaintext !== null || locked.urlCiphertext !== null ||
+        locked.headerPlaintext !== null || locked.headerCiphertext !== null
+      ) {
+        throw new Error("secret_migration_row_invalid");
+      }
+      return "empty";
+    }
+
+    const url = classifyLockedSecret({
+      box: input.box,
+      plaintext: locked.urlPlaintext,
+      ciphertext: locked.urlCiphertext,
+      context: notificationSecretContext(locked.id, "url"),
+      required: true
+    });
+    const header = classifyLockedSecret({
+      box: input.box,
+      plaintext: locked.headerPlaintext,
+      ciphertext: locked.headerCiphertext,
+      context: notificationSecretContext(locked.id, "secret_header_value"),
+      required: false
+    });
+    const actions = [url.action, header.action];
+    const result: MigrationRowResult = actions.includes("migrated")
+      ? "migrated"
+      : actions.includes("rotated")
+        ? "rotated"
+        : "current";
+    const preview = redactNotificationChannelUrl(url.plaintext!, locked.type);
+
+    if (result !== "current" || locked.urlPreview === null) {
+      await sql`
+        update notification_channels
+        set url_encrypted = ${url.ciphertext}, url = null, url_preview = ${preview},
+          secret_header_value_encrypted = ${header.ciphertext}, secret_header_value = null
+        where id = ${locked.id}
+      `.execute(trx);
+    }
+    return result;
   });
 }
 
@@ -229,6 +312,7 @@ function parseCommandArgs(args: string[]): { kinds: IntegrationSecretKind[]; bat
 
 const safeMigrationErrorCodes = new Set([
   "data_encryption_key_required",
+  "notification_url_secret_missing",
   "secret_authentication_failed",
   "secret_context_invalid",
   "secret_envelope_invalid",
@@ -237,6 +321,7 @@ const safeMigrationErrorCodes = new Set([
   "secret_migration_batch_order_invalid",
   "secret_migration_batch_size_invalid",
   "secret_migration_kind_invalid",
+  "secret_migration_row_invalid",
   "secret_migration_verification_failed",
   "secret_plaintext_invalid",
   "secret_version_unsupported",

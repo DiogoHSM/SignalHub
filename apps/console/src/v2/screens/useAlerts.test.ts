@@ -73,7 +73,9 @@ const webhookChannel: NotificationChannelResponse = {
   id: "c1",
   name: "Slack · #incidents",
   type: "webhook",
-  url: "https://hooks.slack.com/services/T0/abc",
+  url: null,
+  hasUrl: true,
+  urlPreview: "https://hooks.slack.com/service…",
   emailRecipients: [],
   secretHeaderName: null,
   hasSecret: false,
@@ -192,7 +194,7 @@ describe("buildAlertsVM", () => {
     );
     expect(vm.channels[0]).toMatchObject({
       icon: "webhook",
-      target: "https://hooks.slack.com/services/T0/abc",
+      target: "https://hooks.slack.com/service…",
       ok: true,
     });
     expect(vm.channels[1]).toMatchObject({

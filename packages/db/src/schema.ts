@@ -897,6 +897,8 @@ export interface NotificationChannelsTable {
   name: string;
   type: "webhook" | "slack" | "discord" | "email";
   url: string | null;
+  url_encrypted: string | null;
+  url_preview: string | null;
   email_recipients: JsonColumn;
   secret_header_name: string | null;
   secret_header_value: string | null;

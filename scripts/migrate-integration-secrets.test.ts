@@ -24,6 +24,14 @@ function warehouseContext(id: string) {
   return { table: "warehouse_destinations", rowId: id, field: "connection_url" };
 }
 
+function notificationUrlContext(id: string) {
+  return { table: "notification_channels", rowId: id, field: "url" };
+}
+
+function notificationHeaderContext(id: string) {
+  return { table: "notification_channels", rowId: id, field: "secret_header_value" };
+}
+
 let container: Awaited<ReturnType<GenericContainer["start"]>>;
 let db: Db;
 let projectId: string;
@@ -74,6 +82,27 @@ async function seedWarehouseRow(input: {
       enabled: true
     })
     .execute();
+}
+
+async function seedNotificationRow(input: {
+  id: string;
+  url?: string | null;
+  urlCiphertext?: string | null;
+  urlPreview?: string | null;
+  header?: string | null;
+  headerCiphertext?: string | null;
+}): Promise<void> {
+  await db.deleteFrom("notification_channels").where("id", "=", input.id).execute();
+  await sql`
+    insert into notification_channels (
+      id, name, type, url, url_encrypted, url_preview, email_recipients,
+      secret_header_name, secret_header_value, secret_header_value_encrypted, enabled
+    ) values (
+      ${input.id}, ${input.id}, 'webhook', ${input.url ?? null}, ${input.urlCiphertext ?? null},
+      ${input.urlPreview ?? null}, '[]'::jsonb, 'X-Synthetic-Token', ${input.header ?? null},
+      ${input.headerCiphertext ?? null}, true
+    )
+  `.execute(db);
 }
 
 function loadCandidates(ids: string[], calls: Array<string | null>) {
@@ -282,6 +311,99 @@ describe("integration secret migration", () => {
     expect(row.connection_url_encrypted).toBe(currentCiphertext);
   });
 
+  it("migrates notification URL and header credentials atomically from the locked row", async () => {
+    const id = "notify_legacy_pair";
+    const url = "https://hooks.invalid/services/synthetic-legacy-url-token";
+    const header = "synthetic-legacy-header-token";
+    await seedNotificationRow({ id, url, header });
+
+    const result = await migrateDatabaseIntegrationSecrets({
+      db,
+      kind: "notification",
+      batchSize: 10,
+      box,
+      loadBatch: async () => [{ id }]
+    });
+
+    const row = await db
+      .selectFrom("notification_channels")
+      .selectAll()
+      .where("id", "=", id)
+      .executeTakeFirstOrThrow() as {
+        url: string | null;
+        url_encrypted: string | null;
+        url_preview: string | null;
+        secret_header_value: string | null;
+        secret_header_value_encrypted: string | null;
+      };
+    expect(result).toEqual({ migrated: 1, rotated: 0 });
+    expect(row.url).toBeNull();
+    expect(row.secret_header_value).toBeNull();
+    expect(row.url_preview).not.toContain("synthetic-legacy-url-token");
+    expect(box.decrypt(row.url_encrypted!, notificationUrlContext(id))).toBe(url);
+    expect(box.decrypt(row.secret_header_value_encrypted!, notificationHeaderContext(id))).toBe(header);
+  });
+
+  it("reclassifies both notification credentials under lock and rotates previous-key fields once", async () => {
+    const id = "notify_concurrent_rotation";
+    const url = "https://hooks.invalid/services/synthetic-previous-url-token";
+    const header = "synthetic-previous-header-token";
+    await seedNotificationRow({
+      id,
+      url: "https://hooks.invalid/services/synthetic-stale-url-token",
+      header: "synthetic-stale-header-token"
+    });
+    const previousUrlCiphertext = previousBox.encrypt(url, notificationUrlContext(id));
+    const previousHeaderCiphertext = previousBox.encrypt(header, notificationHeaderContext(id));
+    let calls = 0;
+
+    const result = await migrateDatabaseIntegrationSecrets({
+      db,
+      kind: "notification",
+      batchSize: 10,
+      box,
+      loadBatch: async () => {
+        calls += 1;
+        if (calls === 1) {
+          await db
+            .updateTable("notification_channels")
+            .set({
+              url: null,
+              url_encrypted: previousUrlCiphertext,
+              url_preview: null,
+              secret_header_value: null,
+              secret_header_value_encrypted: previousHeaderCiphertext
+            })
+            .where("id", "=", id)
+            .execute();
+          return [{ id }];
+        }
+        return [];
+      }
+    });
+
+    const row = await db
+      .selectFrom("notification_channels")
+      .select(["url", "url_encrypted", "secret_header_value", "secret_header_value_encrypted"])
+      .where("id", "=", id)
+      .executeTakeFirstOrThrow();
+    expect(result).toEqual({ migrated: 0, rotated: 1 });
+    expect(row.url).toBeNull();
+    expect(row.secret_header_value).toBeNull();
+    expect(box.decrypt(row.url_encrypted!, notificationUrlContext(id))).toBe(url);
+    expect(box.needsRotation(row.url_encrypted!)).toBe(false);
+    expect(box.decrypt(row.secret_header_value_encrypted!, notificationHeaderContext(id))).toBe(header);
+    expect(box.needsRotation(row.secret_header_value_encrypted!)).toBe(false);
+
+    await expect(migrateDatabaseIntegrationSecrets({
+      db,
+      kind: "notification",
+      batchSize: 10,
+      box,
+      loadBatch: async () => [{ id }]
+    })).resolves.toEqual({ migrated: 0, rotated: 0 });
+  });
+
   it("rolls back and preserves the locked row when authentication fails", async () => {
     const id = "wh_tampered";
     const tampered = `${box.encrypt("postgres://synthetic:tamper@db.invalid/warehouse", warehouseContext(id))}x`;
@@ -330,6 +452,44 @@ describe("integration secret migration", () => {
     } finally {
       await sql.raw("DROP TRIGGER IF EXISTS reject_synthetic_ciphertext ON warehouse_destinations").execute(db);
       await sql.raw("DROP FUNCTION IF EXISTS reject_synthetic_ciphertext()").execute(db);
+    }
+  });
+
+  it("rolls back both notification credentials when their atomic encrypted write fails", async () => {
+    const id = "notify_rollback_pair";
+    const url = "https://hooks.invalid/services/synthetic-rollback-url-token";
+    const header = "synthetic-rollback-header-token";
+    await seedNotificationRow({ id, url, header });
+    await sql.raw(`
+      CREATE OR REPLACE FUNCTION reject_synthetic_notification_ciphertext() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.id = '${id}' AND NEW.url_encrypted IS NOT NULL THEN
+          RAISE EXCEPTION 'synthetic_notification_write_rejected';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      CREATE TRIGGER reject_synthetic_notification_ciphertext
+      BEFORE UPDATE ON notification_channels
+      FOR EACH ROW EXECUTE FUNCTION reject_synthetic_notification_ciphertext();
+    `).execute(db);
+
+    try {
+      await expect(processDatabaseIntegrationSecretRow({ db, kind: "notification", rowId: id, box })).rejects.toThrow();
+      const row = await db
+        .selectFrom("notification_channels")
+        .select(["url", "url_encrypted", "secret_header_value", "secret_header_value_encrypted"])
+        .where("id", "=", id)
+        .executeTakeFirstOrThrow();
+      expect(row).toEqual({
+        url,
+        url_encrypted: null,
+        secret_header_value: header,
+        secret_header_value_encrypted: null
+      });
+    } finally {
+      await sql.raw("DROP TRIGGER IF EXISTS reject_synthetic_notification_ciphertext ON notification_channels").execute(db);
+      await sql.raw("DROP FUNCTION IF EXISTS reject_synthetic_notification_ciphertext()").execute(db);
     }
   });
 });

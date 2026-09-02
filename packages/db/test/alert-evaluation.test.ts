@@ -1,7 +1,7 @@
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { SecretBox } from "@sigmon/config";
 import { sql } from "kysely";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Db } from "../src/client.js";
 import { migrate } from "../src/migrate.js";
 import { createTestDb } from "./test-db.js";
@@ -213,13 +213,14 @@ describe("evaluateAlertRule", () => {
     });
   });
 
-  it("stores notification header secrets encrypted and only decrypts for explicit privileged reads", async () => {
+  it("stores notification URLs and header secrets encrypted and only decrypts for explicit privileged reads", async () => {
     await withDb(async (db) => {
       await migrate(db);
+      const originalUrl = "https://hooks.invalid/services/synthetic-url-token";
       const channel = await createNotificationChannel(db, {
         name: "Synthetic webhook",
         type: "webhook",
-        url: "https://hooks.invalid/synthetic",
+        url: originalUrl,
         secretHeaderName: "X-Synthetic-Token",
         secretHeaderValue: "synthetic-notification-value",
         enabled: true
@@ -229,39 +230,76 @@ describe("evaluateAlertRule", () => {
         .selectFrom("notification_channels")
         .selectAll()
         .where("id", "=", channel.id)
-        .executeTakeFirstOrThrow() as { secret_header_value: string | null; secret_header_value_encrypted?: string | null };
+        .executeTakeFirstOrThrow() as {
+          url: string | null;
+          url_encrypted?: string | null;
+          url_preview?: string | null;
+          secret_header_value: string | null;
+          secret_header_value_encrypted?: string | null;
+        };
+      expect(storedAfterCreate.url).toBeNull();
+      expect(storedAfterCreate.url_encrypted).toMatch(/^v1\./);
+      expect(storedAfterCreate.url_encrypted).not.toContain("synthetic-url-token");
+      expect(storedAfterCreate.url_preview).toBe("https://hooks.invalid/…");
       expect(storedAfterCreate.secret_header_value).toBeNull();
       expect(storedAfterCreate.secret_header_value_encrypted).toMatch(/^v1\./);
 
+      const decrypt = vi.spyOn(box, "decrypt");
       const adminChannel = (await listNotificationChannels(db))[0];
+      expect(adminChannel?.url).toBeNull();
+      expect(adminChannel?.hasUrl).toBe(true);
+      expect(adminChannel?.urlPreview).toBe(storedAfterCreate.url_preview);
       expect(adminChannel?.hasSecret).toBe(true);
       expect(adminChannel?.secretHeaderValue).toBeNull();
+      expect(adminChannel).not.toHaveProperty("urlEncrypted");
       expect(adminChannel).not.toHaveProperty("secretHeaderValueEncrypted");
+      expect(decrypt).not.toHaveBeenCalled();
 
+      const encryptedUrlBeforeOmittedUpdate = storedAfterCreate.url_encrypted;
       const encryptedBeforeOmittedUpdate = storedAfterCreate.secret_header_value_encrypted;
-      await updateNotificationChannel(db, channel.id, { name: "Synthetic renamed" }, box);
+      await updateNotificationChannel(db, channel.id, { name: "Synthetic renamed" });
       const storedAfterOmittedUpdate = await db
         .selectFrom("notification_channels")
         .selectAll()
         .where("id", "=", channel.id)
-        .executeTakeFirstOrThrow() as { secret_header_value: string | null; secret_header_value_encrypted?: string | null };
+        .executeTakeFirstOrThrow() as {
+          url: string | null;
+          url_encrypted?: string | null;
+          secret_header_value: string | null;
+          secret_header_value_encrypted?: string | null;
+        };
+      expect(storedAfterOmittedUpdate.url).toBeNull();
+      expect(storedAfterOmittedUpdate.url_encrypted).toBe(encryptedUrlBeforeOmittedUpdate);
       expect(storedAfterOmittedUpdate.secret_header_value).toBeNull();
       expect(storedAfterOmittedUpdate.secret_header_value_encrypted).toBe(encryptedBeforeOmittedUpdate);
+      expect(decrypt).not.toHaveBeenCalled();
 
+      const replacementUrl = "https://hooks.invalid/services/synthetic-replacement-token";
       await updateNotificationChannel(db, channel.id, {
+        url: replacementUrl,
         secretHeaderValue: "synthetic-notification-replacement"
       }, box);
       const storedAfterSecretUpdate = await db
         .selectFrom("notification_channels")
         .selectAll()
         .where("id", "=", channel.id)
-        .executeTakeFirstOrThrow() as { secret_header_value: string | null; secret_header_value_encrypted?: string | null };
+        .executeTakeFirstOrThrow() as {
+          url: string | null;
+          url_encrypted?: string | null;
+          secret_header_value: string | null;
+          secret_header_value_encrypted?: string | null;
+        };
+      expect(storedAfterSecretUpdate.url).toBeNull();
+      expect(storedAfterSecretUpdate.url_encrypted).toMatch(/^v1\./);
+      expect(storedAfterSecretUpdate.url_encrypted).not.toBe(encryptedUrlBeforeOmittedUpdate);
       expect(storedAfterSecretUpdate.secret_header_value).toBeNull();
       expect(storedAfterSecretUpdate.secret_header_value_encrypted).toMatch(/^v1\./);
       expect(storedAfterSecretUpdate.secret_header_value_encrypted).not.toBe(encryptedBeforeOmittedUpdate);
 
       const privileged = await getNotificationChannel(db, channel.id, { includeSecret: true, secretBox: box });
+      expect(privileged?.url).toBe(replacementUrl);
       expect(privileged?.secretHeaderValue).toBe("synthetic-notification-replacement");
+      decrypt.mockRestore();
     });
   });
 
@@ -281,7 +319,8 @@ describe("evaluateAlertRule", () => {
 
       await sql`
         update notification_channels
-        set secret_header_value = 'synthetic-legacy-value', secret_header_value_encrypted = null
+        set url = 'https://hooks.invalid/services/synthetic-legacy-token', url_encrypted = null,
+          secret_header_value = 'synthetic-legacy-value', secret_header_value_encrypted = null
         where id = ${channel.id}
       `.execute(db);
       await expect(
@@ -289,19 +328,55 @@ describe("evaluateAlertRule", () => {
       ).rejects.toThrow("legacy_plaintext_secret_present");
 
       const otherBox = new SecretBox({ currentKey: Buffer.alloc(32, 13).toString("base64") });
-      const unknownCiphertext = otherBox.encrypt("synthetic-unknown-key", {
+      const unknownUrlCiphertext = otherBox.encrypt("https://hooks.invalid/services/synthetic-unknown-token", {
         table: "notification_channels",
         rowId: channel.id,
-        field: "secret_header_value"
+        field: "url"
       });
       await sql`
         update notification_channels
-        set secret_header_value = null, secret_header_value_encrypted = ${unknownCiphertext}
+        set url = null, url_encrypted = ${unknownUrlCiphertext},
+          secret_header_value = null, secret_header_value_encrypted = null
         where id = ${channel.id}
       `.execute(db);
       await expect(
         getNotificationChannel(db, channel.id, { includeSecret: true, secretBox: box })
       ).rejects.toThrow("secret_key_unknown");
+
+      const wrongAadCiphertext = box.encrypt("https://hooks.invalid/services/synthetic-wrong-aad-token", {
+        table: "notification_channels",
+        rowId: "synthetic-other-row",
+        field: "url"
+      });
+      await sql`
+        update notification_channels
+        set url_encrypted = ${wrongAadCiphertext}
+        where id = ${channel.id}
+      `.execute(db);
+      await expect(
+        getNotificationChannel(db, channel.id, { includeSecret: true, secretBox: box })
+      ).rejects.toThrow("secret_authentication_failed");
+
+      const validCiphertext = box.encrypt("https://hooks.invalid/services/synthetic-tamper-token", {
+        table: "notification_channels",
+        rowId: channel.id,
+        field: "url"
+      });
+      const parts = validCiphertext.split(".");
+      parts[3] = `${parts[3]!.startsWith("A") ? "B" : "A"}${parts[3]!.slice(1)}`;
+      const tamperedCiphertext = parts.join(".");
+      await sql`
+        update notification_channels
+        set url_encrypted = ${tamperedCiphertext}
+        where id = ${channel.id}
+      `.execute(db);
+
+      const ordinary = (await listNotificationChannels(db)).find((item) => item.id === channel.id);
+      expect(ordinary).toMatchObject({ id: channel.id, url: null, hasUrl: true });
+      expect(ordinary).not.toHaveProperty("urlEncrypted");
+      await expect(
+        getNotificationChannel(db, channel.id, { includeSecret: true, secretBox: box })
+      ).rejects.toThrow("secret_authentication_failed");
     });
   });
 });

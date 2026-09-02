@@ -297,7 +297,7 @@ git commit -m "feat(security): add rotatable encrypted secret storage"
 
 - [ ] **Step 1: Write failing repository tests**
 
-Assert that create/update rows contain `connection_url_encrypted` or `secret_header_value_encrypted`, plaintext columns are null, admin list responses omit secrets, and worker list calls decrypt only when passed a `SecretBox`.
+Assert that create/update rows contain `connection_url_encrypted`, notification `url_encrypted`, or `secret_header_value_encrypted`, matching plaintext columns are null, admin list responses omit secrets, and worker reads decrypt only when passed a `SecretBox`.
 
 - [ ] **Step 2: Verify RED**
 
@@ -307,7 +307,7 @@ Expected: plaintext columns still contain the submitted secrets.
 
 - [ ] **Step 3: Add additive encrypted columns and repository boundaries**
 
-Migration adds nullable encrypted columns without deleting plaintext. Add `@sigmon/config: "workspace:*"` to `@sigmon/db`, refresh the lockfile with `pnpm install --lockfile-only`, and import `SecretBox` from the package entrypoint. Create/update encrypt before write and set plaintext null. Privileged list functions throw `legacy_plaintext_secret_present` if encrypted data is absent but plaintext remains; they do not silently read plaintext.
+Migration adds nullable encrypted columns and safe URL previews without deleting plaintext columns. All generic, Slack, and Discord delivery URLs are credentials and use notification AAD field `url`; optional secret headers use field `secret_header_value`. Add `@sigmon/config: "workspace:*"` to `@sigmon/db`, refresh the lockfile with `pnpm install --lockfile-only`, and import `SecretBox` from the package entrypoint. Create/update encrypt before write and set plaintext null. Privileged reads throw `legacy_plaintext_secret_present` if encrypted data is absent but plaintext remains; they do not silently read plaintext.
 
 - [ ] **Step 4: Build the restartable migration test-first**
 
@@ -321,7 +321,7 @@ export async function migrateIntegrationSecrets(input: {
 }): Promise<{ migrated: number; rotated: number }>;
 ```
 
-Each row transaction encrypts, decrypt-verifies, writes encrypted data, and clears plaintext. Test interruption/restart, previous-key rotation, tamper failure, and count-only output.
+Each row transaction encrypts, decrypt-verifies, writes encrypted data, and clears plaintext. A notification row locks, classifies, rotates, and persists its required URL and optional header as one atomic unit. `migrated` and `rotated` count rows, not fields; a notification row touched for both credentials counts once, with legacy migration taking precedence over rotation. Test interruption/restart, previous-key rotation, tamper failure, and count-only output.
 
 - [ ] **Step 5: Wire API/worker and verify**
 

@@ -95,7 +95,7 @@ HTTP security headers are set on API responses. In production, the human session
 
 Human cookies carry only random opaque tokens, while Postgres stores only token hashes. Logout, password changes, and user archival revoke sessions; the upgrade from signed cookies intentionally requires one fresh login. Password login applies schema/byte validation and source/account admission before Argon2: invalid input returns `400`, quota rejection returns `429`, and unavailable quota state returns `503`. Each schema-valid, quota-admitted credential check performs exactly one real or dummy Argon2 verification; missing, archived, OAuth-only, and wrong-password accounts then share the same delayed `401 invalid_credentials` contract. An in-process semaphore bounds Argon2 concurrency.
 
-Warehouse connection URLs and webhook secret-header values are encrypted at rest with record-bound AES-256-GCM. Operators must retain the matching keyring separately from database backups. See `docs/SELF-HOSTING.md` before upgrading or rotating a key.
+Warehouse connection URLs, all notification delivery URLs, and webhook secret-header values are encrypted at rest with record-bound AES-256-GCM. Operators must retain the matching keyring separately from database backups. See `docs/SELF-HOSTING.md` before upgrading or rotating a key.
 
 ## Operational Safety
 

@@ -2658,7 +2658,9 @@ export type NotificationChannelResponse =
       id: string;
       name: string;
       type: "webhook";
-      url: string;
+      url: null;
+      hasUrl: boolean;
+      urlPreview?: string;
       emailRecipients: [];
       secretHeaderName: string | null;
       hasSecret: boolean;
@@ -2671,7 +2673,7 @@ export type NotificationChannelResponse =
       id: string;
       name: string;
       type: "slack";
-      // The webhook URL is the credential for Slack/Discord: the API returns it
+      // The webhook URL is a credential: the API returns it
       // write-only (never the full url), with hasUrl + urlPreview standing in
       // for it, mirroring the secretHeaderValue/hasSecret contract below.
       url: null;

@@ -3,6 +3,9 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
+import { SecretBox } from "@sigmon/config";
+import { sql } from "kysely";
+import { GenericContainer, Wait } from "testcontainers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createBackupS3Key,
@@ -15,6 +18,9 @@ import {
 } from "../src/backups.js";
 import { parseRestoreArgs, restoreBackup } from "../../../scripts/backup-restore.js";
 import type { BackupRunInput, BackupRuntimeConfig, BackupS3Config } from "../src/backups.js";
+import { createTestDb } from "../../../packages/db/test/test-db.js";
+import { migrate } from "../../../packages/db/src/migrate.js";
+import { migrateDatabaseIntegrationSecrets } from "../../../scripts/migrate-integration-secrets.js";
 
 const childProcessMock = vi.hoisted(() => ({
   spawn: vi.fn()
@@ -167,6 +173,50 @@ describe("createBackupS3Key", () => {
 });
 
 describe("dumpPostgresDatabase", () => {
+  it("keeps migrated notification URL and header credentials out of a PostgreSQL backup", async () => {
+    const container = await new GenericContainer("postgres:16-alpine")
+      .withEnvironment({ POSTGRES_DB: "sigmon", POSTGRES_PASSWORD: "sigmon", POSTGRES_USER: "sigmon" })
+      .withExposedPorts(5432)
+      .withWaitStrategy(Wait.forLogMessage("database system is ready to accept connections", 2))
+      .start();
+    const db = createTestDb(
+      `postgresql://sigmon:sigmon@${container.getHost()}:${container.getMappedPort(5432)}/sigmon`
+    );
+    const box = new SecretBox({ currentKey: Buffer.alloc(32, 23).toString("base64") });
+    const url = "https://hooks.slack.com/services/synthetic-backup-url-token";
+    const header = "synthetic-backup-header-token";
+
+    try {
+      await migrate(db);
+      await sql`
+        insert into notification_channels (
+          id, name, type, url, email_recipients, secret_header_name, secret_header_value, enabled
+        ) values (
+          'notify_backup', 'Backup fixture', 'slack', ${url}, '[]'::jsonb,
+          'X-Synthetic-Token', ${header}, true
+        )
+      `.execute(db);
+      await migrateDatabaseIntegrationSecrets({ db, kind: "notification", batchSize: 10, box });
+
+      const dump = await container.exec([
+        "pg_dump",
+        "-U",
+        "sigmon",
+        "-d",
+        "sigmon",
+        "--data-only",
+        "--inserts"
+      ]);
+      expect(dump.exitCode).toBe(0);
+      expect(dump.output).not.toContain("synthetic-backup-url-token");
+      expect(dump.output).not.toContain("synthetic-backup-header-token");
+      expect(dump.output).toContain("v1.");
+    } finally {
+      await db.destroy();
+      await container.stop();
+    }
+  }, 120_000);
+
   it("runs pg_dump with explicit non-secret connection args and password in the environment", async () => {
     const execFileFn = vi.fn(
       async (_file: string, _args: string[], _options?: { env?: NodeJS.ProcessEnv; timeout?: number }) => undefined

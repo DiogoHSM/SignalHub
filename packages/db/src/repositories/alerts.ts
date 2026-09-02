@@ -39,7 +39,9 @@ export type NotificationChannelRecord =
       id: string;
       name: string;
       type: WebhookLikeChannelType;
-      url: string;
+      url: string | null;
+      hasUrl?: boolean;
+      urlPreview?: string | null;
       emailRecipients: [];
       secretHeaderName: string | null;
       secretHeaderValue: string | null;
@@ -54,6 +56,8 @@ export type NotificationChannelRecord =
       name: string;
       type: "email";
       url: null;
+      hasUrl?: false;
+      urlPreview?: null;
       emailRecipients: string[];
       secretHeaderName: null;
       secretHeaderValue: null;
@@ -198,6 +202,17 @@ function jsonb(value: unknown) {
   return sql`${JSON.stringify(value)}::jsonb`;
 }
 
+export function redactNotificationChannelUrl(rawUrl: string, type: WebhookLikeChannelType): string {
+  try {
+    const parsed = new URL(rawUrl);
+    return type === "webhook"
+      ? `${parsed.origin}/…`
+      : `${parsed.origin}${parsed.pathname.slice(0, 8)}…`;
+  } catch {
+    return "••••";
+  }
+}
+
 export function toNotificationChannel(
   row: NotificationChannelRow,
   options: { includeSecret?: boolean; secretBox?: SecretBox } = {}
@@ -213,6 +228,8 @@ export function toNotificationChannel(
       name: row.name,
       type: row.type,
       url: null,
+      hasUrl: false,
+      urlPreview: null,
       emailRecipients,
       secretHeaderName: null,
       secretHeaderValue: null,
@@ -224,8 +241,20 @@ export function toNotificationChannel(
     };
   }
 
-  if (row.url === null) {
+  const hasUrl = row.url_encrypted !== null || row.url !== null;
+  if (!hasUrl) {
     throw new Error("invalid_webhook_notification_channel");
+  }
+
+  let url: string | null = null;
+  if (options.includeSecret) {
+    if (row.url_encrypted === null) throw new Error("legacy_plaintext_secret_present");
+    if (!options.secretBox) throw new Error("secret_box_required");
+    url = options.secretBox.decrypt(row.url_encrypted, {
+      table: "notification_channels",
+      rowId: row.id,
+      field: "url"
+    });
   }
 
   const hasSecret = row.secret_header_value_encrypted !== null || row.secret_header_value !== null;
@@ -244,7 +273,9 @@ export function toNotificationChannel(
     id: row.id,
     name: row.name,
     type: row.type,
-    url: row.url,
+    url,
+    hasUrl,
+    urlPreview: row.url_preview ?? (row.url !== null ? redactNotificationChannelUrl(row.url, row.type) : "••••"),
     emailRecipients: [],
     secretHeaderName: row.secret_header_name,
     secretHeaderValue,
@@ -361,7 +392,7 @@ export async function createNotificationChannel(
   secretBox?: SecretBox
 ): Promise<NotificationChannelRecord> {
   const secretHeaderValue = input.type !== "email" ? input.secretHeaderValue ?? null : null;
-  if (secretHeaderValue !== null && !secretBox) throw new Error("secret_box_required");
+  if (input.type !== "email" && !secretBox) throw new Error("secret_box_required");
   const id = randomUUID();
   const row = await db
     .insertInto("notification_channels")
@@ -372,6 +403,8 @@ export async function createNotificationChannel(
             name: input.name,
             type: input.type,
             url: null,
+            url_encrypted: null,
+            url_preview: null,
             email_recipients: jsonb(normalizeEmailRecipients(input.emailRecipients)),
             secret_header_name: null,
             secret_header_value: null,
@@ -382,7 +415,13 @@ export async function createNotificationChannel(
             id,
             name: input.name,
             type: input.type,
-            url: input.url,
+            url: null,
+            url_encrypted: secretBox!.encrypt(input.url, {
+              table: "notification_channels",
+              rowId: id,
+              field: "url"
+            }),
+            url_preview: redactNotificationChannelUrl(input.url, input.type),
             email_recipients: jsonb([]),
             secret_header_name: input.secretHeaderName ?? null,
             secret_header_value: null,
@@ -471,6 +510,17 @@ export async function updateNotificationChannel(
   if (input.secretHeaderValue !== undefined && input.secretHeaderValue !== null && !secretBox) {
     throw new Error("secret_box_required");
   }
+  if (targetIsWebhookLike && input.url !== undefined && !secretBox) {
+    throw new Error("secret_box_required");
+  }
+  const urlUpdate = targetIsWebhookLike && typeof input.url === "string" ? input.url : undefined;
+  const encryptedUrl = urlUpdate !== undefined
+    ? secretBox!.encrypt(urlUpdate, {
+        table: "notification_channels",
+        rowId: id,
+        field: "url"
+      })
+    : undefined;
   const encryptedSecretHeaderValue = input.secretHeaderValue !== undefined && input.secretHeaderValue !== null
     ? secretBox!.encrypt(input.secretHeaderValue, {
         table: "notification_channels",
@@ -484,7 +534,13 @@ export async function updateNotificationChannel(
     .set({
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.type !== undefined ? { type: input.type } : {}),
-      ...(targetIsWebhookLike && input.url !== undefined ? { url: input.url } : {}),
+      ...(urlUpdate !== undefined
+        ? {
+            url: null,
+            url_encrypted: encryptedUrl!,
+            url_preview: redactNotificationChannelUrl(urlUpdate, targetType as WebhookLikeChannelType)
+          }
+        : {}),
       ...(targetType === "email" && emailRecipients !== undefined ? { email_recipients: jsonb(emailRecipients) } : {}),
       ...(targetIsWebhookLike && input.secretHeaderName !== undefined
         ? { secret_header_name: input.secretHeaderName }
@@ -499,6 +555,8 @@ export async function updateNotificationChannel(
       ...(targetType === "email"
         ? {
             url: null,
+            url_encrypted: null,
+            url_preview: null,
             secret_header_name: null,
             secret_header_value: null,
             secret_header_value_encrypted: null
