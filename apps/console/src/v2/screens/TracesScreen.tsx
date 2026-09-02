@@ -142,6 +142,9 @@ function TraceListRow({ trace, onOpen }: { trace: TraceListItemVM; onOpen: () =>
   );
 }
 
+const ENDPOINT_GRID = "minmax(220px, 1.4fr) repeat(7, minmax(82px, .55fr))";
+const WATERFALL_GRID = "280px 60px 1fr";
+
 function EndpointRow({
   endpoint,
   active,
@@ -156,7 +159,7 @@ function EndpointRow({
     <button
       className={`sh-row sh-row--btn ${active ? "is-active" : ""}`}
       style={{
-        gridTemplateColumns: "minmax(220px, 1.4fr) repeat(7, minmax(82px, .55fr))",
+        gridTemplateColumns: ENDPOINT_GRID,
         alignItems: "center",
         width: "100%",
         textAlign: "left",
@@ -196,39 +199,43 @@ function EndpointTable({
         <h2 className="sh-h2">APM endpoints</h2>
         <span className="sh-tag">slowest by p95</span>
       </div>
-      <div
-        className="sh-row sh-wide-row"
-        style={{
-          gridTemplateColumns: "minmax(220px, 1.4fr) repeat(7, minmax(82px, .55fr))",
-          padding: "8px 18px",
-          borderBottom: "1px solid var(--border-subtle)",
-          color: "var(--fg-faint)",
-          fontSize: 11,
-          fontWeight: 700,
-        }}
-      >
-        <span>Endpoint</span>
-        <span>Req</span>
-        <span>Errors</span>
-        <span>Error rate</span>
-        <span>p50</span>
-        <span>p95</span>
-        <span>p99</span>
-        <span>Apdex</span>
-      </div>
-      <div className="sh-table-scroll" style={{ overflow: "auto", maxHeight: 260 }}>
-        {endpoints.length === 0 ? (
-          <EmptyHint icon="waterfall" title="No APM data yet" sub="Trace endpoints will appear here as traffic arrives." />
-        ) : (
-          endpoints.map((endpoint) => (
-            <EndpointRow
-              key={endpoint.name}
-              endpoint={endpoint}
-              active={endpoint.name === activeEndpoint}
-              onSelect={() => onSelect(endpoint.name)}
-            />
-          ))
-        )}
+      <div className="sh-wide-table-scroll">
+        <div className="sh-wide-table">
+          <div
+            className="sh-row"
+            style={{
+              gridTemplateColumns: ENDPOINT_GRID,
+              padding: "8px 16px",
+              borderBottom: "1px solid var(--border-subtle)",
+              color: "var(--fg-faint)",
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            <span>Endpoint</span>
+            <span>Req</span>
+            <span>Errors</span>
+            <span>Error rate</span>
+            <span>p50</span>
+            <span>p95</span>
+            <span>p99</span>
+            <span>Apdex</span>
+          </div>
+          <div className="sh-wide-table__body" style={{ maxHeight: 260 }}>
+            {endpoints.length === 0 ? (
+              <EmptyHint icon="waterfall" title="No APM data yet" sub="Trace endpoints will appear here as traffic arrives." />
+            ) : (
+              endpoints.map((endpoint) => (
+                <EndpointRow
+                  key={endpoint.name}
+                  endpoint={endpoint}
+                  active={endpoint.name === activeEndpoint}
+                  onSelect={() => onSelect(endpoint.name)}
+                />
+              ))
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -590,7 +597,7 @@ function WaterfallRow({ span, totalMs, treeMode, isCollapsed, isActive, onSelect
   return (
     <div
       className={`sh-row span-row sh-hit-target ${isActive ? "is-active" : ""}`}
-      style={{ gridTemplateColumns: "280px 60px 1fr", padding: "9px 16px", cursor: "pointer" }}
+      style={{ gridTemplateColumns: WATERFALL_GRID, padding: "9px 16px", cursor: "pointer" }}
       role="button"
       tabIndex={0}
       onClick={onSelect}
@@ -797,42 +804,43 @@ function TraceDetailView({ ctx, trace, onBack }: { ctx: ScreenCtx; trace: TraceL
           ) : spans.length === 0 ? (
             <EmptyHint icon="waterfall" title="No spans for this trace" />
           ) : (
-            <>
-              <div
-                className="sh-wide-row"
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "280px 60px 1fr",
-                  borderBottom: "1px solid var(--border-subtle)",
-                  padding: "8px 16px",
-                  fontSize: 10.5,
-                  color: "var(--fg-faint)",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                <span>Span</span>
-                <span>Dur</span>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  {rulerLabels(Math.max(totalMs, 1)).map((label, i) => (
-                    <span key={i}>{label}</span>
+            <div className="sh-wide-table-scroll sh-wide-table-scroll--fill">
+              <div className="sh-wide-table">
+                <div
+                  className="sh-row"
+                  style={{
+                    gridTemplateColumns: WATERFALL_GRID,
+                    borderBottom: "1px solid var(--border-subtle)",
+                    padding: "8px 16px",
+                    fontSize: 10.5,
+                    color: "var(--fg-faint)",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  <span>Span</span>
+                  <span>Dur</span>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    {rulerLabels(Math.max(totalMs, 1)).map((label, i) => (
+                      <span key={i}>{label}</span>
+                    ))}
+                  </div>
+                </div>
+                <div className="sh-wide-table__body sh-wide-table__body--fill">
+                  {visible.map((s) => (
+                    <WaterfallRow
+                      key={s.id}
+                      span={s}
+                      totalMs={Math.max(totalMs, 1)}
+                      treeMode={filter === "All"}
+                      isCollapsed={collapsed.has(s.id)}
+                      isActive={s.id === selectedSpanId}
+                      onSelect={() => setSelectedSpanId(s.id)}
+                      onToggle={() => toggle(s.id)}
+                    />
                   ))}
                 </div>
               </div>
-              <div className="sh-table-scroll" style={{ overflow: "auto", flex: 1 }}>
-                {visible.map((s) => (
-                  <WaterfallRow
-                    key={s.id}
-                    span={s}
-                    totalMs={Math.max(totalMs, 1)}
-                    treeMode={filter === "All"}
-                    isCollapsed={collapsed.has(s.id)}
-                    isActive={s.id === selectedSpanId}
-                    onSelect={() => setSelectedSpanId(s.id)}
-                    onToggle={() => toggle(s.id)}
-                  />
-                ))}
-              </div>
-            </>
+            </div>
           )}
         </div>
 

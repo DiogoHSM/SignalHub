@@ -141,6 +141,18 @@ async function openDashboardTrace() {
   await userEvent.click(screen.getAllByText("POST /api/dashboards")[1]);
 }
 
+function expectSharedWideTableScroller(header: HTMLElement, row: HTMLElement) {
+  const headerScroller = header.closest(".sh-wide-table-scroll");
+  const rowScroller = row.closest(".sh-wide-table-scroll");
+  const headerTable = header.closest(".sh-wide-table");
+  expect(headerScroller).not.toBeNull();
+  expect(rowScroller).toBe(headerScroller);
+  expect(headerTable).not.toBeNull();
+  expect(row.closest(".sh-wide-table")).toBe(headerTable);
+  expect(row.closest(".sh-wide-table__body")).not.toBeNull();
+  expect(row.style.gridTemplateColumns).toBe(header.style.gridTemplateColumns);
+}
+
 describe("TracesScreen — index", () => {
   it("guards missing project/env", () => {
     mockList(null, "loading");
@@ -170,6 +182,17 @@ describe("TracesScreen — index", () => {
     expect(screen.getByText("Endpoints")).toBeInTheDocument();
     expect(screen.getAllByText("POST /api/dashboards").length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText("GET /api/health").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps the endpoint header and rows under one horizontal scroll owner", () => {
+    mockList(traces);
+    render(<TracesScreen ctx={makeCtx()} />);
+    const endpointCard = screen.getByText("APM endpoints").closest(".sh-card") as HTMLElement;
+
+    expectSharedWideTableScroller(
+      within(endpointCard).getByText("Endpoint").closest(".sh-row") as HTMLElement,
+      within(endpointCard).getByText("POST /api/dashboards").closest(".sh-row") as HTMLElement,
+    );
   });
 
   it("selects an endpoint and can clear the endpoint filter", async () => {
@@ -247,6 +270,19 @@ describe("TracesScreen — detail", () => {
     // waterfall section
     expect(screen.getByText("Waterfall")).toBeInTheDocument();
     expect(screen.getByText("Expand all")).toBeInTheDocument();
+  });
+
+  it("keeps the waterfall ruler and span rows under one horizontal scroll owner", async () => {
+    mockList(traces);
+    mockSpans(detail);
+    render(<TracesScreen ctx={makeCtx()} />);
+    await openDashboardTrace();
+    const waterfall = screen.getByText("Waterfall").closest(".sh-card") as HTMLElement;
+
+    expectSharedWideTableScroller(
+      within(waterfall).getByText("Span").parentElement as HTMLElement,
+      within(waterfall).getByRole("button", { name: /postgres\.query/i }),
+    );
   });
 
   it("queries spans by the W3C trace id, not the traces row id", async () => {

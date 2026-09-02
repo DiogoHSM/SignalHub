@@ -84,7 +84,10 @@ describe("v2 shell css is scoped", () => {
     expect(medium).toMatch(/\.llm-panels[^{}]*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
     expect(medium).toMatch(/\.dashboards-layout[^{}]*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
     expect(medium).toMatch(/\.sh-table-scroll[^{}]*\{[^}]*overflow-x:\s*auto/s);
-    expect(medium).toMatch(/\.sh-wide-row[^{}]*\{[^}]*overflow-x:\s*auto/s);
+    expect(medium).toMatch(/\.sh-wide-table-scroll[^{}]*\{[^}]*overflow-x:\s*auto/s);
+    expect(medium).toMatch(/\.sh-wide-table[^{}]*\{[^}]*min-width:\s*920px/s);
+    expect(css).toMatch(/\.sh-wide-table__body[^{}]*\{[^}]*overflow-x:\s*clip[^}]*overflow-y:\s*auto/s);
+    expect(css).toMatch(/\.sh-wide-table-scroll--fill\s*>\s*\.sh-wide-table[^{}]*\{[^}]*height:\s*100%/s);
     expect(medium).toMatch(/\.page[^{}]*\{[^}]*overflow-x:\s*visible/s);
     expect(medium).toMatch(/\.tb-search\s*>\s*:where\(span,\s*kbd\)[^{}]*\{[^}]*display:\s*none/s);
   });

@@ -35,6 +35,7 @@ function promptErrorColor(rate: number): string {
 }
 
 const PROMPT_GRID = "1.6fr 100px 90px 100px 90px 90px 80px 28px";
+const CALL_GRID = "1.1fr 1.2fr 1.4fr 90px 90px 90px";
 
 function TenantRow({ row, ctx }: { row: LlmTenantVM; ctx: ScreenCtx }) {
   return (
@@ -117,7 +118,7 @@ function PromptRow({ row }: { row: LlmPromptVM }) {
 
 function CallRow({ row }: { row: LlmCallRowVM }) {
   return (
-    <div className="sh-row" style={{ gridTemplateColumns: "1.1fr 1.2fr 1.4fr 90px 90px 90px" }}>
+    <div className="sh-row" style={{ gridTemplateColumns: CALL_GRID }}>
       <span className="sh-mono sh-faint" style={{ fontSize: 11 }}>{formatUtcTimestamp(row.timestamp)}</span>
       <span className="sh-mono" style={{ fontSize: 12 }}>{row.provider}/{row.model}</span>
       <span className="sh-muted" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis" }}>{row.promptName ?? "—"}</span>
@@ -291,22 +292,26 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
             <span className="sh-tag mono">sorted by cost</span>
           </div>
         </div>
-        <div className="sh-row sh-row__head sh-wide-row" style={{ gridTemplateColumns: PROMPT_GRID }}>
-          <span>Prompt · model</span>
-          <span>Calls</span>
-          <span>Avg tokens</span>
-          <span>Avg latency</span>
-          <span>Error rate</span>
-          <span>Cost</span>
-          <span>p95</span>
-          <span />
-        </div>
-        <div className="sh-table-scroll" style={{ overflow: "auto", flex: 1 }}>
-          {prompts.length === 0 ? (
-            <EmptyHint icon="activity" title="No prompt data" sub="No LLM calls in this window." />
-          ) : (
-            prompts.map((row) => <PromptRow key={`${row.promptName}:${row.model}`} row={row} />)
-          )}
+        <div className="sh-wide-table-scroll sh-wide-table-scroll--fill">
+          <div className="sh-wide-table">
+            <div className="sh-row sh-row__head" style={{ gridTemplateColumns: PROMPT_GRID }}>
+              <span>Prompt · model</span>
+              <span>Calls</span>
+              <span>Avg tokens</span>
+              <span>Avg latency</span>
+              <span>Error rate</span>
+              <span>Cost</span>
+              <span>p95</span>
+              <span />
+            </div>
+            <div className="sh-wide-table__body sh-wide-table__body--fill">
+              {prompts.length === 0 ? (
+                <EmptyHint icon="activity" title="No prompt data" sub="No LLM calls in this window." />
+              ) : (
+                prompts.map((row) => <PromptRow key={`${row.promptName}:${row.model}`} row={row} />)
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -318,20 +323,24 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
           <h2 className="sh-h2">Recent calls</h2>
           <span className="sh-tag">{recentCalls.length} calls</span>
         </div>
-        <div className="sh-row sh-row__head sh-wide-row" style={{ gridTemplateColumns: "1.1fr 1.2fr 1.4fr 90px 90px 90px" }}>
-          <span>Timestamp</span>
-          <span>Provider / model</span>
-          <span>Prompt</span>
-          <span>Status</span>
-          <span>Latency</span>
-          <span>Cost</span>
-        </div>
-        <div className="sh-table-scroll" style={{ overflow: "auto", flex: 1 }}>
-          {recentCalls.length === 0 ? (
-            <EmptyHint icon="sparkles" title="No recent calls" sub="No LLM calls match the current filters." />
-          ) : (
-            recentCalls.map((row) => <CallRow key={row.id} row={row} />)
-          )}
+        <div className="sh-wide-table-scroll sh-wide-table-scroll--fill">
+          <div className="sh-wide-table">
+            <div className="sh-row sh-row__head" style={{ gridTemplateColumns: CALL_GRID }}>
+              <span>Timestamp</span>
+              <span>Provider / model</span>
+              <span>Prompt</span>
+              <span>Status</span>
+              <span>Latency</span>
+              <span>Cost</span>
+            </div>
+            <div className="sh-wide-table__body sh-wide-table__body--fill">
+              {recentCalls.length === 0 ? (
+                <EmptyHint icon="sparkles" title="No recent calls" sub="No LLM calls match the current filters." />
+              ) : (
+                recentCalls.map((row) => <CallRow key={row.id} row={row} />)
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </>
