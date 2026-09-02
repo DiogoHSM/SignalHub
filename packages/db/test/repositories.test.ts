@@ -235,7 +235,7 @@ import {
   createSourceMapArtifact,
   deleteSourceMapArtifact,
   findSourceMapArtifactForFrame,
-  findActiveSourceMapMetadataByStoragePaths,
+  findActiveSourceMapStoragePaths,
   getCachedErrorStackResolution,
   listActiveSourceMapMetadataPage,
   listExpiredSourceMapArtifacts,
@@ -3514,12 +3514,41 @@ describe("repositories", () => {
       await expect(listActiveSourceMapMetadataPage(db, { afterId: null, batchSize: 101 }))
         .rejects.toThrow("source_map_reconciliation_batch_size_invalid");
 
-      await expect(findActiveSourceMapMetadataByStoragePaths(db, ["/storage/3.map", "/storage/2.map"]))
-        .resolves.toEqual([{ id: "smap_reconcile_003", storagePath: "/storage/3.map" }]);
-      await expect(findActiveSourceMapMetadataByStoragePaths(db, Array.from({ length: 101 }, (_, index) => `/storage/${index}.map`)))
+      await expect(findActiveSourceMapStoragePaths(db, ["/storage/3.map", "/storage/2.map"]))
+        .resolves.toEqual(["/storage/3.map"]);
+      await expect(findActiveSourceMapStoragePaths(db, Array.from({ length: 101 }, (_, index) => `/storage/${index}.map`)))
         .rejects.toThrow("source_map_reconciliation_batch_size_invalid");
 
       await sql`delete from source_map_artifacts where id like 'smap_reconcile_%'`.execute(db);
+    });
+  });
+
+  it("returns at most one active membership value for arbitrarily duplicated storage metadata", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Source Map Reconciliation Duplicate Paths" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "Production" });
+      const user = await createUser(db, {
+        email: "sourcemaps-reconciliation-duplicates@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const sharedPath = "/storage/shared-duplicate.map";
+      await sql`
+        insert into source_map_artifacts
+          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id)
+        select
+          'smap_reconcile_duplicate_' || lpad(value::text, 3, '0'),
+          ${project.id}, ${environment.id}, 'web@duplicate',
+          'file-' || value::text || '.js', 'file-' || value::text || '.js.map',
+          'application/json', 1, 'sha-' || value::text, ${sharedPath}, ${user.id}
+        from generate_series(1, 150) as value
+      `.execute(db);
+
+      await expect(findActiveSourceMapStoragePaths(db, [sharedPath])).resolves.toEqual([sharedPath]);
+      await expect(findActiveSourceMapStoragePaths(db, [sharedPath, sharedPath])).resolves.toEqual([sharedPath]);
+
+      await sql`delete from source_map_artifacts where id like 'smap_reconcile_duplicate_%'`.execute(db);
     });
   });
 

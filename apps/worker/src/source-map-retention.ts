@@ -79,6 +79,7 @@ export async function deleteExpiredSourceMapArtifacts(
       for (const artifact of artifacts) {
         try {
           if (await storage.deleteArtifact(artifact.storagePath)) sourceMapFiles += 1;
+          await storage.assertAuthority();
           const deleted = await runtime.softDeleteArtifact(artifact.id);
           if (deleted) sourceMapArtifacts += 1;
         } catch (error) {

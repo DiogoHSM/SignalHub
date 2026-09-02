@@ -1196,6 +1196,70 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     }
   });
 
+  it("reasserts marker authority inside retention before each destructive file operation", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-marker-race-"));
+    const filePath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
+    let storage: SourceMapStorageSession | undefined;
+    try {
+      await markSourceMapStorageRoot(root);
+      await writeFile(filePath, "retained");
+      storage = await openSourceMapStorageSession({
+        localDir: root,
+        mode: "require",
+        nodeEnv: "test",
+        hooks: {
+          afterParentPinned: () => rm(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME))
+        }
+      });
+      const softDeleteArtifact = vi.fn(async () => null);
+      let released = false;
+
+      const error = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        storage,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        withStorageLock: async (run) => {
+          try {
+            return { locked: true, result: await run() };
+          } finally {
+            released = true;
+          }
+        },
+        listExpiredArtifacts: async () => [{
+          id: "smap_marker_race",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "web@1",
+          minifiedFile: "app.js",
+          originalFilename: "app.js.map",
+          contentType: "application/json",
+          byteSize: 8,
+          sha256: "sha",
+          storagePath: filePath,
+          uploadedByUserId: "usr_1",
+          uploadedByTokenId: null,
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          deletedAt: null
+        }],
+        softDeleteArtifact
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(SourceMapRetentionError);
+      expect(error).toMatchObject({
+        message: "source_map_storage_unavailable",
+        deleted: { sourceMapArtifacts: 0, sourceMapFiles: 0 }
+      });
+      expect(softDeleteArtifact).not.toHaveBeenCalled();
+      expect(released).toBe(true);
+      await expect(readFile(filePath, "utf8")).resolves.toBe("retained");
+    } finally {
+      await storage?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("fails closed before listing metadata for every unavailable storage authority state", async () => {
     const parent = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-unavailable-"));
     const outsideMarker = path.join(parent, "outside-marker");

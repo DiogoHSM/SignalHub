@@ -32,9 +32,11 @@ function fakeDatabase(input: {
   return {
     listMetadataPage: async ({ afterId, batchSize: limit }) =>
       rows.filter((row) => afterId === null || row.id > afterId).slice(0, limit),
-    findActiveMetadataByStoragePaths: async (storagePaths) => {
+    findActiveStoragePaths: async (storagePaths) => {
       const activePaths = input.activePaths ?? new Set(rows.map((row) => row.storagePath));
-      return rows.filter((row) => storagePaths.includes(row.storagePath) && activePaths.has(row.storagePath));
+      return [...new Set(rows
+        .filter((row) => storagePaths.includes(row.storagePath) && activePaths.has(row.storagePath))
+        .map((row) => row.storagePath))];
     },
     softDeleteMetadata: input.softDelete ?? (async () => true)
   };
@@ -206,6 +208,43 @@ describe("source-map reconciliation", () => {
     });
   });
 
+  it("reasserts marker authority immediately before metadata mutation and still releases the lock", async () => {
+    const row = metadata("smap_marker_removed");
+    const softDeleteMetadata = vi.fn(async () => true);
+    const database = fakeDatabase({ metadata: [row], softDelete: softDeleteMetadata });
+    let replay = false;
+    let markerValid = true;
+    let released = false;
+    const storage: ReconciliationStorage = {
+      ...fakeStorage(),
+      assertAuthority: async () => {
+        if (!markerValid) throw new Error("source_map_storage_unavailable");
+      },
+      inspectArtifact: async () => {
+        if (replay) markerValid = false;
+        return { exists: false };
+      }
+    };
+
+    await expect(reconcileSourceMaps({
+      apply: true,
+      now: () => new Date("2026-06-01T12:00:00.000Z"),
+      database,
+      storage,
+      withStorageLock: async (run) => {
+        replay = true;
+        try {
+          return { locked: true, result: await run(database) };
+        } finally {
+          released = true;
+        }
+      }
+    })).rejects.toThrow("source_map_storage_unavailable");
+
+    expect(softDeleteMetadata).not.toHaveBeenCalled();
+    expect(released).toBe(true);
+  });
+
   it("deletes only old orphan files and tolerates an idempotent disappearance", async () => {
     const oldPath = "/storage/old.map";
     const freshPath = "/storage/fresh.map";
@@ -254,6 +293,22 @@ describe("source-map reconciliation", () => {
     expect(result.metadataIds.withoutFile).toHaveLength(100);
     expect(result.metadataIds.truncated).toBe(true);
     expect(JSON.stringify(result)).not.toContain("credential-secret");
+  });
+
+  it("rejects an over-broad or duplicate membership result before materializing it into state", async () => {
+    const orphanPath = "/storage/orphan.map";
+    const database = fakeDatabase();
+    database.findActiveStoragePaths = async () => Array.from({ length: 101 }, () => orphanPath);
+
+    await expect(reconcileSourceMaps({
+      apply: false,
+      now: () => new Date("2026-06-01T12:00:00.000Z"),
+      database,
+      storage: fakeStorage({
+        files: [{ storagePath: orphanPath, modifiedAt: new Date("2026-01-01T00:00:00.000Z") }]
+      }),
+      withStorageLock: async () => ({ locked: false })
+    })).rejects.toThrow("source_map_reconciliation_membership_invalid");
   });
 });
 
@@ -315,6 +370,116 @@ describe("reconciliation storage traversal and CLI lifecycle", () => {
       }
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when the marker becomes absent, wrong, partial, or a symlink before orphan deletion", async () => {
+    const mutations: Array<(markerPath: string, outsideMarker: string) => Promise<void>> = [
+      async (markerPath) => rm(markerPath),
+      async (markerPath) => writeFile(markerPath, "wrong\n"),
+      async (markerPath) => writeFile(markerPath, "sigmon-source-map-storage-v1"),
+      async (markerPath, outsideMarker) => {
+        await rm(markerPath);
+        await symlink(outsideMarker, markerPath);
+      }
+    ];
+
+    for (const [index, mutateMarker] of mutations.entries()) {
+      const root = await mkdtemp(path.join(tmpdir(), `sigmon-reconcile-marker-${index}-`));
+      const outside = await mkdtemp(path.join(tmpdir(), `sigmon-reconcile-marker-outside-${index}-`));
+      const markerPath = path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME);
+      const outsideMarker = path.join(outside, "marker");
+      const filePath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
+      try {
+        await writeFile(markerPath, SOURCE_MAP_STORAGE_MARKER_CONTENT);
+        await writeFile(outsideMarker, SOURCE_MAP_STORAGE_MARKER_CONTENT);
+        await writeFile(filePath, "old");
+        await utimes(filePath, new Date("2026-01-01T00:00:00.000Z"), new Date("2026-01-01T00:00:00.000Z"));
+        const storage = await openSourceMapStorageSession({
+          localDir: root,
+          mode: "require",
+          nodeEnv: "test",
+          hooks: { beforeDeleteRevalidation: () => mutateMarker(markerPath, outsideMarker) }
+        });
+        try {
+          await expect(storage.deleteArtifactIfOlderThan(
+            filePath,
+            new Date("2026-06-01T11:00:00.000Z")
+          )).rejects.toThrow("source_map_storage_unavailable");
+          await expect(readFile(filePath, "utf8")).resolves.toBe("old");
+        } finally {
+          await storage.close();
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
+        await rm(outside, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it("fails closed before metadata soft-delete for every marker mutation during inspection", async () => {
+    const mutations: Array<(markerPath: string, outsideMarker: string) => Promise<void>> = [
+      async (markerPath) => rm(markerPath),
+      async (markerPath) => writeFile(markerPath, "wrong\n"),
+      async (markerPath) => writeFile(markerPath, "sigmon-source-map-storage-v1"),
+      async (markerPath, outsideMarker) => {
+        await rm(markerPath);
+        await symlink(outsideMarker, markerPath);
+      }
+    ];
+
+    for (const [index, mutateMarker] of mutations.entries()) {
+      const root = await mkdtemp(path.join(tmpdir(), `sigmon-reconcile-metadata-marker-${index}-`));
+      const outside = await mkdtemp(path.join(tmpdir(), `sigmon-reconcile-metadata-outside-${index}-`));
+      const markerPath = path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME);
+      const outsideMarker = path.join(outside, "marker");
+      let storage: Awaited<ReturnType<typeof openSourceMapStorageSession>> | undefined;
+      try {
+        await writeFile(markerPath, SOURCE_MAP_STORAGE_MARKER_CONTENT);
+        await writeFile(outsideMarker, SOURCE_MAP_STORAGE_MARKER_CONTENT);
+        let inspections = 0;
+        storage = await openSourceMapStorageSession({
+          localDir: root,
+          mode: "require",
+          nodeEnv: "test",
+          hooks: {
+            afterParentPinned: async () => {
+              inspections += 1;
+              if (inspections === 2) await mutateMarker(markerPath, outsideMarker);
+            }
+          }
+        });
+        const softDeleteMetadata = vi.fn(async () => true);
+        const database = fakeDatabase({
+          metadata: [metadata(
+            `smap_marker_${index}`,
+            path.join(root, `123e4567-e89b-42d3-a456-42661417400${index}.map`)
+          )],
+          softDelete: softDeleteMetadata
+        });
+        let released = false;
+
+        await expect(reconcileSourceMaps({
+          apply: true,
+          now: () => new Date("2026-06-01T12:00:00.000Z"),
+          database,
+          storage,
+          withStorageLock: async (run) => {
+            try {
+              return { locked: true, result: await run(database) };
+            } finally {
+              released = true;
+            }
+          }
+        })).rejects.toThrow("source_map_storage_unavailable");
+
+        expect(softDeleteMetadata).not.toHaveBeenCalled();
+        expect(released).toBe(true);
+      } finally {
+        await storage?.close();
+        await rm(root, { recursive: true, force: true });
+        await rm(outside, { recursive: true, force: true });
+      }
     }
   });
 

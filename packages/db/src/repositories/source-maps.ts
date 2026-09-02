@@ -303,20 +303,30 @@ export async function listActiveSourceMapMetadataPage(
   return rows.map((row) => ({ id: row.id, storagePath: row.storage_path }));
 }
 
-export async function findActiveSourceMapMetadataByStoragePaths(
+export async function findActiveSourceMapStoragePaths(
   db: SourceMapDb,
   storagePaths: string[]
-): Promise<SourceMapReconciliationMetadata[]> {
+): Promise<string[]> {
   if (storagePaths.length === 0) return [];
   assertReconciliationBatchSize(storagePaths.length);
+  const uniqueStoragePaths = [...new Set(storagePaths)];
   const rows = await db
     .selectFrom("source_map_artifacts")
-    .select(["id", "storage_path"])
+    .select("storage_path")
+    .distinct()
     .where("deleted_at", "is", null)
-    .where("storage_path", "in", storagePaths)
-    .orderBy("id", "asc")
+    .where("storage_path", "in", uniqueStoragePaths)
+    .orderBy("storage_path", "asc")
     .execute();
-  return rows.map((row) => ({ id: row.id, storagePath: row.storage_path }));
+  const activeStoragePaths = rows.map((row) => row.storage_path);
+  if (
+    activeStoragePaths.length > uniqueStoragePaths.length
+    || new Set(activeStoragePaths).size !== activeStoragePaths.length
+    || activeStoragePaths.some((storagePath) => !uniqueStoragePaths.includes(storagePath))
+  ) {
+    throw new Error("source_map_reconciliation_membership_invalid");
+  }
+  return activeStoragePaths;
 }
 
 export async function getSourceMapArtifact(

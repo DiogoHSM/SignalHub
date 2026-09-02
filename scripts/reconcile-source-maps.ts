@@ -2,7 +2,7 @@ import { pathToFileURL } from "node:url";
 import { loadConfig } from "../packages/config/src/index.js";
 import { createDb, type Db } from "../packages/db/src/client.js";
 import {
-  findActiveSourceMapMetadataByStoragePaths,
+  findActiveSourceMapStoragePaths,
   listActiveSourceMapMetadataPage,
   softDeleteSourceMapMetadataForReconciliation,
   withSourceMapStorageLock
@@ -23,7 +23,7 @@ export type ReconciliationMetadata = { id: string; storagePath: string };
 
 export type ReconciliationDatabase = {
   listMetadataPage: (input: { afterId: string | null; batchSize: number }) => Promise<ReconciliationMetadata[]>;
-  findActiveMetadataByStoragePaths: (storagePaths: string[]) => Promise<ReconciliationMetadata[]>;
+  findActiveStoragePaths: (storagePaths: string[]) => Promise<string[]>;
   softDeleteMetadata: (candidate: ReconciliationMetadata) => Promise<boolean>;
 };
 
@@ -120,9 +120,12 @@ async function scanMetadata(input: {
       if (!inspected.exists) {
         missing += 1;
         if (input.reportMissingIds && !appendReportedId(input.reportMissingIds, row.id)) idsTruncated = true;
-        if (input.mutate && await input.database.softDeleteMetadata(row)) {
-          deleted += 1;
-          if (input.reportDeletedIds && !appendReportedId(input.reportDeletedIds, row.id)) idsTruncated = true;
+        if (input.mutate) {
+          await input.storage.assertAuthority();
+          if (await input.database.softDeleteMetadata(row)) {
+            deleted += 1;
+            if (input.reportDeletedIds && !appendReportedId(input.reportDeletedIds, row.id)) idsTruncated = true;
+          }
         }
       }
       afterId = row.id;
@@ -152,12 +155,15 @@ async function scanFiles(input: {
     if (rows.length === 0) break;
 
     const storagePaths = rows.map((row) => row.storagePath);
-    const active = await input.database.findActiveMetadataByStoragePaths(storagePaths);
+    const active = await input.database.findActiveStoragePaths(storagePaths);
     const requested = new Set(storagePaths);
+    if (active.length > requested.size) throw new Error("source_map_reconciliation_membership_invalid");
     const activePaths = new Set<string>();
-    for (const row of active) {
-      if (!requested.has(row.storagePath)) throw new Error("source_map_reconciliation_membership_invalid");
-      activePaths.add(row.storagePath);
+    for (const storagePath of active) {
+      if (!requested.has(storagePath) || activePaths.has(storagePath)) {
+        throw new Error("source_map_reconciliation_membership_invalid");
+      }
+      activePaths.add(storagePath);
     }
 
     for (const row of rows) {
@@ -243,7 +249,7 @@ export async function reconcileSourceMaps(input: {
 function databaseRuntime(db: Db): ReconciliationDatabase {
   return {
     listMetadataPage: (input) => listActiveSourceMapMetadataPage(db, input),
-    findActiveMetadataByStoragePaths: (storagePaths) => findActiveSourceMapMetadataByStoragePaths(db, storagePaths),
+    findActiveStoragePaths: (storagePaths) => findActiveSourceMapStoragePaths(db, storagePaths),
     softDeleteMetadata: async (candidate) =>
       (await softDeleteSourceMapMetadataForReconciliation(db, candidate)) !== null
   };

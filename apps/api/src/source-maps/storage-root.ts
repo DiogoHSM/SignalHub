@@ -436,6 +436,7 @@ export class SourceMapStorageSession {
       if (!first.exists) return "missing";
       if (first.modifiedAt.getTime() > cutoff.getTime()) return "fresh";
       await hooks.beforeDeleteRevalidation?.();
+      await this.assertAuthority();
       const current = await this.inspectRegularFile(finalPath);
       if (!current.exists) return "missing";
       if (current.modifiedAt.getTime() > cutoff.getTime()) return "fresh";
@@ -582,6 +583,7 @@ export class SourceMapStorageSession {
         try { stats = await lstat(finalPath); }
         catch (error) { if (isErrorCode(error, "ENOENT")) return false; throw error; }
         if (stats.isSymbolicLink() || !stats.isFile()) throw invalidStoragePath();
+        await this.assertAuthority();
         try { await unlink(finalPath); return true; }
         catch (error) { if (isErrorCode(error, "ENOENT")) return false; throw error; }
       } finally {
@@ -600,7 +602,7 @@ export class SourceMapStorageSession {
       await hooks.afterParentPinned?.();
       await this.assertConfiguredRootIdentity();
     } finally { await handle.close(); }
-    await this.assertConfiguredRootIdentity();
+    await this.assertAuthority();
     try {
       await unlink(finalPath);
       await this.assertConfiguredRootIdentity();
