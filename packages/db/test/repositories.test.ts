@@ -4661,6 +4661,38 @@ describe("repositories", () => {
         });
 
         await expect(findActiveHeartbeatMonitor(db, monitorId)).resolves.toBeUndefined();
+        await expect(
+          recordHeartbeatCheckIn(db, {
+            monitorId,
+            checkedInAt: new Date("2026-05-24T12:00:00.000Z")
+          })
+        ).resolves.toBeNull();
+
+        const state = await db
+          .selectFrom("monitors")
+          .select([
+            "status",
+            "consecutive_failures",
+            "consecutive_successes",
+            "last_checked_at",
+            "last_heartbeat_at"
+          ])
+          .where("id", "=", monitorId)
+          .executeTakeFirstOrThrow();
+        const checkCount = await db
+          .selectFrom("monitor_checks")
+          .select(({ fn }) => fn.countAll<number>().as("count"))
+          .where("monitor_id", "=", monitorId)
+          .executeTakeFirstOrThrow();
+
+        expect(state).toEqual({
+          status: "unknown",
+          consecutive_failures: 0,
+          consecutive_successes: 0,
+          last_checked_at: null,
+          last_heartbeat_at: null
+        });
+        expect(Number(checkCount.count)).toBe(0);
       } finally {
         await sql`delete from monitors where id = ${monitorId}`.execute(db);
         await sql`delete from environments where id = ${environmentId}`.execute(db);
