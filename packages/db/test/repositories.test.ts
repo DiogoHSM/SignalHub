@@ -3,6 +3,7 @@ import { SecretBox } from "@sigmon/config";
 import { sql, type Transaction } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
+import { runRetentionOnce } from "../../../apps/worker/src/retention.js";
 import type { Db } from "../src/client.js";
 import type { Database } from "../src/schema.js";
 import { migrate } from "../src/migrate.js";
@@ -2304,6 +2305,58 @@ describe("repositories", () => {
     });
   });
 
+  it("uses exact elapsed retention days across UTC and a DST-observing session timezone", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const outcomes: Array<{ timezone: string; survivingIds: string[] }> = [];
+
+      for (const timezone of ["UTC", "America/New_York"]) {
+        await withIsolatedRetentionFixtures(db, async (trx) => {
+          const priorTimezoneResult = await sql<{ timezone: string }>`
+            select current_setting('TimeZone') as timezone
+          `.execute(trx);
+          const priorTimezone = priorTimezoneResult.rows[0]?.timezone ?? "UTC";
+
+          try {
+            await sql`select set_config('TimeZone', ${timezone}, false)`.execute(trx);
+            const now = new Date("2026-03-09T00:00:00.000Z");
+
+            await sql`insert into projects (id, name) values ('prj_ret_dst', 'Retention DST')`.execute(trx);
+            await sql`
+              insert into environments (id, project_id, name)
+              values ('env_ret_dst', 'prj_ret_dst', 'dst')
+            `.execute(trx);
+            await sql`
+              insert into data_governance_policies (project_id, environment_id, retention_policy)
+              values ('prj_ret_dst', 'env_ret_dst', '{"events":1}'::jsonb)
+            `.execute(trx);
+            await sql`
+              insert into events (id, project_id, environment_id, timestamp, received_at, name) values
+                ('evt_ret_dst_exact_boundary_survives', 'prj_ret_dst', 'env_ret_dst', '2026-03-08T00:00:00.000Z', ${now}, 'dst.boundary'),
+                ('evt_ret_dst_one_ms_older_deletes', 'prj_ret_dst', 'env_ret_dst', '2026-03-07T23:59:59.999Z', ${now}, 'dst.older')
+            `.execute(trx);
+
+            await deleteExpiredTelemetry(trx, retentionOptions(now));
+            const rows = await trx
+              .selectFrom("events")
+              .select("id")
+              .where("environment_id", "=", "env_ret_dst")
+              .orderBy("id")
+              .execute();
+            outcomes.push({ timezone, survivingIds: rows.map((row) => row.id) });
+          } finally {
+            await sql`select set_config('TimeZone', ${priorTimezone}, false)`.execute(trx);
+          }
+        });
+      }
+
+      expect(outcomes).toEqual([
+        { timezone: "UTC", survivingIds: ["evt_ret_dst_exact_boundary_survives"] },
+        { timezone: "America/New_York", survivingIds: ["evt_ret_dst_exact_boundary_survives"] }
+      ]);
+    });
+  });
+
   it("executes every retention table owner once and aggregates physical category counters", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -2441,29 +2494,46 @@ describe("repositories", () => {
       await migrate(db);
       await withIsolatedRetentionFixtures(db, async (trx) => {
         const now = new Date("2026-09-01T00:00:00.000Z");
-        const malformedValues: unknown[] = [0, "bad", 1.5, -2, 3651, [], {}, null];
+        const malformedValues: Array<{ label: string; value: unknown }> = [
+          { label: "zero", value: 0 },
+          { label: "bad_string", value: "bad" },
+          { label: "fraction", value: 1.5 },
+          { label: "negative", value: -2 },
+          { label: "too_large", value: 3651 },
+          { label: "array", value: [] },
+          { label: "object", value: {} },
+          { label: "null", value: null }
+        ];
 
         await sql`insert into projects (id, name) values ('prj_ret_malformed', 'Malformed retention')`.execute(trx);
-        for (const [index, value] of malformedValues.entries()) {
-          const environmentId = `env_ret_malformed_${index}`;
+        for (const { label, value } of malformedValues) {
+          const environmentId = `env_ret_malformed_${label}`;
           await sql`
             insert into environments (id, project_id, name)
-            values (${environmentId}, 'prj_ret_malformed', ${`malformed-${index}`})
+            values (${environmentId}, 'prj_ret_malformed', ${`malformed-${label}`})
           `.execute(trx);
           await sql`
             insert into data_governance_policies (project_id, environment_id, retention_policy)
             values ('prj_ret_malformed', ${environmentId}, ${JSON.stringify({ events: value })}::jsonb)
           `.execute(trx);
           await sql`
-            insert into events (id, project_id, environment_id, timestamp, received_at, name)
-            values (
-              ${`evt_ret_malformed_${index}`},
-              'prj_ret_malformed',
-              ${environmentId},
-              '2026-07-31T23:59:59.999Z',
-              ${now},
-              'malformed.default'
-            )
+            insert into events (id, project_id, environment_id, timestamp, received_at, name) values
+              (
+                ${`evt_ret_malformed_${label}_boundary_survives`},
+                'prj_ret_malformed',
+                ${environmentId},
+                '2026-08-02T00:00:00.000Z',
+                ${now},
+                'malformed.boundary'
+              ),
+              (
+                ${`evt_ret_malformed_${label}_one_ms_older_deletes`},
+                'prj_ret_malformed',
+                ${environmentId},
+                '2026-08-01T23:59:59.999Z',
+                ${now},
+                'malformed.older'
+              )
           `.execute(trx);
         }
         await sql`
@@ -2483,9 +2553,22 @@ describe("repositories", () => {
         const deleted = await deleteExpiredTelemetry(trx, retentionOptions(now));
 
         expect(deleted.events).toBe(9);
-        await expect(trx.selectFrom("events").select("id").execute()).resolves.toEqual([
-          { id: "evt_ret_numeric_string_60d_survives" }
-        ]);
+        for (const { label } of malformedValues) {
+          await expect(
+            trx
+              .selectFrom("events")
+              .select("id")
+              .where("environment_id", "=", `env_ret_malformed_${label}`)
+              .execute()
+          ).resolves.toEqual([{ id: `evt_ret_malformed_${label}_boundary_survives` }]);
+        }
+        await expect(
+          trx
+            .selectFrom("events")
+            .select("id")
+            .where("environment_id", "=", "env_ret_numeric_string")
+            .execute()
+        ).resolves.toEqual([{ id: "evt_ret_numeric_string_60d_survives" }]);
       });
     });
   });
@@ -2550,6 +2633,147 @@ describe("repositories", () => {
           }
         });
       });
+    });
+  });
+
+  it("rolls back earlier retention categories and persists zero committed counts after a locked failure", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const now = new Date("2026-09-01T00:00:00.000Z");
+      const options = {
+        ...retentionOptions(now),
+        eventsDays: 3650,
+        errorsDays: 3650,
+        tracesDays: 3650,
+        spansDays: 3650,
+        llmCallsDays: 3650,
+        profilesDays: 3650,
+        breadcrumbsDays: 3650
+      };
+      let persistedRun: Awaited<ReturnType<typeof recordRetentionRun>> | undefined;
+
+      await sql`insert into projects (id, name) values ('prj_ret_locked_failure', 'Locked retention failure')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_ret_locked_failure', 'prj_ret_locked_failure', 'failure')
+      `.execute(db);
+      await sql`
+        insert into data_governance_policies (project_id, environment_id, retention_policy)
+        values ('prj_ret_locked_failure', 'env_ret_locked_failure', '{"events":30,"errors":30}'::jsonb)
+      `.execute(db);
+      await sql`
+        insert into events (id, project_id, environment_id, timestamp, received_at, name)
+        values ('evt_ret_locked_failure', 'prj_ret_locked_failure', 'env_ret_locked_failure', '2026-07-01T00:00:00.000Z', ${now}, 'failure.event')
+      `.execute(db);
+      await sql`
+        insert into errors (id, project_id, environment_id, timestamp, received_at, message, severity)
+        values ('err_ret_locked_failure', 'prj_ret_locked_failure', 'env_ret_locked_failure', '2026-07-01T00:00:00.000Z', ${now}, 'failure error', 'error')
+      `.execute(db);
+      await sql`
+        create function task2_fail_locked_error_retention() returns trigger
+        language plpgsql as $$
+        begin
+          raise exception 'forced_locked_retention_failure authorization: Bearer task2-secret';
+        end
+        $$
+      `.execute(db);
+      await sql`
+        create trigger task2_locked_error_retention_failure
+        before delete on errors
+        for each statement execute function task2_fail_locked_error_retention()
+      `.execute(db);
+
+      try {
+        let lockedFailure: unknown;
+        try {
+          await withRetentionLock(db, (lockedDb) => deleteExpiredTelemetry(lockedDb, options));
+        } catch (error) {
+          lockedFailure = error;
+        }
+
+        expect(lockedFailure).toMatchObject({
+          message: expect.stringContaining("retention_delete_failed:"),
+          cause: {
+            name: "RetentionDeleteError",
+            category: "errors",
+            table: "errors",
+            deleted: expect.objectContaining({ events: 1, errors: 0 })
+          }
+        });
+        await expect(
+          db
+            .selectFrom("events")
+            .select("id")
+            .where("id", "=", "evt_ret_locked_failure")
+            .executeTakeFirst()
+        ).resolves.toEqual({ id: "evt_ret_locked_failure" });
+        await expect(
+          db
+            .selectFrom("errors")
+            .select("id")
+            .where("id", "=", "err_ret_locked_failure")
+            .executeTakeFirst()
+        ).resolves.toEqual({ id: "err_ret_locked_failure" });
+
+        await expect(
+          runRetentionOnce({
+            now: () => now,
+            policy: options,
+            withLock: (run) =>
+              withRetentionLock(db, async (lockedDb) =>
+                run({
+                  deleteExpiredTelemetry: () => deleteExpiredTelemetry(lockedDb, options)
+                })
+              ),
+            deleteExpiredSourceMapArtifacts: async () => ({ sourceMapArtifacts: 0, sourceMapFiles: 0 }),
+            recordRetentionRun: async (input) => {
+              persistedRun = await recordRetentionRun(db, input);
+              return persistedRun;
+            }
+          })
+        ).resolves.toEqual({ ran: true, skipped: false });
+
+        expect(persistedRun).toMatchObject({
+          status: "failed",
+          errorMessage: expect.stringContaining("authorization: [REDACTED]"),
+          deleted: {
+            events: 0,
+            errors: 0,
+            traces: 0,
+            spans: 0,
+            llmCalls: 0,
+            webVitals: 0,
+            profiles: 0,
+            breadcrumbs: 0,
+            deadLetterJobs: 0,
+            sourceMapArtifacts: 0,
+            sourceMapFiles: 0
+          }
+        });
+        expect(persistedRun?.errorMessage).not.toContain("task2-secret");
+        await expect(
+          db
+            .selectFrom("events")
+            .select("id")
+            .where("id", "=", "evt_ret_locked_failure")
+            .executeTakeFirst()
+        ).resolves.toEqual({ id: "evt_ret_locked_failure" });
+      } finally {
+        await sql`drop trigger if exists task2_locked_error_retention_failure on errors`.execute(db);
+        await sql`drop function if exists task2_fail_locked_error_retention()`.execute(db);
+        if (persistedRun) {
+          await db.deleteFrom("retention_runs").where("id", "=", persistedRun.id).execute();
+        }
+        await db.deleteFrom("events").where("id", "=", "evt_ret_locked_failure").execute();
+        await db.deleteFrom("errors").where("id", "=", "err_ret_locked_failure").execute();
+        await db
+          .deleteFrom("data_governance_policies")
+          .where("project_id", "=", "prj_ret_locked_failure")
+          .where("environment_id", "=", "env_ret_locked_failure")
+          .execute();
+        await db.deleteFrom("environments").where("id", "=", "env_ret_locked_failure").execute();
+        await db.deleteFrom("projects").where("id", "=", "prj_ret_locked_failure").execute();
+      }
     });
   });
 

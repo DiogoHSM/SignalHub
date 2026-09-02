@@ -225,7 +225,7 @@ async function deleteExpiredFromTableWithEffectiveCutoff(
       left join data_governance_policies as policies
         on policies.project_id = telemetry.project_id
        and policies.environment_id = telemetry.environment_id
-      where telemetry.${sql.ref(spec.timestamp)} < ${now}::timestamptz - make_interval(days =>
+      where telemetry.${sql.ref(spec.timestamp)} < ${now}::timestamptz - (
         case
           when jsonb_typeof(policies.retention_policy -> ${spec.category}) in ('number', 'string')
             and pg_input_is_valid(policies.retention_policy ->> ${spec.category}, 'numeric')
@@ -237,7 +237,7 @@ async function deleteExpiredFromTableWithEffectiveCutoff(
             else ${defaultDays}
           end
           else ${defaultDays}
-        end
+        end * interval '24 hours'
       )
       order by telemetry.${sql.ref(spec.timestamp)} asc, telemetry.id asc
       limit ${batchSize}
