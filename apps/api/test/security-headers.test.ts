@@ -1,8 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { createServer } from "node:net";
 import { BrowserOriginCache, buildApp } from "../src/app.js";
+import { closeRateLimitRedis, createRateLimitRedis } from "../src/rate-limit-redis.js";
 
 let app: FastifyInstance | undefined;
+
+async function unavailableRedisUrl(): Promise<string> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("expected TCP address");
+  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  return `redis://127.0.0.1:${address.port}`;
+}
 
 afterEach(async () => {
   await app?.close();
@@ -161,7 +175,7 @@ describe("API hardening", () => {
     expect(isBrowserCorsOriginAllowed).toHaveBeenCalledTimes(2);
   });
 
-  it("uses a bounded, normalized positive-and-negative browser-origin cache with deterministic expiry and eviction", async () => {
+  it("uses a bounded positive-and-negative browser-origin cache with deterministic expiry and eviction", async () => {
     let now = 1_000;
     const lookup = vi.fn(async (origin: string) => origin !== "https://denied.example.com");
     const cache = new BrowserOriginCache(lookup, {
@@ -170,10 +184,10 @@ describe("API hardening", () => {
       now: () => now
     });
 
-    await expect(cache.isAllowed("https://ALLOWED.example.com:443/path")).resolves.toBe(true);
-    await expect(cache.isAllowed("https://allowed.example.com/other")).resolves.toBe(true);
-    await expect(cache.isAllowed("https://denied.example.com/path")).resolves.toBe(false);
-    await expect(cache.isAllowed("https://denied.example.com/other")).resolves.toBe(false);
+    await expect(cache.isAllowed("https://allowed.example.com")).resolves.toBe(true);
+    await expect(cache.isAllowed("https://ALLOWED.example.com:443")).resolves.toBe(true);
+    await expect(cache.isAllowed("https://denied.example.com")).resolves.toBe(false);
+    await expect(cache.isAllowed("https://denied.example.com")).resolves.toBe(false);
     expect(lookup.mock.calls.map(([origin]) => origin)).toEqual([
       "https://allowed.example.com",
       "https://denied.example.com"
@@ -194,6 +208,81 @@ describe("API hardening", () => {
     now += 60_001;
     await expect(cache.isAllowed("https://allowed.example.com")).resolves.toBe(true);
     expect(lookup).toHaveBeenCalledTimes(5);
+  });
+
+  it.each([
+    "https://user:password@example.com",
+    "https://@example.com",
+    "https://example.com/path",
+    "https://example.com?query=value",
+    "https://example.com#fragment",
+    "https://example.com/",
+    "ftp://example.com"
+  ])("rejects non-serialized browser Origin %s before cache lookup", async (origin) => {
+    const lookup = vi.fn().mockResolvedValue(true);
+    const cache = new BrowserOriginCache(lookup);
+
+    await expect(cache.isAllowed(origin)).resolves.toBe(false);
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed browser Origin headers before lookup or CORS authorization", async () => {
+    const lookup = vi.fn().mockResolvedValue(true);
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      isBrowserCorsOriginAllowed: lookup
+    });
+
+    for (const origin of [
+      "https://user:password@example.com",
+      "https://@example.com",
+      "https://example.com/path",
+      "https://example.com?query=value",
+      "https://example.com#fragment",
+      "https://example.com/"
+    ]) {
+      const response = await app.inject({ method: "OPTIONS", url: "/v1/events", headers: { origin } });
+      expect(response.statusCode).not.toBe(204);
+      expect(response.headers["access-control-allow-origin"]).toBeUndefined();
+    }
+
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("fails closed promptly before origin lookup when the rate-limit Redis store is unreachable", async () => {
+    const rateLimitRedis = createRateLimitRedis(await unavailableRedisUrl(), {
+      connectTimeoutMs: 50,
+      commandTimeoutMs: 50,
+      socketTimeoutMs: 50,
+      retryDelayMs: 10,
+      onError: () => undefined
+    });
+    const lookup = vi.fn().mockResolvedValue(true);
+
+    try {
+      app = await buildApp({
+        readiness: async () => ({ postgres: true, redis: false }),
+        isBrowserCorsOriginAllowed: lookup,
+        rateLimitRedis
+      });
+      const timedOut = Symbol("timed-out");
+      const response = await Promise.race([
+        app.inject({
+          method: "OPTIONS",
+          url: "/v1/events",
+          headers: { origin: "https://allowed.example.com" }
+        }),
+        new Promise<typeof timedOut>((resolve) => setTimeout(() => resolve(timedOut), 500))
+      ]);
+
+      expect(response).not.toBe(timedOut);
+      if (response === timedOut) throw new Error("rate-limit request did not settle");
+      expect(response.statusCode).toBeGreaterThanOrEqual(500);
+      expect(response.statusCode).toBeLessThan(600);
+      expect(lookup).not.toHaveBeenCalled();
+    } finally {
+      await closeRateLimitRedis(rateLimitRedis);
+    }
   });
 
   it("does not cache failed browser-origin lookups or poison a later healthy result", async () => {

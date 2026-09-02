@@ -290,6 +290,7 @@ import {
 } from "./auth/session-service.js";
 import { Argon2Semaphore, LoginGuard, createGuardedLogin } from "./auth/login-guard.js";
 import { createAuthQuotaRedis } from "./auth/login-redis.js";
+import { closeRateLimitRedis, createRateLimitRedis } from "./rate-limit-redis.js";
 
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
 
@@ -332,6 +333,9 @@ const db = createDb(config.databaseUrl, { statementTimeoutMs: config.db.statemen
 
 const redis = new Redis(config.redisUrl, {
   maxRetriesPerRequest: null
+});
+const rateLimitRedis = createRateLimitRedis(config.redisUrl, {
+  onError: (error) => logger.warn({ err: error }, "Rate-limit Redis unavailable")
 });
 const authQuotaRedis = createAuthQuotaRedis(config.redisUrl, {
   onError: (error) => logger.warn({ err: error }, "Auth quota Redis unavailable")
@@ -1043,7 +1047,7 @@ const app = await buildApp({
   googleOAuthEnabled: config.googleOAuth.enabled,
   browserCorsOrigins: config.browserCors.origins,
   isBrowserCorsOriginAllowed: (origin) => isBrowserOriginAllowed(db, origin),
-  rateLimitRedis: redis,
+  rateLimitRedis,
   trustProxy: config.trustedProxyCidrs,
   nodeEnv: config.nodeEnv,
   console: {
@@ -1071,6 +1075,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
       { name: "app.close", run: () => app.close() },
       { name: "telemetryQueue.close", run: () => telemetryQueue.close() },
       { name: "authQuotaRedis.close", run: () => authQuotaRedis.close() },
+      { name: "rateLimitRedis.close", run: () => closeRateLimitRedis(rateLimitRedis) },
       { name: "redis.quit", run: () => redis.quit() },
       { name: "db.destroy", run: () => db.destroy() }
     ],

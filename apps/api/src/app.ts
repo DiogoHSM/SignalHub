@@ -105,10 +105,26 @@ type BrowserOriginCacheEntry = {
   expiresAt: number;
 };
 
-function normalizeBrowserOrigin(origin: string): string | undefined {
+function normalizeConfiguredBrowserOrigin(origin: string): string | undefined {
   try {
     const parsed = new URL(origin);
     if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return undefined;
+    }
+    return parsed.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseSerializedBrowserOrigin(origin: string): string | undefined {
+  if (!/^https?:\/\/[^\s/?#\\@]+$/.test(origin)) {
+    return undefined;
+  }
+
+  try {
+    const parsed = new URL(origin);
+    if (parsed.username || parsed.password) {
       return undefined;
     }
     return parsed.origin;
@@ -134,7 +150,7 @@ export class BrowserOriginCache {
   }
 
   async isAllowed(origin: string): Promise<boolean> {
-    const normalizedOrigin = normalizeBrowserOrigin(origin);
+    const normalizedOrigin = parseSerializedBrowserOrigin(origin);
     if (!normalizedOrigin) {
       return false;
     }
@@ -158,7 +174,7 @@ export class BrowserOriginCache {
   }
 
   allow(origin: string): void {
-    const normalizedOrigin = normalizeBrowserOrigin(origin);
+    const normalizedOrigin = parseSerializedBrowserOrigin(origin);
     if (normalizedOrigin) {
       this.mutationRevision += 1;
       this.set(normalizedOrigin, true);
@@ -166,7 +182,7 @@ export class BrowserOriginCache {
   }
 
   invalidate(origin: string): void {
-    const normalizedOrigin = normalizeBrowserOrigin(origin);
+    const normalizedOrigin = parseSerializedBrowserOrigin(origin);
     if (normalizedOrigin) {
       this.mutationRevision += 1;
       this.entries.delete(normalizedOrigin);
@@ -232,7 +248,7 @@ export async function buildApp(options: BuildAppOptions) {
   const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
   const browserCorsOrigins = new Set(
     (options.browserCorsOrigins ?? [])
-      .map(normalizeBrowserOrigin)
+      .map(normalizeConfiguredBrowserOrigin)
       .filter((origin): origin is string => origin !== undefined)
   );
   const browserOriginCache = new BrowserOriginCache(
@@ -294,7 +310,7 @@ export async function buildApp(options: BuildAppOptions) {
     if (typeof origin !== "string" || !isBrowserIngestionCorsPath(request.url)) {
       return;
     }
-    const normalizedOrigin = normalizeBrowserOrigin(origin);
+    const normalizedOrigin = parseSerializedBrowserOrigin(origin);
     if (!normalizedOrigin) {
       return;
     }
