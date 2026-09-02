@@ -305,6 +305,38 @@ describe("Task 4 privileged HTTP transport", () => {
     }
   });
 
+  it("retries when a response socket resets after headers and a partial declared body", async () => {
+    let requests = 0;
+    const server = await startTask4Server((_request, response) => {
+      requests += 1;
+      if (requests === 1) {
+        response.writeHead(200, { "content-length": "10" });
+        response.flushHeaders();
+        response.write("part");
+        setTimeout(() => response.socket?.destroy(), 20);
+        return;
+      }
+      response.writeHead(204).end();
+    });
+
+    try {
+      const result = await deliverWebhook({
+        channel: webhookChannel({ url: `http://127.0.0.1:${server.port}/deliver` }),
+        payload,
+        timeoutMs: 1_000,
+        nodeEnv: "test",
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "test", allowLoopback: true }),
+        attempts: 2,
+        retryDelayMs: 0
+      } as never);
+
+      expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
+      expect(requests).toBe(2);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("does not retry permanent DNS or forbidden-address failures from the actual connector", async () => {
     for (const scenario of ["permanent-dns", "forbidden-address"] as const) {
       let lookups = 0;

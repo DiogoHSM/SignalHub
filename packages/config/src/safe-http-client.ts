@@ -182,7 +182,13 @@ function requestOnce(input: {
           }
           chunks.push(buffer);
         });
-        response.once("aborted", () => fail(safeHttpError("outbound_http_request_failed")));
+        response.once("aborted", () =>
+          fail(
+            input.signal.aborted
+              ? safeHttpError("outbound_http_timeout")
+              : safeHttpError("outbound_http_request_failed", true)
+          )
+        );
         response.once("error", fail);
         response.once("end", () => {
           if (settled) return;
