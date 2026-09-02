@@ -8,7 +8,7 @@
   min-width: 44px;
   min-height: 44px;
 }
-.sh-v2 :where(button, [role="button"]):focus-visible {
+.sh-v2 :where(.sh-focus-ring, button, [role="button"]):focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
@@ -113,7 +113,7 @@
 .sh-v2 .tb-icon { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-surface); color: var(--fg-secondary); display: grid; place-items: center; position: relative; transition: background .14s, color .14s; }
 .sh-v2 .tb-icon:hover { background: var(--bg-hover); color: var(--fg); }
 .sh-v2 .tb-icon__dot { position: absolute; top: 7px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--sev-critical); box-shadow: 0 0 0 2px var(--bg-surface); }
-.sh-v2 .tb-avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, oklch(0.66 0.14 290), oklch(0.58 0.16 230)); display: grid; place-items: center; color: white; font-weight: 600; font-size: 12px; flex-shrink: 0; }
+.sh-v2 .tb-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--tenant-avatar-bg); display: grid; place-items: center; color: var(--tenant-avatar-fg); font-weight: 600; font-size: 12px; flex-shrink: 0; }
 
 @media (min-width: 900px) and (max-width: 1279px) {
   .sh-v2 .app { grid-template-columns: 64px minmax(0, 1fr) minmax(220px, 250px); }
@@ -217,8 +217,6 @@
 .sh-v2 .inv-tab.is-active { background: var(--bg-surface-2); border-bottom-color: var(--accent); color: var(--fg); font-weight: 600; }
 
 /* ====== misc additions ====== */
-.sh-v2 .sh-row--btn { cursor: pointer; transition: background .12s; font-family: inherit; }
-.sh-v2 .sh-row--btn:hover { background: var(--bg-canvas); }
 .sh-v2 .span-row { transition: background .12s; }
 .sh-v2 .span-toggle-slot { width: 44px; height: 16px; flex: 0 0 44px; display: grid; place-items: center; }
 .sh-v2 .span-toggle { width: 16px; height: 16px; border-radius: 4px; border: none; background: transparent; color: var(--fg-muted); display: grid; place-items: center; flex-shrink: 0; transition: background .12s; }

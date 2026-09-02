@@ -34,52 +34,28 @@ function promptErrorColor(rate: number): string {
   return "var(--fg-muted)";
 }
 
-const PROMPT_GRID = "1.6fr 100px 90px 100px 90px 90px 80px 28px";
-const CALL_GRID = "1.1fr 1.2fr 1.4fr 90px 90px 90px";
-
 function TenantRow({ row, ctx }: { row: LlmTenantVM; ctx: ScreenCtx }) {
   return (
     <button
-      className="sh-row sh-row--btn"
-      style={{
-        gridTemplateColumns: "1.4fr 80px 70px 1fr",
-        width: "100%",
-        textAlign: "left",
-        background: "transparent",
-        border: "none",
-        borderBottom: "1px solid var(--border-subtle)",
-        cursor: "pointer",
-      }}
+      className="sh-row sh-interactive-row llm-tenant-row"
       onClick={() => ctx.drill("tenant", { tenantId: row.tenantId })}
     >
       <div>
-        <strong style={{ fontSize: 12.5 }}>{row.tenantId}</strong>
-        <div className="sh-faint sh-mono" style={{ fontSize: 11 }}>
+        <strong className="sh-copy-12-5">{row.tenantId}</strong>
+        <div className="sh-faint sh-mono sh-copy-11">
           {formatCompact(row.calls)} calls
         </div>
       </div>
-      <span style={{ fontWeight: 600, color: "var(--sev-violet)", fontVariantNumeric: "tabular-nums" }}>
+      <span className="sh-cost">
         {formatUsd(row.costUsd)}
       </span>
-      <span className="sh-muted" style={{ fontSize: 11 }}>
+      <span className="sh-muted sh-copy-11">
         {(row.share * 100).toFixed(1)}%
       </span>
-      <div
-        style={{
-          height: 6,
-          borderRadius: 3,
-          background: "var(--bg-canvas)",
-          overflow: "hidden",
-          alignSelf: "center",
-        }}
-      >
+      <div className="llm-share-track">
         <div
-          style={{
-            height: "100%",
-            width: `${Math.min(row.share * 100, 100)}%`,
-            background: "var(--sev-violet)",
-            borderRadius: 3,
-          }}
+          className="llm-share-fill"
+          style={{ width: `${Math.min(row.share * 100, 100)}%` }}
         />
       </div>
     </button>
@@ -88,27 +64,27 @@ function TenantRow({ row, ctx }: { row: LlmTenantVM; ctx: ScreenCtx }) {
 
 function PromptRow({ row }: { row: LlmPromptVM }) {
   return (
-    <div className="sh-row" style={{ gridTemplateColumns: PROMPT_GRID }}>
+    <div className="sh-row llm-prompt-row">
       <div>
-        <div style={{ fontSize: 13, fontWeight: 500 }}>{row.promptName}</div>
-        <div className="sh-faint sh-mono" style={{ fontSize: 11 }}>
+        <div className="sh-copy-13-medium">{row.promptName}</div>
+        <div className="sh-faint sh-mono sh-copy-11">
           {row.model}
         </div>
       </div>
-      <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatCompact(row.calls)}</span>
-      <span className="sh-mono sh-muted" style={{ fontSize: 11.5 }}>
+      <span className="sh-numeric">{formatCompact(row.calls)}</span>
+      <span className="sh-mono sh-muted sh-copy-11-5">
         {row.avgTokens == null ? "—" : formatCompact(row.avgTokens)}
       </span>
-      <span className="sh-mono sh-muted" style={{ fontSize: 11.5 }}>
+      <span className="sh-mono sh-muted sh-copy-11-5">
         {formatLatency(row.avgLatencyMs)}
       </span>
       <span style={{ color: promptErrorColor(row.errorRate), fontVariantNumeric: "tabular-nums" }}>
         {(row.errorRate * 100).toFixed(1)}%
       </span>
-      <span style={{ fontWeight: 600, color: "var(--sev-violet)", fontVariantNumeric: "tabular-nums" }}>
+      <span className="sh-cost">
         {formatUsd(row.costUsd)}
       </span>
-      <span className="sh-mono sh-muted" style={{ fontSize: 11.5 }}>
+      <span className="sh-mono sh-muted sh-copy-11-5">
         {formatLatency(row.p95LatencyMs)}
       </span>
       <Icon name="chev" size={13} style={{ color: "var(--fg-faint)" }} />
@@ -118,13 +94,13 @@ function PromptRow({ row }: { row: LlmPromptVM }) {
 
 function CallRow({ row }: { row: LlmCallRowVM }) {
   return (
-    <div className="sh-row" style={{ gridTemplateColumns: CALL_GRID }}>
-      <span className="sh-mono sh-faint" style={{ fontSize: 11 }}>{formatUtcTimestamp(row.timestamp)}</span>
-      <span className="sh-mono" style={{ fontSize: 12 }}>{row.provider}/{row.model}</span>
-      <span className="sh-muted" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis" }}>{row.promptName ?? "—"}</span>
+    <div className="sh-row llm-call-row">
+      <span className="sh-mono sh-faint sh-copy-11">{formatUtcTimestamp(row.timestamp)}</span>
+      <span className="sh-mono sh-copy-12">{row.provider}/{row.model}</span>
+      <span className="sh-muted sh-copy-12 sh-ellipsis">{row.promptName ?? "—"}</span>
       <span className={row.status === "success" ? "sh-tag ok" : "sh-tag critical"}>{row.status}</span>
-      <span className="sh-mono sh-muted" style={{ fontSize: 11.5 }}>{formatLatency(row.latencyMs)}</span>
-      <span style={{ fontWeight: 600, color: "var(--sev-violet)", fontVariantNumeric: "tabular-nums" }}>{formatUsd(row.costUsd)}</span>
+      <span className="sh-mono sh-muted sh-copy-11-5">{formatLatency(row.latencyMs)}</span>
+      <span className="sh-cost">{formatUsd(row.costUsd)}</span>
     </div>
   );
 }
@@ -162,7 +138,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
 
   if (!ctx.project || !ctx.environment) {
     return (
-      <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+      <div className="sh-empty-region">
         <EmptyHint
           icon="activity"
           title="No project selected"
@@ -174,7 +150,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
 
   if (status === "loading" && !data) {
     return (
-      <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+      <div className="sh-empty-region">
         <EmptyHint icon="activity" title="Loading…" sub="Fetching LLM aggregates." />
       </div>
     );
@@ -182,7 +158,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
 
   if (status === "error" || !data) {
     return (
-      <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+      <div className="sh-empty-region">
         <EmptyHint
           icon="alert"
           title="Could not load LLM observability"
@@ -234,7 +210,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
         }
       />
 
-      <div className="llm-kpi-grid" style={{ display: "grid", gap: 12 }}>
+      <div className="llm-kpi-grid sh-investigation-grid sh-grid-12">
         <BigKpi label="Calls" value={formatCompact(kpis.calls)} color="var(--sev-violet)" />
         <BigKpi
           label={`Cost (${window})`}
@@ -247,11 +223,11 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
         <BigKpi label="Error rate" value={formatPct(kpis.errorRate)} color="var(--sev-critical)" />
       </div>
 
-      <div className="llm-panels" style={{ display: "grid", gap: 16 }}>
+      <div className="llm-panels sh-investigation-grid sh-grid-16">
         <div className="sh-card">
           <div className="sh-card__head">
             <h2 className="sh-h2">Cost by model — {window}</h2>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div className="sh-cluster-10">
               {costByModel.series.map((s) => (
                 <Legend key={s.model} color={s.color} label={s.model} />
               ))}
@@ -269,7 +245,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
         <div className="sh-card">
           <div className="sh-card__head">
             <h2 className="sh-h2">Top tenants — cost</h2>
-            <span className="sh-faint" style={{ fontSize: 11 }}>{window}</span>
+            <span className="sh-faint sh-copy-11">{window}</span>
           </div>
           <div className="sh-card__body flush">
             {tenants.length === 0 ? (
@@ -282,19 +258,18 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
       </div>
 
       <div
-        className="sh-card"
-        style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+        className="sh-card sh-card-grow"
       >
         <div className="sh-card__head">
           <h2 className="sh-h2">Prompts — ranked by cost</h2>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div className="sh-cluster-8">
             <span className="sh-tag">{prompts.length} prompts</span>
             <span className="sh-tag mono">sorted by cost</span>
           </div>
         </div>
         <div className="sh-wide-table-scroll sh-wide-table-scroll--fill">
           <div className="sh-wide-table">
-            <div className="sh-row sh-row__head" style={{ gridTemplateColumns: PROMPT_GRID }}>
+            <div className="sh-row sh-row__head llm-prompt-row">
               <span>Prompt · model</span>
               <span>Calls</span>
               <span>Avg tokens</span>
@@ -316,8 +291,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
       </div>
 
       <div
-        className="sh-card"
-        style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+        className="sh-card sh-card-grow"
       >
         <div className="sh-card__head">
           <h2 className="sh-h2">Recent calls</h2>
@@ -325,7 +299,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
         </div>
         <div className="sh-wide-table-scroll sh-wide-table-scroll--fill">
           <div className="sh-wide-table">
-            <div className="sh-row sh-row__head" style={{ gridTemplateColumns: CALL_GRID }}>
+            <div className="sh-row sh-row__head llm-call-row">
               <span>Timestamp</span>
               <span>Provider / model</span>
               <span>Prompt</span>

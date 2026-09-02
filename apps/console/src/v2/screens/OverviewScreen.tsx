@@ -63,14 +63,13 @@ function IncidentAttentionCard({
   return (
     <section
       aria-label="Top active incident"
-      className="sh-card sh-stripe critical"
-      style={{ display: "flex", flexDirection: "column" }}
+      className="sh-card sh-stripe critical sh-stack"
     >
       <div style={{ padding: "16px 16px 12px", flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div className="sh-cluster-8 sh-cluster-wrap">
           <span className={`sh-tag ${sevKey}`}>{topSeverity ?? "critical"}</span>
           {topErrorId ? <span className="sh-tag mono">{topErrorId}</span> : null}
-          <span className="sh-faint" style={{ fontSize: 11.5 }}>
+          <span className="sh-faint sh-copy-11-5">
             {incidents} active incident{incidents !== 1 ? "s" : ""}
             {alerts > 0 ? ` · ${alerts} alert${alerts !== 1 ? "s" : ""} fired` : ""}
           </span>
@@ -145,9 +144,9 @@ function AllClearBanner({
         >
           <Icon name="check" size={18} stroke={2.4} />
         </span>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 600 }}>No active incidents</div>
-          <div className="sh-muted" style={{ fontSize: 12, marginTop: 2 }}>
+        <div className="sh-grow">
+          <div className="sh-copy-14-strong">No active incidents</div>
+          <div className="sh-muted sh-copy-12" style={{ marginTop: 2 }}>
             {projectName} · {envName} operating within expected range over the last {timeWindow}.
           </div>
         </div>
@@ -179,7 +178,7 @@ function UpNextPanel({ actions, onOpen }: { actions: RecommendedActionVM[]; onOp
       {actions.length === 0 ? (
         <EmptyHint icon="check" title="No urgent actions" sub="Operational signals are stable for this window." />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column" }}>
+        <div className="sh-stack">
           {actions.slice(0, 4).map((action, i) => (
             <button
               aria-label={action.title}
@@ -204,8 +203,8 @@ function UpNextPanel({ actions, onOpen }: { actions: RecommendedActionVM[]; onOp
               >
                 {String(i + 1).padStart(2, "0")}
               </span>
-              <span style={{ minWidth: 0 }}>
-                <strong style={{ display: "block", fontSize: 12.5 }}>{action.title}</strong>
+              <span className="sh-min-w-0">
+                <strong className="sh-copy-12-5" style={{ display: "block" }}>{action.title}</strong>
                 <span
                   className="sh-muted"
                   style={{ display: "block", fontSize: 11.5, lineHeight: 1.45, marginTop: 3 }}
@@ -408,7 +407,7 @@ function SignalCard({
         <h2 className="sh-h2">{title}</h2>
         {badge}
       </div>
-      <div className="sh-card__body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div className="sh-card__body sh-stack" style={{ gap: 12 }}>
         {children}
       </div>
     </section>
@@ -455,13 +454,13 @@ function PredictiveRiskPanel({
                 gap: 12,
               }}
             >
-              <div style={{ minWidth: 0 }}>
-                <strong style={{ fontSize: 13 }}>{prediction.label}</strong>
-                <div className="sh-muted" style={{ fontSize: 11.5, marginTop: 3 }}>
+              <div className="sh-min-w-0">
+                <strong className="sh-copy-13">{prediction.label}</strong>
+                <div className="sh-muted sh-meta-line-md">
                   {Math.round(prediction.probabilityPercent)}% probability · {prediction.confidence} confidence · score{" "}
                   {prediction.score.toFixed(2)} vs {prediction.baselineRiskScore.toFixed(2)} baseline
                 </div>
-                <div className="sh-faint" style={{ fontSize: 11, marginTop: 3 }}>
+                <div className="sh-faint sh-meta-line">
                   {prediction.sampleSize} / {prediction.baselineSampleSize} samples · delta{" "}
                   {prediction.delta >= 0 ? "+" : ""}
                   {prediction.delta.toFixed(2)} · {prediction.method}
@@ -540,9 +539,9 @@ function AnomaliesPanel({
             }}
           >
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-              <div style={{ minWidth: 0 }}>
-                <strong style={{ fontSize: 13 }}>{anomaly.label}</strong>
-                <div className="sh-muted" style={{ fontSize: 11.5, marginTop: 3 }}>
+              <div className="sh-min-w-0">
+                <strong className="sh-copy-13">{anomaly.label}</strong>
+                <div className="sh-muted sh-meta-line-md">
                   {anomaly.reason}
                 </div>
               </div>
@@ -558,7 +557,7 @@ function AnomaliesPanel({
               {" · "}
               {anomaly.sampleSize} / {anomaly.baselineSampleSize} samples
             </div>
-            <div className="sh-faint" style={{ fontSize: 11, marginTop: 3 }}>
+            <div className="sh-faint sh-meta-line">
               Threshold: {anomaly.threshold}
               {anomaly.suggestedAlertRuleType ? ` · Suggested rule: ${anomaly.suggestedAlertRuleType}` : ""}
             </div>
@@ -722,7 +721,7 @@ function TopTenantsPanel({ tenants, onOpenTenant }: { tenants: TenantVM[]; onOpe
   return (
     <div className="sh-table-scroll">
       {tenants.length === 0 ? (
-        <div style={{ padding: 16 }}>
+        <div className="sh-empty-inset">
           <EmptyHint icon="users" title="No tenant data" sub="Events will appear here once tenants start sending data." />
         </div>
       ) : (
@@ -757,9 +756,9 @@ function TopTenantsPanel({ tenants, onOpenTenant }: { tenants: TenantVM[]; onOpe
               <span className="sh-mono sh-faint" style={{ fontSize: 11 }}>
                 {String(i + 1).padStart(2, "0")}
               </span>
-              <div style={{ minWidth: 0 }}>
-                <strong style={{ fontSize: 12.5 }}>{t.name}</strong>
-                <div className="sh-mono sh-faint" style={{ fontSize: 11 }}>
+              <div className="sh-min-w-0">
+                <strong className="sh-copy-12-5">{t.name}</strong>
+                <div className="sh-mono sh-faint sh-copy-11">
                   {t.id}
                 </div>
               </div>
@@ -790,11 +789,11 @@ function TopTenantsPanel({ tenants, onOpenTenant }: { tenants: TenantVM[]; onOpe
 function LlmByModelPanel({ models, window: timeWindow }: { models: LlmByModelVM[]; window: string }) {
   const total = models.reduce((s, m) => s + (Number(m.costUsd) || 0), 0) || 1;
   return (
-    <div style={{ padding: 14 }}>
+    <div className="sh-empty-inset" style={{ padding: 14 }}>
       {models.length === 0 ? (
         <EmptyHint icon="sparkles" title="No model data" sub="LLM call data will appear here." />
       ) : (
-        <div style={{ display: "grid", gap: 13 }}>
+        <div className="sh-investigation-grid" style={{ gap: 13 }}>
           {models.map((m, i) => {
             const cost = Number(m.costUsd) || 0;
             const pct = Math.round((cost / total) * 100);
@@ -852,7 +851,7 @@ function ReleasesPanel({
   return (
     <div>
       {releases.length === 0 ? (
-        <div style={{ padding: 16 }}>
+        <div className="sh-empty-inset">
           <EmptyHint icon="flag" title="No releases yet" sub="Send a release value from the SDK to compare deploys." />
         </div>
       ) : (
@@ -878,11 +877,11 @@ function ReleasesPanel({
                 cursor: "pointer",
               }}
             >
-              <div style={{ minWidth: 0 }}>
-                <strong className="sh-mono" style={{ fontSize: 12 }}>
+              <div className="sh-min-w-0">
+                <strong className="sh-mono sh-copy-12">
                   {release.release}
                 </strong>
-                <div className="sh-faint" style={{ fontSize: 11, marginTop: 3 }}>
+                <div className="sh-faint sh-meta-line">
                   {release.events} events · {release.errors} errors · {release.traces} traces
                 </div>
                 {shortCommit ? (
@@ -936,7 +935,7 @@ function RecentActivityPanel({
   return (
     <div>
       {items.length === 0 ? (
-        <div style={{ padding: 16 }}>
+        <div className="sh-empty-inset">
           <EmptyHint icon="activity" title="No recent activity" sub="Events will appear here in real time." />
         </div>
       ) : (
@@ -974,12 +973,12 @@ function RecentActivityPanel({
               <span style={{ color }}>
                 <Icon name={iconName} size={14} />
               </span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="sh-mono" style={{ fontSize: 12 }}>
+              <div className="sh-grow sh-min-w-0">
+                <div className="sh-mono sh-copy-12">
                   {item.title}
                 </div>
                 {item.sub ? (
-                  <div className="sh-faint" style={{ fontSize: 11 }}>
+                  <div className="sh-faint sh-copy-11">
                     {item.sub}
                   </div>
                 ) : null}
@@ -997,7 +996,7 @@ function TopLatencyPanel({ rows, onOpen }: { rows: OperationsVM["topLatency"]; o
   return (
     <div className="sh-table-scroll">
       {rows.length === 0 ? (
-        <div style={{ padding: 16 }}>
+        <div className="sh-empty-inset">
           <EmptyHint icon="waterfall" title="No trace latency in this window" sub="Trace routes will appear after telemetry arrives." />
         </div>
       ) : (
@@ -1019,7 +1018,7 @@ function TopLatencyPanel({ rows, onOpen }: { rows: OperationsVM["topLatency"]; o
               cursor: "pointer",
             }}
           >
-            <strong className="sh-mono" style={{ fontSize: 12 }}>
+            <strong className="sh-mono sh-copy-12">
               {row.name}
             </strong>
             <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 12 }}>
@@ -1073,7 +1072,7 @@ export function OverviewScreen({
 
   if (status === "loading" && !data) {
     return (
-      <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+      <div className="sh-empty-region">
         <EmptyHint icon="activity" title="Loading…" sub="Fetching overview data." />
       </div>
     );
@@ -1081,7 +1080,7 @@ export function OverviewScreen({
 
   if (status === "error" || !data) {
     return (
-      <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+      <div className="sh-empty-region">
         <EmptyHint icon="alert" title="Could not load overview" sub="Check your connection or try again." />
       </div>
     );
@@ -1174,7 +1173,7 @@ export function OverviewScreen({
       <MetricsStrip kpis={kpis} window={window} />
 
       {/* Signals zone */}
-      <div className="overview-signals" style={{ display: "grid", gap: 16 }}>
+      <div className="overview-signals sh-investigation-grid sh-grid-16">
         <PredictiveRiskPanel predictions={operations.predictions} onOpen={openDestination} />
         <AnomaliesPanel anomalies={operations.anomalies} onOpen={openDestination} />
       </div>
