@@ -123,7 +123,7 @@ Each physical table is deleted by one category only: `events` by events, `click_
 
 Before upgrading from a release with the former installation-boundary behavior, review scoped policies whose values exceed the installation defaults: those rows can now live longer. Already-deleted rows are not restored. Heartbeat check-ins also require the monitor, environment, and project to remain active; any of those archive states returns the same not-found response, and persistence rechecks lifecycle state transactionally.
 
-Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
+Source-map retention is worker-owned and local-storage-only. The API and worker must share the exact persistent `source_map_data:/var/lib/sigmon/source-maps` mount. The API initializes and validates `.sigmon-source-map-storage` before listening; the worker requires the existing marker. Missing or wrong authority fails closed with `source_map_storage_unavailable` before file or metadata deletion. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
 
 Set `RETENTION_ENABLED=false` to disable scheduled deletion, including scheduled source-map cleanup. The other retention variables configure the run interval, batch size, and per-table retention windows.
 
@@ -131,19 +131,19 @@ The console `System` mode is available to logged-in users. It shows API, queue w
 
 ## Backups and Restore
 
-The worker owns scheduled Postgres logical backups. When `BACKUPS_ENABLED=true`, it runs `pg_dump` in custom format and writes files named like `sigmon-YYYYMMDDTHHMMSSZ.dump` to `BACKUPS_LOCAL_DIR`.
+The worker scheduler role owns scheduled and queued manual Postgres logical backups. When `BACKUPS_ENABLED=true`, it runs scheduled `pg_dump` jobs in custom format and writes files named like `sigmon-YYYYMMDDTHHMMSSZ.dump` to `BACKUPS_LOCAL_DIR`. A scheduler-role maintenance consumer remains available for administrator-requested backups even when the schedule is disabled; a `WORKER_ROLE=queue` process does not consume those jobs.
 
 Docker Compose mounts the `backup_data` volume at `/var/lib/sigmon/backups` in the worker container. Each dump gets a SHA-256 sidecar file, and restore verifies the sidecar when present before running `pg_restore`. Local retention deletes old local backup files and sidecars according to `BACKUPS_RETENTION_DAYS`. Backup run metadata is stored in Postgres; the dump files and sidecars remain on local storage and, optionally, remote object storage.
 
 Failed `pg_dump` runs remove partial dump files before recording the sanitized failure. S3-compatible uploads retry transient network, timeout, rate-limit, and 5xx failures with a short bounded backoff; permanent 4xx authorization/configuration failures fail fast.
 
-Run a manual backup with:
+For an operator-controlled one-off backup, run the worker CLI with the intended database config and durable backup mount:
 
 ```sh
 docker compose run --rm worker pnpm backup:create
 ```
 
-Admins can also trigger a manual backup from the console System screen or through `POST /system/actions/backup` with a logged-in admin session.
+`pnpm backup:create` executes the worker path directly rather than enqueueing. Admins can instead trigger a backup from the console System screen or through `POST /system/actions/backup` with a logged-in admin session. The API returns `202 Accepted` after queue acceptance, not backup completion. Requests in the same UTC minute share one one-minute dedupe id. The returned `jobId` is correlation only; `/system/health` and the console System Health screen expose eventual backup run history. Scheduled, queued, and CLI runs share the same advisory lock, checksum, upload, retention, and run-recording path. Database credentials are passed to `pg_dump` and `pg_restore` through a scrubbed environment rather than process arguments.
 
 Restore is destructive. Stop the API and worker before restoring so no process writes to Postgres during `pg_restore`:
 
@@ -183,7 +183,11 @@ Telemetry jobs that exhaust worker retries are stored as sanitized dead-letter j
 
 Admins can upload frontend source-map artifacts from the console `Artifacts` mode for the active project and environment. Uploads support a single `.map` file or a `.zip` bundle of `.map` files. Artifacts are matched strictly by active project, active environment, release, and minified filename; SignalMonitor does not guess across scopes or releases.
 
-Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the `source_map_data` volume at `/var/lib/sigmon/source-maps`. Metadata and cached resolved frame locations are stored in Postgres. Cached stack resolutions are constrained to the same error scope, artifact scope, release, and minified file. Deleting a source-map artifact clears cached stack resolutions for errors that referenced that artifact and removes the local file.
+Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the same `source_map_data:/var/lib/sigmon/source-maps` volume into API and worker. The API creates and validates `.sigmon-source-map-storage` before listening, then the worker requires that existing authority marker. A missing, wrong, unreadable, or symlinked root/marker fails retention closed with `source_map_storage_unavailable`; files, metadata, and cached resolutions remain untouched. Split deployments must use one shared persistent backing store rather than separately named local volumes. Secure production storage uses the Linux `/proc/self/fd` descriptor boundary; native non-Linux production fails closed.
+
+Reconciliation never runs automatically. `pnpm source-maps:reconcile` is read-only by default; only the exact `--apply` mode mutates. It uses bounded pages of 100 and bounded output, gives unreferenced files a one-hour orphan grace, and shares the destructive source-map advisory lock with retention. Recover mounts and the marker offline, restart API before workers, and run the read-only command first. Never use volume deletion as repair; in particular, do not run `docker compose down -v`. See the self-hosting runbook for the Compose command forms and marker checks.
+
+Metadata and cached resolved frame locations are stored in Postgres. Cached stack resolutions are constrained to the same error scope, artifact scope, release, and minified file. Deleting a source-map artifact clears cached stack resolutions for errors that referenced that artifact and removes the local file.
 
 Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
 

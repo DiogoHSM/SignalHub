@@ -29,9 +29,9 @@ For a small production install, run:
 - API container serving `/console`, `/docs`, `/sdk`, and ingestion/query/admin endpoints.
 - Worker process with `WORKER_ROLE=all`, or split services:
   - `WORKER_ROLE=queue` for ingestion queue processing.
-  - `WORKER_ROLE=scheduler` for retention, backups, alerts, monitors, system health samples, and warehouse exports.
+  - `WORKER_ROLE=scheduler` for retention, scheduled and queued manual backups, alerts, monitors, system health samples, and warehouse exports.
 
-Use split worker/scheduler services when ingestion volume or operational jobs need independent restarts and health checks.
+Use split worker/scheduler services when ingestion volume or operational jobs need independent restarts and health checks. A queue-only worker does not consume maintenance jobs. Keep at least one scheduler-role worker running even when `BACKUPS_ENABLED=false`, because that flag disables the schedule but not administrator-requested backups.
 
 ## Quick Start
 
@@ -98,7 +98,9 @@ Docker Compose defines these persistent volumes:
 | `backup_data` | Local backup dumps and SHA-256 sidecars. |
 | `source_map_data` | Uploaded source-map artifacts. |
 
-Do not delete these volumes unless you intentionally want to wipe the install.
+The Compose API and worker mounts are the same read-write `source_map_data:/var/lib/sigmon/source-maps` volume. In a split deployment, every API and worker/scheduler instance must receive that same persistent backing store at the same `SOURCE_MAPS_LOCAL_DIR`; separately named local volumes are not shared storage.
+
+Do not delete these volumes unless you intentionally want to wipe the install. No migration, reconciliation command, application startup, or rollout step automatically removes a volume.
 
 ## Telemetry Retention Precedence
 
@@ -194,11 +196,19 @@ BACKUPS_LOCAL_DIR=/var/lib/sigmon/backups
 BACKUPS_RETENTION_DAYS=14
 ```
 
-Run a manual backup:
+The scheduler role owns both scheduled and API-requested backup execution. An administrator action in the console, or `POST /system/actions/backup`, enqueues a maintenance job and returns `202 Accepted` only after Redis accepts it. It does not mean a dump has finished. Requests in the same UTC minute use the same one-minute dedupe id. Treat the returned `jobId` as a correlation value, not as a job-status endpoint; inspect the eventual latest success or failure in `/system/health` or the console System Health screen. The scheduler consumes manual jobs even when scheduled backups are disabled.
+
+Manual and scheduled jobs call the same worker runtime, advisory lock, `pg_dump`, checksum, optional upload, retention, and backup-run recording path. The same advisory lock prevents a schedule tick, queued request, or operator CLI from creating concurrent dumps.
+
+For split deployments, `WORKER_ROLE=scheduler` must have Redis and Postgres access plus the durable `BACKUPS_LOCAL_DIR` mount. `WORKER_ROLE=queue` handles telemetry only and does not need the backup volume. The API never writes dump files and does not need the backup volume.
+
+For an operator-controlled one-off backup, run the worker CLI:
 
 ```sh
 docker compose run --rm worker pnpm backup:create
 ```
+
+`pnpm backup:create` executes the worker backup path directly; it does not enqueue an API maintenance job. Run it from the worker image or another trusted operational environment with the intended `DATABASE_URL`, full worker configuration, and persistent `BACKUPS_LOCAL_DIR`. A native checkout without the production backup mount can create a valid dump in the wrong local filesystem. Database credentials and supported libpq settings are passed to `pg_dump` through its scrubbed child environment, not process arguments; failures expose only stable redacted categories.
 
 Optional S3-compatible backup upload:
 
@@ -226,6 +236,30 @@ pnpm run doctor -- --compose --api-url http://localhost:3000
 ```
 
 Practice restore in a disposable environment before relying on it during an incident.
+
+## Source-map Storage And Reconciliation
+
+The API writes source-map files and the worker performs retention, so both roles require one authoritative persistent storage root. Compose mounts `source_map_data:/var/lib/sigmon/source-maps` into both. On startup the API validates the root, creates the exact regular-file marker `.sigmon-source-map-storage` when it is absent, validates its exact versioned contents, and only then begins listening. Compose waits for API health before starting the worker; the worker opens the existing root in require-only mode and never creates or repairs the marker. Preserve this API-first initialization order in split deployments.
+
+If the root is absent, unreadable, changed, or has a missing, wrong, partial, special, or symlinked marker, source-map retention fails closed with `source_map_storage_unavailable`. It does not list candidates or delete a file, artifact metadata, or cached resolution. A validated authoritative root may still contain metadata for an individually absent file; normal retention treats that file as already absent and can soft-delete its metadata.
+
+Secure production local storage requires Linux procfs at `/proc/self/fd`. Artifact traversal and mutation stay bound to an opened root capability rather than trusting a previously checked path. Native non-Linux production fails closed because Node does not expose an equivalent descriptor-relative no-follow boundary. Non-Linux development and test support only new direct-root flat-v2 artifacts and reject nested legacy artifact access. Run production with the documented Linux container rather than bypassing these checks.
+
+Reconciliation is an explicit operator command and never runs automatically during startup, migration, retention, or rollout. It validates the root marker before opening the database and does not run migrations. First run the read-only default:
+
+```sh
+docker compose run --rm worker pnpm source-maps:reconcile
+```
+
+Review its counts before enabling mutation. Apply mode accepts only one exact `--apply` argument:
+
+```sh
+docker compose run --rm worker pnpm source-maps:reconcile -- --apply
+```
+
+Both modes scan stable pages of 100. Output contains bounded counts and metadata ids only, never file contents; reported metadata-id samples are capped at 100. Apply performs a complete dry preflight, then uses the same dedicated source-map advisory lock as retention, revalidates authority immediately before mutation, conditionally soft-deletes metadata whose file is absent, and deletes only unreferenced regular files older than the scan-start one-hour orphan grace. Lock contention exits non-zero without mutation. A concurrently running upload, a fresh orphan, a symlink, a special file, or a changed marker is not deleted.
+
+For recovery, stop the API and every worker role, snapshot or copy the source-map volume, and verify that all roles mount the same backing store and path. Inspect `.sigmon-source-map-storage` as a regular non-symlink file with the expected contents before any offline repair. A genuinely missing marker can be recreated by an API-first restart; a wrong or partial marker is deliberately not overwritten and needs an operator-reviewed offline repair. Start the API, wait for health, then start workers and run read-only reconciliation before considering `--apply`. Do not run `docker compose down -v` or `docker volume rm` as a repair step: neither source-map recovery nor this release requires volume removal.
 
 ## Upgrade
 
