@@ -3,6 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "./api/client";
 import { App } from "./App";
+// Compile the same module used by the production operations split point before
+// the test begins, so Vitest transform time is not charged to DOM query waits.
+import "./v2/screens/screen-groups/operations";
 
 const { bootstrapClient, operationalClient, createApiClient } = vi.hoisted(() => {
   const bootstrapClient = {
@@ -186,6 +189,16 @@ describe("App", () => {
       await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
 
       await waitFor(() => expect(operationalClient.logout).toHaveBeenCalledTimes(1));
+    });
+
+    it.each(["/console/status", "/console/status/"])("keeps %s behind authentication and renders mobile status", async (path) => {
+      window.history.replaceState({}, "", path);
+      render(<App />);
+
+      expect(await screen.findByLabelText("Fleet status")).toBeInTheDocument();
+      expect(operationalClient.getMe).toHaveBeenCalledTimes(1);
+      expect(document.querySelector(".ms-root")).toBeInTheDocument();
+      expect(document.querySelector(".app")).not.toBeInTheDocument();
     });
   });
 });

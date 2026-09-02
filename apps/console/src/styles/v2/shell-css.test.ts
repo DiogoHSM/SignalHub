@@ -74,6 +74,21 @@ describe("v2 shell css is scoped", () => {
     expect(reduced).toMatch(/transition-duration:\s*0\.01ms/);
   });
 
+  it("stacks audited investigation layouts and keeps wide rows locally scrollable from 900px to 1279px", () => {
+    const medium = mediaBlocks(css, "(min-width: 900px) and (max-width: 1279px)");
+
+    expect(medium).toMatch(/\.overview-attention[^{}]*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(medium).toMatch(/\.overview-signals[^{}]*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(medium).toMatch(/\.traces-detail-grid[^{}]*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(medium).toMatch(/\.tenant-panels[^{}]*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(medium).toMatch(/\.llm-panels[^{}]*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(medium).toMatch(/\.dashboards-layout[^{}]*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(medium).toMatch(/\.sh-table-scroll[^{}]*\{[^}]*overflow-x:\s*auto/s);
+    expect(medium).toMatch(/\.sh-wide-row[^{}]*\{[^}]*overflow-x:\s*auto/s);
+    expect(medium).toMatch(/\.page[^{}]*\{[^}]*overflow-x:\s*visible/s);
+    expect(medium).toMatch(/\.tb-search\s*>\s*:where\(span,\s*kbd\)[^{}]*\{[^}]*display:\s*none/s);
+  });
+
   it("defines one 44px shared hit target across desktop, component, and mobile styles", () => {
     const allCss = `${css}\n${componentsCss}\n${mobileCss}`;
     expect(allCss).toMatch(/\.sh-hit-target\s*\{[^}]*min-width:\s*44px[^}]*min-height:\s*44px/s);

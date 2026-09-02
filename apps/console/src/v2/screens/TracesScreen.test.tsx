@@ -333,14 +333,13 @@ describe("TracesScreen — detail", () => {
     expect(leafRow.querySelector(".span-toggle-slot > .span-toggle-placeholder")).toBeInTheDocument();
   });
 
-  it("Open incident is a stub toast; Copy ID toasts", async () => {
+  it("removes the unavailable incident action while preserving Copy ID", async () => {
     mockList(traces);
     mockSpans(detail);
     const ctx = makeCtx();
     render(<TracesScreen ctx={ctx} />);
     await openDashboardTrace();
-    await userEvent.click(screen.getByText("Open incident"));
-    expect(ctx.pushToast).toHaveBeenCalledWith("Linking spans to incidents is not yet available");
+    expect(screen.queryByRole("button", { name: "Open incident" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByText("Copy ID"));
     expect(ctx.pushToast).toHaveBeenCalledWith("Trace ID copied");
   });

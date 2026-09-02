@@ -93,11 +93,33 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.restoreAllMocks();
+  Reflect.deleteProperty(window, "matchMedia");
 });
 
 // ─── tests ──────────────────────────────────────────────────────────────────
 
 describe("ConsoleShellV2", () => {
+  it("shows the mobile-status handoff instead of mounting any dense shell route at 899px", () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({
+        matches: true,
+        media: "(max-width: 899px)",
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+
+    expect(screen.getByRole("link", { name: /open mobile status/i })).toHaveAttribute("href", "/console/status");
+    expect(document.querySelector(".app")).not.toBeInTheDocument();
+  });
+
   it("opens a canonical section URL directly", async () => {
     window.history.replaceState({}, "", "/console/traces?project_id=prj_2&environment_id=env_2");
     const listTraces = vi.fn().mockResolvedValue({ data: [] });

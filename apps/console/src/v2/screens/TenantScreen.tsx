@@ -119,7 +119,7 @@ export function TenantScreen({ ctx, tenantId }: { ctx: ScreenCtx; tenantId: stri
       <div style={{ marginBottom: 4 }}>{backBtn}</div>
 
       {/* Hero */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+      <div className="tenant-header" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{ width: 52, height: 52, borderRadius: 13, background: AVATAR_GRADIENT, display: "grid", placeItems: "center", color: "white", fontWeight: 700, fontSize: 20 }}>{header.initials}</div>
           <div>
@@ -133,18 +133,16 @@ export function TenantScreen({ ctx, tenantId }: { ctx: ScreenCtx; tenantId: stri
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Segmented options={WINDOW_OPTIONS} value={window} onChange={(v) => setWindow(v as EntityWindow)} />
-          <button className="sh-btn" onClick={() => ctx.pushToast("CRM integration is not yet available")}><Icon name="ext" size={13} />Open in CRM</button>
-          <button className="sh-btn primary" onClick={() => ctx.pushToast(`Watching ${header.label}`)}><Icon name="bell" size={13} />Watch tenant</button>
         </div>
       </div>
 
       {/* KPIs */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 12 }}>
+      <div className="tenant-kpi-grid" style={{ display: "grid", gap: 12 }}>
         {kpis.map((k) => <BigKpi key={k.label} label={k.label} value={k.value} color={k.color} />)}
       </div>
 
       {/* Timeline + side rail */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16, flex: 1, minHeight: 0 }}>
+      <div className="tenant-panels" style={{ display: "grid", gap: 16, flex: 1, minHeight: 0 }}>
         <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div className="sh-card__head">
             <h2 className="sh-h2">Unified timeline</h2>
@@ -155,7 +153,7 @@ export function TenantScreen({ ctx, tenantId }: { ctx: ScreenCtx; tenantId: stri
               <span className="sh-tag info">traces</span>
             </div>
           </div>
-          <div style={{ overflow: "auto", flex: 1 }}>
+          <div className="sh-table-scroll" style={{ overflow: "auto", flex: 1 }}>
             {timeline.length === 0
               ? <EmptyHint icon="activity" title="No activity" sub="No timeline events in this window." />
               : timeline.map((row) => <TimelineRow key={row.id} row={row} ctx={ctx} />)}

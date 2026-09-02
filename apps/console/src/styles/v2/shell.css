@@ -23,6 +23,42 @@
 }
 .sh-v2 .app[data-rail="collapsed"] { --rail-w: 58px; }
 
+/* Dense-route handoff for phone and small-tablet viewports. */
+.sh-v2.narrow-console-boundary {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg-base);
+}
+.sh-v2 .narrow-console-boundary__panel {
+  width: min(100%, 520px);
+  display: grid;
+  gap: 14px;
+  padding: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-md);
+}
+.sh-v2 .narrow-console-boundary__panel p { margin: 0; max-width: 52ch; line-height: 1.6; }
+.sh-v2 .narrow-console-boundary__mark { width: 38px; height: 3px; border-radius: 2px; background: var(--accent); }
+.sh-v2 .narrow-console-boundary__link { width: fit-content; min-height: 44px; }
+
+/* Audited layouts retain the incumbent desktop composition at 1280px+. */
+.sh-v2 .overview-kpi-grid,
+.sh-v2 .tenant-kpi-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.sh-v2 .traces-kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.sh-v2 .llm-kpi-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.sh-v2 .overview-attention { grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); }
+.sh-v2 .overview-signals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sh-v2 .traces-profile-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); }
+.sh-v2 .traces-detail-grid { grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); }
+.sh-v2 .tenant-panels,
+.sh-v2 .llm-panels { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+.sh-v2 .dashboards-layout { grid-template-columns: minmax(210px, .68fr) minmax(430px, 1.45fr) minmax(310px, 1fr); }
+
 /* ====== LEFT NAV RAIL ====== */
 .sh-v2 .nv { background: var(--bg-canvas); border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; align-items: center; padding: 14px 0; gap: 4px; }
 .sh-v2 .nv-logo { width: 36px; height: 36px; border-radius: 9px; background: linear-gradient(135deg, var(--accent) 0%, oklch(0.70 0.18 165) 100%); display: grid; place-items: center; color: var(--accent-fg); font-weight: 700; margin-bottom: 14px; box-shadow: 0 0 0 1px oklch(1 0 0 / 0.06), inset 0 1px 0 oklch(1 0 0 / 0.18); }
@@ -72,6 +108,39 @@
 .sh-v2 .tb-icon:hover { background: var(--bg-hover); color: var(--fg); }
 .sh-v2 .tb-icon__dot { position: absolute; top: 7px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--sev-critical); box-shadow: 0 0 0 2px var(--bg-surface); }
 .sh-v2 .tb-avatar { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, oklch(0.66 0.14 290), oklch(0.58 0.16 230)); display: grid; place-items: center; color: white; font-weight: 600; font-size: 12px; flex-shrink: 0; }
+
+@media (min-width: 900px) and (max-width: 1279px) {
+  .sh-v2 .app { grid-template-columns: 64px minmax(0, 1fr) minmax(220px, 250px); }
+  .sh-v2 .app[data-rail="collapsed"] { grid-template-columns: 64px minmax(0, 1fr) 58px; }
+  .sh-v2 .page { padding: 18px; overflow-x: visible; }
+  .sh-v2 .tb { gap: 7px; padding-inline: 12px; }
+  .sh-v2 .tb-search { flex: 0 0 44px; width: 44px; padding: 0; justify-content: center; margin-left: 0; }
+  .sh-v2 .tb-search > :where(span, kbd) { display: none; }
+  .sh-v2 .sw-pill { max-width: 140px; }
+  .sh-v2 .sw-pill > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .sh-v2 .overview-attention,
+  .sh-v2 .overview-signals,
+  .sh-v2 .traces-profile-grid,
+  .sh-v2 .traces-detail-grid,
+  .sh-v2 .tenant-panels,
+  .sh-v2 .llm-panels,
+  .sh-v2 .dashboards-layout { grid-template-columns: minmax(0, 1fr); }
+  .sh-v2 .overview-kpi-grid,
+  .sh-v2 .tenant-kpi-grid,
+  .sh-v2 .llm-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sh-v2 .traces-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sh-v2 .tenant-header { flex-wrap: wrap; }
+
+  .sh-v2 .sh-table-scroll {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+  .sh-v2 .sh-table-scroll > :where(.sh-row, .sh-row--btn, button) { min-width: 720px; }
+  .sh-v2 .sh-wide-row { max-width: 100%; overflow-x: auto; }
+}
 
 /* ====== HEALTH RAIL (cross-project radar) ====== */
 .sh-v2 .hr { background: var(--bg-canvas); border-left: 1px solid var(--border-subtle); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }

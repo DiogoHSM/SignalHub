@@ -229,18 +229,11 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
               value={window}
               onChange={(v) => setWindow(v as OverviewWindow)}
             />
-            <button
-              className="sh-btn primary"
-              onClick={() => ctx.pushToast("CSV export is not yet available")}
-            >
-              <Icon name="download" size={14} />
-              Export CSV
-            </button>
           </>
         }
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12 }}>
+      <div className="llm-kpi-grid" style={{ display: "grid", gap: 12 }}>
         <BigKpi label="Calls" value={formatCompact(kpis.calls)} color="var(--sev-violet)" />
         <BigKpi
           label={`Cost (${window})`}
@@ -253,7 +246,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
         <BigKpi label="Error rate" value={formatPct(kpis.errorRate)} color="var(--sev-critical)" />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 16 }}>
+      <div className="llm-panels" style={{ display: "grid", gap: 16 }}>
         <div className="sh-card">
           <div className="sh-card__head">
             <h2 className="sh-h2">Cost by model — {window}</h2>
@@ -298,7 +291,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
             <span className="sh-tag mono">sorted by cost</span>
           </div>
         </div>
-        <div className="sh-row sh-row__head" style={{ gridTemplateColumns: PROMPT_GRID }}>
+        <div className="sh-row sh-row__head sh-wide-row" style={{ gridTemplateColumns: PROMPT_GRID }}>
           <span>Prompt · model</span>
           <span>Calls</span>
           <span>Avg tokens</span>
@@ -308,7 +301,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
           <span>p95</span>
           <span />
         </div>
-        <div style={{ overflow: "auto", flex: 1 }}>
+        <div className="sh-table-scroll" style={{ overflow: "auto", flex: 1 }}>
           {prompts.length === 0 ? (
             <EmptyHint icon="activity" title="No prompt data" sub="No LLM calls in this window." />
           ) : (
@@ -325,7 +318,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
           <h2 className="sh-h2">Recent calls</h2>
           <span className="sh-tag">{recentCalls.length} calls</span>
         </div>
-        <div className="sh-row sh-row__head" style={{ gridTemplateColumns: "1.1fr 1.2fr 1.4fr 90px 90px 90px" }}>
+        <div className="sh-row sh-row__head sh-wide-row" style={{ gridTemplateColumns: "1.1fr 1.2fr 1.4fr 90px 90px 90px" }}>
           <span>Timestamp</span>
           <span>Provider / model</span>
           <span>Prompt</span>
@@ -333,7 +326,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
           <span>Latency</span>
           <span>Cost</span>
         </div>
-        <div style={{ overflow: "auto", flex: 1 }}>
+        <div className="sh-table-scroll" style={{ overflow: "auto", flex: 1 }}>
           {recentCalls.length === 0 ? (
             <EmptyHint icon="sparkles" title="No recent calls" sub="No LLM calls match the current filters." />
           ) : (

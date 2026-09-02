@@ -332,9 +332,9 @@ function MetricsStrip({ kpis, window: timeWindow }: { kpis: KpisVM; window: Over
       </div>
       {!collapsed ? (
         <div
+          className="overview-kpi-grid"
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(6, minmax(0, 1fr))",
             gap: 10,
             padding: 12,
           }}
@@ -720,7 +720,7 @@ function ExploreTabs({
 
 function TopTenantsPanel({ tenants, onOpenTenant }: { tenants: TenantVM[]; onOpenTenant: (tenantId: string) => void }) {
   return (
-    <div>
+    <div className="sh-table-scroll">
       {tenants.length === 0 ? (
         <div style={{ padding: 16 }}>
           <EmptyHint icon="users" title="No tenant data" sub="Events will appear here once tenants start sending data." />
@@ -995,7 +995,7 @@ function RecentActivityPanel({
 
 function TopLatencyPanel({ rows, onOpen }: { rows: OperationsVM["topLatency"]; onOpen: () => void }) {
   return (
-    <div>
+    <div className="sh-table-scroll">
       {rows.length === 0 ? (
         <div style={{ padding: 16 }}>
           <EmptyHint icon="waterfall" title="No trace latency in this window" sub="Trace routes will appear after telemetry arrives." />
@@ -1139,9 +1139,9 @@ export function OverviewScreen({
 
       {/* Attention zone */}
       <div
+        className="overview-attention"
         style={{
           display: "grid",
-          gridTemplateColumns: "1.45fr 1fr",
           gap: 16,
         }}
       >
@@ -1174,7 +1174,7 @@ export function OverviewScreen({
       <MetricsStrip kpis={kpis} window={window} />
 
       {/* Signals zone */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div className="overview-signals" style={{ display: "grid", gap: 16 }}>
         <PredictiveRiskPanel predictions={operations.predictions} onOpen={openDestination} />
         <AnomaliesPanel anomalies={operations.anomalies} onOpen={openDestination} />
       </div>

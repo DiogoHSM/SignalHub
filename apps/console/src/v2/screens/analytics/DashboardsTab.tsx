@@ -102,7 +102,7 @@ export function DashboardsTab({ ctx }: { ctx: ScreenCtx }) {
 
   if (state.status === "unavailable") return <div className="sh-card"><EmptyHint icon="pulse" title="Dashboards unavailable" sub="Deploy an API version with analytics dashboards and saved insights." /></div>;
 
-  return <div style={{ display: "grid", gridTemplateColumns: "minmax(210px,.68fr) minmax(430px,1.45fr) minmax(310px,1fr)", gap: 12, alignItems: "start" }}>
+  return <div className="dashboards-layout" style={{ display: "grid", gap: 12, alignItems: "start" }}>
     <section className="sh-card" aria-label="Dashboard library">
       <div className="sh-card__head"><div><h2 className="sh-h2">Dashboards</h2><div className="sh-faint" style={{ fontSize: 11 }}>{state.dashboards.length} saved views</div></div><button aria-label="Create dashboard" className="sh-btn ghost icon" type="button" onClick={startNew}><Icon name="plus" size={14} /></button></div>
       <div className="sh-card__body flush">

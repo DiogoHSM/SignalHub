@@ -149,12 +149,10 @@ describe("LlmScreen", () => {
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 
-  it("Export CSV is a stub toast", async () => {
+  it("does not offer unavailable CSV export", () => {
     mockUseLlm(vm);
-    const ctx = makeCtx();
-    render(<LlmScreen ctx={ctx} />);
-    await userEvent.click(screen.getByText("Export CSV"));
-    expect(ctx.pushToast).toHaveBeenCalledWith("CSV export is not yet available");
+    render(<LlmScreen ctx={makeCtx()} />);
+    expect(screen.queryByRole("button", { name: /export csv/i })).not.toBeInTheDocument();
   });
 
   it("shows empty hints when sections have no data", () => {
