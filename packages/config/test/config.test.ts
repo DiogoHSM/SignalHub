@@ -190,6 +190,48 @@ describe("loadConfig", () => {
     ]);
   });
 
+  it("defaults trusted proxy CIDRs to an empty list", () => {
+    expect(loadConfig(baseEnv()).trustedProxyCidrs).toEqual([]);
+  });
+
+  it("loads literal trusted proxy addresses and CIDRs in configured order", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      TRUSTED_PROXY_CIDRS: " 10.0.0.4/32, fd00::4/128, 192.0.2.10, 2001:db8::10 "
+    });
+
+    expect(config.trustedProxyCidrs).toEqual([
+      "10.0.0.4/32",
+      "fd00::4/128",
+      "192.0.2.10",
+      "2001:db8::10"
+    ]);
+  });
+
+  it.each([
+    "true",
+    "false",
+    "1",
+    "10.0.0.0/33",
+    "fd00::/129",
+    "10.0.0.1/not-a-prefix",
+    "proxy.internal",
+    "10.0.0.1,,10.0.0.2"
+  ])("rejects malformed trusted proxy entry %s", (entry) => {
+    expect(() => loadConfig({ ...baseEnv(), TRUSTED_PROXY_CIDRS: entry })).toThrow(
+      "trusted_proxy_invalid"
+    );
+  });
+
+  it.each(["0.0.0.0/0", "::/0", "10.0.0.1/0", "2001:db8::1/0"])(
+    "rejects production trust-all CIDR %s",
+    (entry) => {
+      expect(() => loadConfig({ ...baseEnv(), TRUSTED_PROXY_CIDRS: entry })).toThrow(
+        "trusted_proxy_too_broad"
+      );
+    }
+  );
+
   it("loads retention defaults", () => {
     const config = loadConfig({
       NODE_ENV: "test",

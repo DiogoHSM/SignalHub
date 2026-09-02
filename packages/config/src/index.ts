@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isIP } from "node:net";
 import { SecretBox } from "./secret-box.js";
 
 export * from "./logger.js";
@@ -91,6 +92,49 @@ function parseOriginList(value: string | undefined): string[] {
     });
 }
 
+function parseTrustedProxyCidrs(value: string | undefined, nodeEnv: string): string[] {
+  if (value === undefined || value.trim() === "") {
+    return [];
+  }
+
+  const entries = value.split(",").map((entry) => entry.trim());
+  for (const entry of entries) {
+    if (entry.length === 0) {
+      throw new Error("trusted_proxy_invalid");
+    }
+
+    const parts = entry.split("/");
+    if (parts.length > 2) {
+      throw new Error("trusted_proxy_invalid");
+    }
+
+    const address = parts[0] ?? "";
+    const addressVersion = isIP(address);
+    if (addressVersion === 0) {
+      throw new Error("trusted_proxy_invalid");
+    }
+
+    const prefix = parts[1];
+    if (prefix === undefined) {
+      continue;
+    }
+    if (!/^\d+$/.test(prefix)) {
+      throw new Error("trusted_proxy_invalid");
+    }
+
+    const prefixLength = Number(prefix);
+    const maxPrefixLength = addressVersion === 4 ? 32 : 128;
+    if (prefixLength > maxPrefixLength) {
+      throw new Error("trusted_proxy_invalid");
+    }
+    if (nodeEnv === "production" && prefixLength === 0) {
+      throw new Error("trusted_proxy_too_broad");
+    }
+  }
+
+  return entries;
+}
+
 const rawConfigSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   WORKER_ROLE: z.enum(["all", "queue", "scheduler"]).default("all"),
@@ -121,6 +165,7 @@ const rawConfigSchema = z.object({
   SIGMON_PUBLIC_ENDPOINT: optionalEnvUrl,
   LANDING_HOSTS: optionalEnvString,
   BROWSER_CORS_ORIGINS: optionalEnvString,
+  TRUSTED_PROXY_CIDRS: optionalEnvString,
   RETENTION_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -322,6 +367,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     browserCors: {
       origins: parseOriginList(parsed.BROWSER_CORS_ORIGINS)
     },
+    trustedProxyCidrs: parseTrustedProxyCidrs(parsed.TRUSTED_PROXY_CIDRS, parsed.NODE_ENV),
     auth: {
       login: {
         sourceMaxAttempts: parsed.LOGIN_SOURCE_MAX_ATTEMPTS,

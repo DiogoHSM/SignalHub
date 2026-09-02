@@ -61,6 +61,7 @@ export type BuildAppOptions = {
   corsOrigin?: string | string[];
   browserCorsOrigins?: string[];
   isBrowserCorsOriginAllowed?: (origin: string) => Promise<boolean>;
+  trustProxy?: string[];
   rateLimit?: {
     max: number;
     timeWindow: number | string;
@@ -148,6 +149,9 @@ export async function buildApp(options: BuildAppOptions) {
       }
     }
   };
+  if (options.trustProxy && options.trustProxy.length > 0) {
+    fastifyOptions.trustProxy = options.trustProxy;
+  }
   const app = Fastify(fastifyOptions);
 
   app.addHook("onRequest", async (_request, reply) => {
@@ -204,7 +208,10 @@ export async function buildApp(options: BuildAppOptions) {
       parts: 6
     }
   });
-  await app.register(rateLimit, options.rateLimit ?? { max: 1000, timeWindow: "1 minute" });
+  await app.register(rateLimit, {
+    ...(options.rateLimit ?? { max: 1000, timeWindow: "1 minute" }),
+    ipv6Subnet: 64
+  });
 
   registerRequestContext(app);
   await registerDocsRoutes(app);

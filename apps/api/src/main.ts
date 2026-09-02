@@ -1043,6 +1043,7 @@ const app = await buildApp({
   googleOAuthEnabled: config.googleOAuth.enabled,
   browserCorsOrigins: config.browserCors.origins,
   isBrowserCorsOriginAllowed: (origin) => isBrowserOriginAllowed(db, origin),
+  trustProxy: config.trustedProxyCidrs,
   nodeEnv: config.nodeEnv,
   console: {
     enabled: config.console.enabled,
