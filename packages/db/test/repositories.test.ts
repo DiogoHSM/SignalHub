@@ -3502,15 +3502,18 @@ describe("repositories", () => {
         insert into source_map_artifacts
           (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id, deleted_at)
         values
-          ('smap_reconcile_003', ${project.id}, ${environment.id}, 'web@1', '3.js', '3.js.map', 'application/json', 1, 'sha3', '/storage/3.map', ${user.id}, null),
-          ('smap_reconcile_001', ${project.id}, ${environment.id}, 'web@1', '1.js', '1.js.map', 'application/json', 1, 'sha1', '/storage/1.map', ${user.id}, null),
-          ('smap_reconcile_002', ${project.id}, ${environment.id}, 'web@1', '2.js', '2.js.map', 'application/json', 1, 'sha2', '/storage/2.map', ${user.id}, ${new Date("2026-01-01T00:00:00.000Z")})
+          ('smap_zzzz_reconcile_paging_003', ${project.id}, ${environment.id}, 'web@1', '3.js', '3.js.map', 'application/json', 1, 'sha3', '/storage/3.map', ${user.id}, null),
+          ('smap_zzzz_reconcile_paging_001', ${project.id}, ${environment.id}, 'web@1', '1.js', '1.js.map', 'application/json', 1, 'sha1', '/storage/1.map', ${user.id}, null),
+          ('smap_zzzz_reconcile_paging_002', ${project.id}, ${environment.id}, 'web@1', '2.js', '2.js.map', 'application/json', 1, 'sha2', '/storage/2.map', ${user.id}, ${new Date("2026-01-01T00:00:00.000Z")})
       `.execute(db);
 
-      const first = await listActiveSourceMapMetadataPage(db, { afterId: null, batchSize: 1 });
+      const first = await listActiveSourceMapMetadataPage(db, {
+        afterId: "smap_zzzz_reconcile_paging_000",
+        batchSize: 1
+      });
       const second = await listActiveSourceMapMetadataPage(db, { afterId: first[0].id, batchSize: 1 });
-      expect(first).toEqual([{ id: "smap_reconcile_001", storagePath: "/storage/1.map" }]);
-      expect(second).toEqual([{ id: "smap_reconcile_003", storagePath: "/storage/3.map" }]);
+      expect(first).toEqual([{ id: "smap_zzzz_reconcile_paging_001", storagePath: "/storage/1.map" }]);
+      expect(second).toEqual([{ id: "smap_zzzz_reconcile_paging_003", storagePath: "/storage/3.map" }]);
       await expect(listActiveSourceMapMetadataPage(db, { afterId: null, batchSize: 101 }))
         .rejects.toThrow("source_map_reconciliation_batch_size_invalid");
 
@@ -3519,7 +3522,14 @@ describe("repositories", () => {
       await expect(findActiveSourceMapStoragePaths(db, Array.from({ length: 101 }, (_, index) => `/storage/${index}.map`)))
         .rejects.toThrow("source_map_reconciliation_batch_size_invalid");
 
-      await sql`delete from source_map_artifacts where id like 'smap_reconcile_%'`.execute(db);
+      await sql`
+        delete from source_map_artifacts
+        where id in (
+          'smap_zzzz_reconcile_paging_001',
+          'smap_zzzz_reconcile_paging_002',
+          'smap_zzzz_reconcile_paging_003'
+        )
+      `.execute(db);
     });
   });
 
