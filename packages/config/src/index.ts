@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 import { SecretBox } from "./secret-box.js";
 
 export * from "./logger.js";
@@ -92,6 +92,15 @@ function parseOriginList(value: string | undefined): string[] {
     });
 }
 
+function trustsEveryMappedIpv4Peer(address: string, prefixLength: number): boolean {
+  const subnet = new BlockList();
+  subnet.addSubnet(address, prefixLength, "ipv6");
+  return (
+    subnet.check("::ffff:0.0.0.0", "ipv6") &&
+    subnet.check("::ffff:255.255.255.255", "ipv6")
+  );
+}
+
 function parseTrustedProxyCidrs(value: string | undefined, nodeEnv: string): string[] {
   if (value === undefined || value.trim() === "") {
     return [];
@@ -127,8 +136,13 @@ function parseTrustedProxyCidrs(value: string | undefined, nodeEnv: string): str
     if (prefixLength > maxPrefixLength) {
       throw new Error("trusted_proxy_invalid");
     }
-    if (nodeEnv === "production" && prefixLength === 0) {
-      throw new Error("trusted_proxy_too_broad");
+    if (nodeEnv === "production") {
+      if (prefixLength === 0) {
+        throw new Error("trusted_proxy_too_broad");
+      }
+      if (addressVersion === 6 && trustsEveryMappedIpv4Peer(address, prefixLength)) {
+        throw new Error("trusted_proxy_too_broad");
+      }
     }
   }
 

@@ -232,6 +232,27 @@ describe("loadConfig", () => {
     }
   );
 
+  it.each([
+    "::ffff:0:0/96",
+    "0:0:0:0:0:ffff:0:0/96",
+    "::ffff:0.0.0.0/96",
+    "::fffe:0:0/95",
+    "::/80"
+  ])("rejects production CIDR %s that trusts every mapped IPv4 peer", (entry) => {
+    expect(() => loadConfig({ ...baseEnv(), TRUSTED_PROXY_CIDRS: entry })).toThrow(
+      "trusted_proxy_too_broad"
+    );
+  });
+
+  it.each(["::ffff:0:0/97", "::ffff:192.0.2.0/120"])(
+    "allows narrower production mapped-IPv4 proxy CIDR %s",
+    (entry) => {
+      expect(loadConfig({ ...baseEnv(), TRUSTED_PROXY_CIDRS: entry }).trustedProxyCidrs).toEqual([
+        entry
+      ]);
+    }
+  );
+
   it("loads retention defaults", () => {
     const config = loadConfig({
       NODE_ENV: "test",
