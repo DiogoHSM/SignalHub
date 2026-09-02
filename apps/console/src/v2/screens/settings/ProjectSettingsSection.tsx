@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { EmptyHint, Icon, SecretField, Segmented, StatusDot } from "../../../components/ui/v2";
 import type {
   ApiKey,
@@ -387,15 +387,7 @@ function GovernancePanel({ model }: { model: SettingsModel }) {
   const [path, setPath] = useState("");
   const [action, setAction] = useState<DataGovernancePropertyRule["action"]>("mask");
   const [validationError, setValidationError] = useState<string | null>(null);
-  const persistedRetention = useMemo(
-    () => Object.fromEntries(
-      RETENTION_CATEGORIES.map((category) => [
-        category.key,
-        model.policy?.retentionPolicy[category.key] ?? category.fallback,
-      ]),
-    ) as DataGovernancePolicy["retentionPolicy"],
-    [model.policy?.retentionPolicy],
-  );
+  const persistedRetention = model.policy?.retentionPolicy ?? {};
   function parseRetention(): DataGovernancePolicy["retentionPolicy"] | null {
     const entries: Array<[DataGovernanceRetentionCategory, number]> = [];
     for (const category of RETENTION_CATEGORIES) {

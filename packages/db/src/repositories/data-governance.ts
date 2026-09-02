@@ -73,7 +73,17 @@ function jsonb(value: unknown) {
   return sql<unknown>`${JSON.stringify(value)}::jsonb`;
 }
 
-function normalizeRetentionPolicy(value: unknown): DataGovernanceRetentionPolicy {
+function normalizeRetentionDays(value: unknown): number | undefined {
+  const days = typeof value === "number"
+    ? value
+    : typeof value === "string" && /^[1-9][0-9]{0,3}$/.test(value)
+      ? Number(value)
+      : undefined;
+
+  return typeof days === "number" && Number.isInteger(days) && days >= 1 && days <= 3650 ? days : undefined;
+}
+
+export function normalizeDataGovernanceRetentionPolicy(value: unknown): DataGovernanceRetentionPolicy {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
@@ -81,8 +91,8 @@ function normalizeRetentionPolicy(value: unknown): DataGovernanceRetentionPolicy
   const policy: DataGovernanceRetentionPolicy = {};
   for (const [key, rawValue] of Object.entries(value)) {
     if (!categorySet.has(key)) continue;
-    const days = typeof rawValue === "number" ? rawValue : Number(rawValue);
-    if (Number.isInteger(days) && days >= 1 && days <= 3650) {
+    const days = normalizeRetentionDays(rawValue);
+    if (days !== undefined) {
       policy[key as DataGovernanceRetentionCategory] = days;
     }
   }
@@ -130,7 +140,7 @@ function toPolicy(row: {
   return {
     projectId: row.project_id,
     environmentId: row.environment_id,
-    retentionPolicy: normalizeRetentionPolicy(row.retention_policy),
+    retentionPolicy: normalizeDataGovernanceRetentionPolicy(row.retention_policy),
     propertyRules: normalizePropertyRules(row.property_rules),
     updatedByUserId: row.updated_by_user_id,
     createdAt: row.created_at,
@@ -169,7 +179,7 @@ export async function upsertDataGovernancePolicy(
   db: Db,
   input: UpsertDataGovernancePolicyInput
 ): Promise<DataGovernancePolicy> {
-  const retentionPolicy = normalizeRetentionPolicy(input.retentionPolicy ?? {});
+  const retentionPolicy = normalizeDataGovernanceRetentionPolicy(input.retentionPolicy ?? {});
   const propertyRules = normalizePropertyRules(input.propertyRules ?? []);
   const now = new Date();
 

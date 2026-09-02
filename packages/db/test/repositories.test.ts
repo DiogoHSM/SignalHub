@@ -2221,6 +2221,38 @@ describe("repositories", () => {
     });
   });
 
+  it("normalizes malformed legacy retention JSON without materializing one-day overrides", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Malformed Governance Read" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await sql`
+        insert into data_governance_policies (project_id, environment_id, retention_policy)
+        values (
+          ${project.id},
+          ${environment.id},
+          ${JSON.stringify({
+            events: true,
+            errors: false,
+            traces: [1],
+            spans: ["90"],
+            llmCalls: {},
+            profiles: null,
+            breadcrumbs: "90",
+            unknown: "45"
+          })}::jsonb
+        )
+      `.execute(db);
+
+      const policy = await getDataGovernancePolicy(db, {
+        projectId: project.id,
+        environmentId: environment.id
+      });
+      expect(policy.retentionPolicy).toEqual({ breadcrumbs: 90 });
+    });
+  });
+
   it("uses project data governance windows during retention", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -2560,8 +2592,16 @@ describe("repositories", () => {
           { label: "negative", value: -2 },
           { label: "too_large", value: 3651 },
           { label: "array", value: [] },
+          { label: "array_one", value: [1] },
+          { label: "array_string", value: ["90"] },
           { label: "object", value: {} },
-          { label: "null", value: null }
+          { label: "null", value: null },
+          { label: "boolean_true", value: true },
+          { label: "boolean_false", value: false },
+          { label: "string_whitespace", value: " 90" },
+          { label: "string_decimal", value: "90.0" },
+          { label: "string_sign", value: "+90" },
+          { label: "string_exponent", value: "9e1" }
         ];
 
         await sql`insert into projects (id, name) values ('prj_ret_malformed', 'Malformed retention')`.execute(trx);
@@ -2611,7 +2651,7 @@ describe("repositories", () => {
 
         const deleted = await deleteExpiredTelemetry(trx, retentionOptions(now));
 
-        expect(deleted.events).toBe(9);
+        expect(deleted.events).toBe(17);
         for (const { label } of malformedValues) {
           await expect(
             trx

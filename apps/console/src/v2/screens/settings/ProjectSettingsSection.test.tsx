@@ -426,6 +426,51 @@ describe("ProjectSettingsSection", () => {
     );
   });
 
+  it("preserves an exact partial retention policy when adding and removing property rules", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const partialPolicy: DataGovernancePolicy = {
+      ...governancePolicy,
+      retentionPolicy: { clicks: 7 },
+    };
+    const client = makeClient({
+      getDataGovernancePolicy: vi.fn().mockResolvedValue({ policy: partialPolicy }),
+      updateDataGovernancePolicy: vi.fn().mockImplementation(async (input) => ({
+        policy: { ...partialPolicy, retentionPolicy: input.retentionPolicy, propertyRules: input.propertyRules },
+      })),
+    });
+    render(<ProjectSettingsSection ctx={makeCtx(client)} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Data governance" }));
+    expect(await screen.findByLabelText("Click maps retention days")).toHaveValue(7);
+    expect(screen.getByLabelText("Events retention days")).toHaveValue(90);
+    expect(screen.getByLabelText("Session replays retention days")).toHaveValue(90);
+
+    fireEvent.change(screen.getByLabelText("Property path"), { target: { value: "headers.authorization" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add masking rule" }));
+
+    await waitFor(() => expect(client.updateDataGovernancePolicy).toHaveBeenCalledTimes(1));
+    expect(client.updateDataGovernancePolicy).toHaveBeenLastCalledWith({
+      projectId: project.id,
+      environmentId: environment.id,
+      retentionPolicy: { clicks: 7 },
+      propertyRules: [
+        { target: "event.properties", path: "user.email", action: "mask" },
+        { target: "event.properties", path: "headers.authorization", action: "mask" },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove event.properties.user.email" }));
+    await waitFor(() => expect(client.updateDataGovernancePolicy).toHaveBeenCalledTimes(2));
+    expect(client.updateDataGovernancePolicy).toHaveBeenLastCalledWith({
+      projectId: project.id,
+      environmentId: environment.id,
+      retentionPolicy: { clicks: 7 },
+      propertyRules: [
+        { target: "event.properties", path: "headers.authorization", action: "mask" },
+      ],
+    });
+  });
+
   it("preserves a retention edit made as the governance panel becomes interactive", async () => {
     const client = makeClient();
     let edited = false;

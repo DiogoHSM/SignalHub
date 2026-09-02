@@ -2,7 +2,10 @@ import type { Selectable, Transaction } from "kysely";
 import { sql } from "kysely";
 import type { Db } from "../client.js";
 import type { Database, RetentionRunsTable } from "../schema.js";
-import type { DataGovernanceRetentionCategory } from "./data-governance.js";
+import {
+  normalizeDataGovernanceRetentionPolicy,
+  type DataGovernanceRetentionCategory
+} from "./data-governance.js";
 import {
   retentionCategorySpecs,
   type RetentionCategory,
@@ -16,7 +19,6 @@ type SystemDb = Db | Transaction<Database>;
 const retentionAdvisoryLockId = 927380402914;
 const defaultMaxBatchesPerTable = 25;
 const retentionTableSet = new Set<string>(retentionCategorySpecs.map((spec) => spec.table));
-const retentionCategorySet = new Set<string>(retentionCategorySpecs.map((spec) => spec.category));
 
 function assertRetentionTable(tableName: string): asserts tableName is RetentionTable {
   if (!retentionTableSet.has(tableName)) {
@@ -227,7 +229,13 @@ async function deleteExpiredFromTableWithEffectiveCutoff(
        and policies.environment_id = telemetry.environment_id
       where telemetry.${sql.ref(spec.timestamp)} < ${now}::timestamptz - (
         case
-          when jsonb_typeof(policies.retention_policy -> ${spec.category}) in ('number', 'string')
+          when (
+            jsonb_typeof(policies.retention_policy -> ${spec.category}) = 'number'
+            or (
+              jsonb_typeof(policies.retention_policy -> ${spec.category}) = 'string'
+              and (policies.retention_policy ->> ${spec.category}) ~ '^[1-9][0-9]{0,3}$'
+            )
+          )
             and pg_input_is_valid(policies.retention_policy ->> ${spec.category}, 'numeric')
           then case
             when (policies.retention_policy ->> ${spec.category})::numeric between 1 and 3650
@@ -286,19 +294,7 @@ async function deleteExpiredBatchesFromTableWithEffectiveCutoff(
 }
 
 export function normalizeGovernanceRetentionPolicy(value: unknown): Partial<Record<DataGovernanceRetentionCategory, number>> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-
-  const policy: Partial<Record<DataGovernanceRetentionCategory, number>> = {};
-  for (const [key, rawValue] of Object.entries(value)) {
-    if (!retentionCategorySet.has(key)) continue;
-    const days = typeof rawValue === "number" ? rawValue : Number(rawValue);
-    if (Number.isInteger(days) && days >= 1 && days <= 3650) {
-      policy[key as DataGovernanceRetentionCategory] = days;
-    }
-  }
-  return policy;
+  return normalizeDataGovernanceRetentionPolicy(value);
 }
 
 function emptyDeletedCounts(): RetentionDeletedCounts {

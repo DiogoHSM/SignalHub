@@ -33,6 +33,36 @@ describe("effective retention", () => {
     expect(effectiveRetentionDays(policy, "clicks", { clicks: 30 })).toBe(30);
   });
 
+  it("accepts only integer numbers and canonical numeric strings", () => {
+    const policy = normalizeGovernanceRetentionPolicy({
+      events: "90",
+      errors: 180,
+      traces: true,
+      spans: false,
+      llmCalls: [1],
+      profiles: ["90"],
+      breadcrumbs: {},
+      webVitals: null,
+      clicks: " 90",
+      replays: "90.0",
+      unknown: "45"
+    });
+
+    expect(policy).toEqual({ events: 90, errors: 180 });
+  });
+
+  it.each(["+90", "-90", "9e1", "090", "90 ", "", "1.0"])(
+    "rejects noncanonical numeric retention string %j",
+    (value) => {
+      expect(normalizeGovernanceRetentionPolicy({ events: value })).toEqual({});
+    }
+  );
+
+  it("accepts canonical numeric strings only within the supported range", () => {
+    expect(normalizeGovernanceRetentionPolicy({ events: "1", errors: "3650", traces: "3651" }))
+      .toEqual({ events: 1, errors: 3650 });
+  });
+
   it("assigns every physical table to exactly one category", () => {
     const tables = retentionCategorySpecs.map((item) => item.table);
 
