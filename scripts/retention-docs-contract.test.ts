@@ -3,8 +3,13 @@ import { describe, expect, it } from "vitest";
 
 type SemanticRequirement = {
   label: string;
-  pattern: RegExp;
-  allowNegation?: boolean;
+  matches: (text: string) => boolean;
+  allowedNegation?: RegExp;
+};
+
+type SemanticSegment = {
+  text: string;
+  historical: boolean;
 };
 
 type SourceContract = {
@@ -14,32 +19,61 @@ type SourceContract = {
 
 const overrideBothDirections: SemanticRequirement = {
   label: "scoped values replace installation defaults in both directions",
-  pattern: /(?:scoped|project environment|saved)[a-z0-9 ]{0,180}(?:override|overrides|replace|replaces)[a-z0-9 ]{0,120}installation defaults?[a-z0-9 ]{0,120}(?:shorter[a-z0-9 ]{0,60}longer|longer[a-z0-9 ]{0,60}shorter)/
+  matches: (text) => hasAllTermGroups(text, [
+    ["scoped", "project environment", "saved", "category value", "scoped policy"],
+    ["installation default", "installation defaults"],
+    ["override", "overrides", "replace", "replaces", "yield to", "yields to", "give way to"],
+    ["shorter"],
+    ["longer"]
+  ])
 };
 const absentCategoryFallback: SemanticRequirement = {
   label: "absent categories use installation defaults",
-  pattern: /(?:absent|omitted|missing)[a-z0-9 ]{0,100}(?:category|categories|policy)[a-z0-9 ]{0,140}(?:use|uses|inherit|inherits|fall back|falls back|continue to use)[a-z0-9 ]{0,100}(?:installation )?defaults?/
+  matches: (text) => hasAllTermGroups(text, [
+    ["absent", "omitted", "missing", "lacking", "without"],
+    ["category", "categories", "policy", "override", "value"],
+    ["use", "uses", "inherit", "inherits", "fall back", "falls back", "default cutoff"],
+    ["installation default", "installation defaults", "installation cutoff", "default cutoff", "the default"]
+  ])
 };
 const clickOwner: SemanticRequirement = {
   label: "click_events belongs to clicks",
-  pattern: /click events[a-z0-9 ]{0,120}(?:owned by|belongs to|deleted by|by|(?:only )?to)[a-z0-9 ]{0,40}clicks/
+  matches: (text) => hasAllTermGroups(text, [
+    ["click events"],
+    ["clicks"],
+    ["own", "owns", "owned", "belong", "belongs", "delete", "deletes", "deleted", "govern", "governs", "governed"]
+  ])
 };
 const replayOwner: SemanticRequirement = {
   label: "session_replays belongs to replays",
-  pattern: /session replays[a-z0-9 ]{0,140}(?:owned by|belongs to|deleted by|by|(?:only )?to)[a-z0-9 ]{0,60}replays/
+  matches: (text) => hasAllTermGroups(text, [
+    ["session replays"],
+    ["replays"],
+    ["own", "owns", "owned", "belong", "belongs", "delete", "deletes", "deleted", "govern", "governs", "governed"]
+  ])
 };
 const fixedRoutingThreshold: SemanticRequirement = {
   label: "RETENTION_EVENTS_DAYS is the installation routing threshold",
-  pattern: /retention events days[a-z0-9 ]{0,280}(?:routing threshold|raw versus rollup)/
+  matches: (text) => hasTerm(text, "retention events days")
+    && (hasTerm(text, "routing threshold")
+      || hasTerm(text, "raw versus rollup")
+      || (hasAnyTerm(text, ["raw row", "raw rows", "raw event", "raw events"])
+        && hasAnyTerm(text, ["rollup", "rollups"])
+        && hasAnyTerm(text, ["route", "routes", "routing", "select", "selects", "serve", "serves", "served", "read", "reads", "determine", "determines", "whether"])))
 };
 const scopedRawDeletion: SemanticRequirement = {
   label: "scoped events policy independently controls raw deletion",
-  pattern: /scoped (?:events|category|retention value)[a-z0-9 ]{0,240}(?:controls|determines|delete|deletes|deletion|raw row|sooner|longer|shorter|replaces)/
+  matches: (text) => hasTerm(text, "scoped")
+    && hasAnyTerm(text, ["events", "category", "retention value", "retention policy"])
+    && hasAnyTerm(text, ["raw row", "raw rows", "raw event", "raw events", "events row", "events rows", "deletion fallback"])
+    && hasAnyTerm(text, ["control", "controls", "determine", "determines", "delete", "deletes", "deleted", "deletion", "purge", "purges", "replace", "replaces"])
 };
 const noEventsOverrideFallback: SemanticRequirement = {
   label: "a scope without an events override uses its installation cutoff",
-  pattern: /scope with no events override[a-z0-9 ]{0,140}installation default cutoff/,
-  allowNegation: true
+  matches: (text) => hasAnyTerm(text, ["scope", "environment"])
+    && hasAnyTerm(text, ["no events override", "without an events override", "lacking an events override", "lacking an events specific override"])
+    && hasAnyTerm(text, ["installation default cutoff", "installation cutoff", "installation default"]),
+  allowedNegation: /\bno events override\b/
 };
 
 const sourceContracts: SourceContract[] = [
@@ -121,8 +155,11 @@ const staleStatementPatterns = [
   /retention events days[a-z0-9 ]{0,100}(?:raw event retention window|raw event purge|purge horizon)/
 ];
 
-const negation = /\b(?:not|never|no longer|no(?!\s+\d)|cannot|cant|does not|do not|isnt|arent)\b/;
-const historicalContext = /\b(?:supersed(?:e|es|ed|ing)|former|previous|earlier|historical|old model)\b/;
+const negation = /\b(?:not|never|no longer|cannot|cant|does not|do not|is not|are not)\b/;
+const historicalIntroduction = [
+  /\b(?:former|previous|old|historical)\s+(?:rule|model|behavior|policy|statement)\b.*\b(?:said|stated|held|defined|treated|was|where)\b/,
+  /\bsupersed(?:e|es|ed|ing)\b.*\b(?:former|previous|old|rule|model|behavior|policy|\d{4})\b/
+];
 
 function read(path: string) {
   return readFileSync(path, "utf8");
@@ -131,41 +168,102 @@ function read(path: string) {
 function normalize(value: string): string {
   return value
     .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/\bisn't\b/g, "is not")
+    .replace(/\bdoesn't\b/g, "does not")
+    .replace(/\bdon't\b/g, "do not")
+    .replace(/\baren't\b/g, "are not")
+    .replace(/\bcan't\b/g, "cannot")
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function semanticSegments(content: string): string[] {
+function hasTerm(text: string, term: string): boolean {
+  return ` ${text} `.includes(` ${term} `);
+}
+
+function hasAnyTerm(text: string, terms: string[]): boolean {
+  return terms.some((term) => hasTerm(text, term));
+}
+
+function hasAllTermGroups(text: string, groups: string[][]): boolean {
+  return groups.every((group) => hasAnyTerm(text, group));
+}
+
+function isHistoricalIntroduction(text: string): boolean {
+  return historicalIntroduction.some((pattern) => pattern.test(text));
+}
+
+function classifyClauses(value: string): SemanticSegment[] {
+  const segments: SemanticSegment[] = [];
+  let inheritedHistory = false;
+
+  for (const part of value.replace(/\bno\s*:/gi, "no ").split(/([,;:])/)) {
+    if (part === ",") continue;
+    if (part === ";" || part === ":") {
+      inheritedHistory = false;
+      continue;
+    }
+
+    const text = normalize(part);
+    if (!text) continue;
+    const introducesHistory = isHistoricalIntroduction(text);
+    segments.push({ text, historical: inheritedHistory || introducesHistory });
+    if (introducesHistory) inheritedHistory = true;
+  }
+
+  return segments;
+}
+
+function semanticSegments(content: string): SemanticSegment[] {
   const lines = content.split(/\r?\n/);
-  const clauses = content.split(/[.,;\r\n]+/);
   const lineWindows = lines.flatMap((line, index) => [
     line,
     [line, lines[index + 1] ?? ""].join(" "),
     [line, lines[index + 1] ?? "", lines[index + 2] ?? ""].join(" ")
   ]);
-  return [...new Set([...lineWindows, ...clauses].map(normalize).filter(Boolean))];
+  const completeWindows = lineWindows
+    .map((window) => normalize(window))
+    .filter(Boolean)
+    .map((text) => ({ text, historical: isHistoricalIntroduction(text) }));
+  const statements = lineWindows.flatMap((window) => window.split(/[.!?]+/));
+  const segments = [...completeWindows, ...statements.flatMap((statement) => {
+    const normalizedQualifiers = statement.replace(/\bno\s*:/gi, "no ");
+    const text = normalize(normalizedQualifiers);
+    const majorClauses = normalizedQualifiers.split(/[;:]/).map((clause) => normalize(clause)).filter(Boolean);
+    return text
+      ? [
+          { text, historical: isHistoricalIntroduction(text) },
+          ...majorClauses.map((clause) => ({ text: clause, historical: isHistoricalIntroduction(clause) })),
+          ...classifyClauses(statement)
+        ]
+      : [];
+  })];
+  return [...new Map(segments.map((segment) => [`${segment.historical}:${segment.text}`, segment])).values()];
 }
 
-function hasAffirmativeRequirement(segments: string[], requirement: SemanticRequirement): boolean {
+function hasAffirmativeRequirement(segments: SemanticSegment[], requirement: SemanticRequirement): boolean {
   return segments.some((segment) => {
-    const match = requirement.pattern.exec(segment);
-    if (!match || match.index === undefined) return false;
-    const context = segment.slice(Math.max(0, match.index - 12), match.index + match[0].length);
-    return requirement.allowNegation === true || !negation.test(context);
+    if (segment.historical || !requirement.matches(segment.text)) return false;
+    const negationContext = requirement.allowedNegation
+      ? segment.text.replace(requirement.allowedNegation, "")
+      : segment.text;
+    return !negation.test(negationContext) && !/^no\b/.test(negationContext);
   });
 }
 
 function findStaleStatements(content: string): string[] {
-  const failures: string[] = [];
-  const statements = content.split(/[.;\r\n]+/).map(normalize).filter(Boolean);
+  const failures = new Set<string>();
+  const statements = content.split(/[.!?\r\n]+/);
   for (const statement of statements) {
-    if (historicalContext.test(statement)) continue;
-    if (staleStatementPatterns.some((pattern) => pattern.test(statement))) {
-      failures.push(statement);
+    for (const clause of classifyClauses(statement)) {
+      if (!clause.historical && staleStatementPatterns.some((pattern) => pattern.test(clause.text))) {
+        failures.add(clause.text);
+      }
     }
   }
-  return failures;
+  return [...failures];
 }
 
 function validateSource(contract: SourceContract, content: string): string[] {
@@ -181,6 +279,46 @@ function validateSource(contract: SourceContract, content: string): string[] {
 }
 
 describe("retention documentation contract", () => {
+  it.each([
+    [clickOwner, "click_events isn't owned by clicks."],
+    [replayOwner, "session_replays doesn’t belong to replays."],
+    [fixedRoutingThreshold, "RETENTION_EVENTS_DAYS isn't the raw-versus-rollup routing threshold."],
+    [scopedRawDeletion, "Scoped events don’t control raw-row deletion."]
+  ])("rejects contracted positive clauses with normalized contractions", (requirement, content) => {
+    expect(validateSource(
+      { path: "fixture", requirements: [requirement] },
+      content
+    )).toContain(`fixture is missing: ${requirement.label}`);
+  });
+
+  it.each([
+    "Unlike the former rule, installation defaults always win now.",
+    "As noted earlier, RETENTION_EVENTS_DAYS is the raw-event purge horizon.",
+    "This supersedes nothing: installation defaults always win."
+  ])("rejects an active stale clause even when its sentence mentions history", (content) => {
+    expect(findStaleStatements(content)).not.toEqual([]);
+  });
+
+  it("does not let a historical-only clause satisfy a current positive requirement", () => {
+    expect(validateSource(
+      { path: "fixture", requirements: [overrideBothDirections] },
+      "The former rule said scoped values replace installation defaults whether shorter or longer."
+    )).toContain("fixture is missing: scoped values replace installation defaults in both directions");
+  });
+
+  it.each([
+    [overrideBothDirections, "Installation defaults yield to a scoped policy, whether the value is longer or shorter."],
+    [clickOwner, "The clicks policy exclusively governs click_events."],
+    [fixedRoutingThreshold, "RETENTION_EVENTS_DAYS determines whether cohort queries read raw rows or rollups."],
+    [fixedRoutingThreshold, "RETENTION_EVENTS_DAYS is the fixed cohort raw-versus-rollup routing threshold."],
+    [absentCategoryFallback, "An environment lacking an events-specific override inherits the installation cutoff."]
+  ])("accepts a valid semantic paraphrase without fixed word order", (requirement, content) => {
+    expect(validateSource(
+      { path: "fixture", requirements: [requirement] },
+      content
+    )).toEqual([]);
+  });
+
   it("rejects negated positive clauses and direct stale-statement mutations", () => {
     expect(validateSource(
       { path: "fixture", requirements: [clickOwner] },
