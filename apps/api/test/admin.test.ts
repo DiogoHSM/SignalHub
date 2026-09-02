@@ -4,7 +4,11 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { zipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assertSourceMapStorageRoot } from "../src/source-maps/storage-root.js";
+import {
+  assertSourceMapStorageRoot,
+  openSourceMapStorageSession,
+  type SourceMapStorageSession
+} from "../src/source-maps/storage-root.js";
 import type { AnalyticsSegmentPreview, AnalyticsSegmentRecord } from "../../../packages/db/src/repositories/analytics-segments.js";
 import type { AnalyticsDashboardRecord } from "../../../packages/db/src/repositories/analytics-dashboards.js";
 import { EventPropertyNotPromotedError } from "../../../packages/db/src/repositories/analytics-insights.js";
@@ -4113,6 +4117,7 @@ describe("admin routes", () => {
 
     const { uploadSourceMapBundle } = await import("../src/source-maps/storage.js");
     const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
+    let storage: SourceMapStorageSession | undefined;
     const db = {
       transaction: () => ({
         execute: async <T>(callback: (trx: unknown) => Promise<T>) => callback({})
@@ -4127,10 +4132,11 @@ describe("admin routes", () => {
 
     try {
       await assertSourceMapStorageRoot(localDir, "create");
+      storage = await openSourceMapStorageSession({ localDir, mode: "require", nodeEnv: "test" });
       await expect(
         uploadSourceMapBundle({
           db: db as never,
-          localDir,
+          storage,
           input: {
             projectId: "prj_1",
             environmentId: "env_1",
@@ -4154,6 +4160,7 @@ describe("admin routes", () => {
         createdArtifactInputs.map((input) => expect(access(input.storagePath)).rejects.toThrow())
       );
     } finally {
+      await storage?.close();
       await rm(localDir, { recursive: true, force: true });
     }
   });
@@ -4175,6 +4182,7 @@ describe("admin routes", () => {
 
     const { uploadSingleSourceMap } = await import("../src/source-maps/storage.js");
     const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
+    let storage: SourceMapStorageSession | undefined;
     const db = {
       transaction: () => ({
         execute: async <T>(callback: (trx: unknown) => Promise<T>) => callback({})
@@ -4183,9 +4191,10 @@ describe("admin routes", () => {
 
     try {
       await assertSourceMapStorageRoot(localDir, "create");
+      storage = await openSourceMapStorageSession({ localDir, mode: "require", nodeEnv: "test" });
       await uploadSingleSourceMap({
         db: db as never,
-        localDir,
+        storage,
         input: {
           projectId: "prj_1",
           environmentId: "env_1",
@@ -4205,6 +4214,7 @@ describe("admin routes", () => {
 
       expect(createdArtifactInputs[0]).toMatchObject({ minifiedFile: "app.min.js" });
     } finally {
+      await storage?.close();
       await rm(localDir, { recursive: true, force: true });
     }
   });
@@ -4230,6 +4240,7 @@ describe("admin routes", () => {
 
     const { uploadSingleSourceMap, uploadSourceMapBundle } = await import("../src/source-maps/storage.js");
     const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
+    let storage: SourceMapStorageSession | undefined;
     const db = {
       transaction: () => ({
         execute: async <T>(callback: (trx: unknown) => Promise<T>) => callback({})
@@ -4244,9 +4255,10 @@ describe("admin routes", () => {
 
     try {
       await assertSourceMapStorageRoot(localDir, "create");
+      storage = await openSourceMapStorageSession({ localDir, mode: "require", nodeEnv: "test" });
       await uploadSingleSourceMap({
         db: db as never,
-        localDir,
+        storage,
         input: {
           projectId: "prj_1",
           environmentId: "env_1",
@@ -4261,7 +4273,7 @@ describe("admin routes", () => {
 
       await uploadSourceMapBundle({
         db: db as never,
-        localDir,
+        storage,
         input: {
           projectId: "prj_1",
           environmentId: "env_1",
@@ -4286,6 +4298,7 @@ describe("admin routes", () => {
       });
       expect(createdArtifactInputs[1]).not.toHaveProperty("uploadedByUserId");
     } finally {
+      await storage?.close();
       await rm(localDir, { recursive: true, force: true });
     }
   });

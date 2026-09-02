@@ -295,7 +295,10 @@ describe("smoke compose temp env", () => {
       { cwd: process.cwd(), encoding: "utf8" }
     );
     const compose = JSON.parse(stdout) as {
-      services: Record<string, { volumes?: Array<{ type: string; source: string; target: string; read_only?: boolean }> }>;
+      services: Record<string, {
+        volumes?: Array<{ type: string; source: string; target: string; read_only?: boolean }>;
+        depends_on?: Record<string, { condition?: string }>;
+      }>;
       volumes: Record<string, unknown>;
     };
     const expected = {
@@ -313,6 +316,8 @@ describe("smoke compose temp env", () => {
       expect(matches[0]).toMatchObject(expected);
       expect(matches[0].read_only ?? false).toBe(false);
     }
+    expect(compose.services.worker?.depends_on?.api).toMatchObject({ condition: "service_healthy" });
+    expect(compose.services.api?.depends_on).not.toHaveProperty("api");
   });
 });
 

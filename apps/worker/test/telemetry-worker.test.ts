@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import path, { join } from "node:path";
@@ -21,6 +21,10 @@ import { startHeartbeat } from "../src/heartbeat.js";
 import { checkHttpMonitor, runMonitorEvaluationOnce, startMonitorScheduler } from "../src/monitors.js";
 import { runRetentionOnce, startRetentionScheduler } from "../src/retention.js";
 import { deleteExpiredSourceMapArtifacts, SourceMapRetentionError } from "../src/source-map-retention.js";
+import {
+  openSourceMapStorageSession,
+  type SourceMapStorageSession
+} from "../../api/src/source-maps/storage-root.js";
 import type { MonitorRecord } from "@sigmon/db/repositories/monitors.js";
 import {
   backfillErrorGroupsUntilDrained,
@@ -1218,7 +1222,6 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         await testCase.prepare();
         const listExpiredArtifacts = vi.fn(async () => []);
         const softDeleteArtifact = vi.fn(async () => null);
-        const removeFile = vi.fn(async () => undefined);
 
         const error = await deleteExpiredSourceMapArtifacts({
           localDir: testCase.localDir,
@@ -1226,8 +1229,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
           retentionDays: 30,
           batchSize: 10,
           listExpiredArtifacts,
-          softDeleteArtifact,
-          removeFile
+          softDeleteArtifact
         }).catch((caught: unknown) => caught);
 
         expect(error, testCase.name).toBeInstanceOf(SourceMapRetentionError);
@@ -1236,7 +1238,6 @@ describe("deleteExpiredSourceMapArtifacts", () => {
           deleted: { sourceMapArtifacts: 0, sourceMapFiles: 0 }
         });
         expect(listExpiredArtifacts, testCase.name).not.toHaveBeenCalled();
-        expect(removeFile, testCase.name).not.toHaveBeenCalled();
         expect(softDeleteArtifact, testCase.name).not.toHaveBeenCalled();
       }
     } finally {
@@ -1244,9 +1245,41 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     }
   });
 
+  it("revalidates the marker on a live session before listing retention metadata", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
+    let storage: SourceMapStorageSession | undefined;
+    try {
+      await markSourceMapStorageRoot(root);
+      storage = await openSourceMapStorageSession({ localDir: root, mode: "require", nodeEnv: "test" });
+      await rm(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME));
+      const listExpiredArtifacts = vi.fn(async () => []);
+      const softDeleteArtifact = vi.fn(async () => null);
+
+      const error = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        storage,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        listExpiredArtifacts,
+        softDeleteArtifact
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        message: "source_map_storage_unavailable",
+        deleted: { sourceMapArtifacts: 0, sourceMapFiles: 0 }
+      });
+      expect(listExpiredArtifacts).not.toHaveBeenCalled();
+      expect(softDeleteArtifact).not.toHaveBeenCalled();
+    } finally {
+      await storage?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("deletes expired source-map files before metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
-    const filePath = path.join(root, "artifact.map");
+    const filePath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
     try {
       await markSourceMapStorageRoot(root);
       await writeFile(filePath, "{}");
@@ -1306,7 +1339,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
 
   it("tolerates missing source-map files and still removes metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
-    const filePath = path.join(root, "missing.map");
+    const filePath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
     try {
       await markSourceMapStorageRoot(root);
       const deletedIds: string[] = [];
@@ -1362,9 +1395,9 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     }
   });
 
-  it("tolerates missing source-map parent directories and still removes metadata", async () => {
+  it.skipIf(process.platform !== "linux")("tolerates missing legacy source-map parent directories and still removes metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
-    const filePath = path.join(root, "missing-parent", "missing.map");
+    const filePath = path.join(root, "prj_1", "env_1", "release_1", "missing.map");
     try {
       await markSourceMapStorageRoot(root);
       const deletedIds: string[] = [];
@@ -1422,14 +1455,22 @@ describe("deleteExpiredSourceMapArtifacts", () => {
 
   it("tolerates source-map files disappearing before removal and still removes metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
-    const filePath = path.join(root, "raced.map");
+    const filePath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
+    let storage: SourceMapStorageSession | undefined;
     try {
       await markSourceMapStorageRoot(root);
       await writeFile(filePath, "{}");
       const deletedIds: string[] = [];
+      storage = await openSourceMapStorageSession({
+        localDir: root,
+        mode: "require",
+        nodeEnv: "test",
+        hooks: { afterParentPinned: () => rm(filePath, { force: true }) }
+      });
 
       const runtime = {
         localDir: root,
+        storage,
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
@@ -1469,12 +1510,6 @@ describe("deleteExpiredSourceMapArtifacts", () => {
             createdAt: new Date("2026-01-01T00:00:00.000Z"),
             deletedAt: new Date("2026-05-13T00:00:00.000Z")
           };
-        },
-        removeFile: async (resolvedPath: string) => {
-          await rm(resolvedPath, { force: true });
-          const error = new Error("file disappeared") as Error & { code: string };
-          error.code = "ENOENT";
-          throw error;
         }
       };
 
@@ -1483,20 +1518,111 @@ describe("deleteExpiredSourceMapArtifacts", () => {
       expect(deletedIds).toEqual(["smap_raced"]);
       expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0 });
     } finally {
+      await storage?.close();
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform !== "linux")("keeps retention deletion bound when a legacy parent is replaced after traversal", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-outside-"));
+    const legacyParent = path.join(root, "prj_1");
+    const movedParent = path.join(root, "moved-prj_1");
+    const filePath = path.join(legacyParent, "env_1", "release_1", "artifact.map");
+    const outsideFile = path.join(outside, "env_1", "release_1", "artifact.map");
+    let storage: SourceMapStorageSession | undefined;
+    try {
+      await markSourceMapStorageRoot(root);
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, "inside");
+      await mkdir(path.dirname(outsideFile), { recursive: true });
+      await writeFile(outsideFile, "outside");
+      storage = await openSourceMapStorageSession({
+        localDir: root,
+        mode: "require",
+        nodeEnv: "test",
+        hooks: {
+          afterParentPinned: async () => {
+            await rename(legacyParent, movedParent);
+            await symlink(outside, legacyParent, "dir");
+          }
+        }
+      });
+
+      const result = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        storage,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        listExpiredArtifacts: async () => [{
+          id: "smap_race",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "release_1",
+          minifiedFile: "app.js",
+          originalFilename: "app.js.map",
+          contentType: "application/json",
+          byteSize: 6,
+          sha256: "sha",
+          storagePath: filePath,
+          uploadedByUserId: "usr_1",
+          uploadedByTokenId: null,
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          deletedAt: null
+        }],
+        softDeleteArtifact: async () => ({
+          id: "smap_race",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "release_1",
+          minifiedFile: "app.js",
+          originalFilename: "app.js.map",
+          contentType: "application/json",
+          byteSize: 6,
+          sha256: "sha",
+          storagePath: filePath,
+          uploadedByUserId: "usr_1",
+          uploadedByTokenId: null,
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          deletedAt: new Date("2026-05-13T00:00:00.000Z")
+        })
+      });
+
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1 });
+      await expect(readFile(path.join(movedParent, "env_1", "release_1", "artifact.map"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(outsideFile, "utf8")).resolves.toBe("outside");
+    } finally {
+      await storage?.close();
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
     }
   });
 
   it("keeps metadata active when an individual source-map removal fails", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
-    const filePath = path.join(root, "blocked.map");
+    const filePath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
+    let storage: SourceMapStorageSession | undefined;
     try {
       await markSourceMapStorageRoot(root);
       await writeFile(filePath, "{}");
       const softDeleteArtifact = vi.fn(async () => null);
+      storage = await openSourceMapStorageSession({
+        localDir: root,
+        mode: "require",
+        nodeEnv: "test",
+        hooks: {
+          afterParentPinned: async () => {
+            const failure = new Error("permission denied") as Error & { code: string };
+            failure.code = "EACCES";
+            throw failure;
+          }
+        }
+      });
 
       const error = await deleteExpiredSourceMapArtifacts({
         localDir: root,
+        storage,
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
@@ -1518,12 +1644,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
             deletedAt: null
           }
         ],
-        softDeleteArtifact,
-        removeFile: async () => {
-          const failure = new Error("permission denied") as Error & { code: string };
-          failure.code = "EACCES";
-          throw failure;
-        }
+        softDeleteArtifact
       }).catch((caught: unknown) => caught);
 
       expect(error).toBeInstanceOf(SourceMapRetentionError);
@@ -1534,6 +1655,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
       expect(softDeleteArtifact).not.toHaveBeenCalled();
       await expect(readFile(filePath, "utf8")).resolves.toBe("{}");
     } finally {
+      await storage?.close();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -1587,7 +1709,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
       const realRoot = await realpath(root);
       await markSourceMapStorageRoot(realRoot);
       await symlink(realRoot, linkPath, "dir");
-      const filePath = path.join(realRoot, "artifact.map");
+      const filePath = path.join(realRoot, "123e4567-e89b-42d3-a456-426614174000.map");
       await writeFile(filePath, "{}");
       const deletedIds: string[] = [];
 
@@ -1648,8 +1770,8 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     try {
       await markSourceMapStorageRoot(root);
-      const targetPath = path.join(root, "target.map");
-      const linkPath = path.join(root, "artifact.map");
+      const targetPath = path.join(root, "123e4567-e89b-42d3-a456-426614174001.map");
+      const linkPath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
       await writeFile(targetPath, "{}");
       await symlink(targetPath, linkPath);
       let metadataDeleted = false;

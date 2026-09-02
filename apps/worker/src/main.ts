@@ -83,6 +83,7 @@ import {
 import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
 import { runEventRollupOnce, startEventRollupScheduler } from "./event-rollups.js";
 import { deleteExpiredSourceMapArtifacts } from "./source-map-retention.js";
+import { openSourceMapStorageSession } from "../../api/src/source-maps/storage-root.js";
 import { runShutdownSteps, runSignalShutdown } from "./runtime.js";
 import {
   pruneSystemHealthSamples,
@@ -100,6 +101,11 @@ import { recordFeedbackItem } from "@sigmon/db/repositories/feedback-widget.js";
 
 const logger = createStructuredLogger("worker");
 const config = loadConfig();
+const sourceMapStorage = await openSourceMapStorageSession({
+  localDir: config.sourceMaps.localDir,
+  mode: "require",
+  nodeEnv: config.nodeEnv
+});
 const outboundPolicy = new OutboundPolicy({
   privateCidrs: config.outbound.privateCidrs,
   allowLoopback: config.outbound.allowLoopback,
@@ -227,6 +233,7 @@ const stopRetention = runsScheduler && config.retention.enabled
           deleteExpiredSourceMapArtifacts: () =>
             deleteExpiredSourceMapArtifacts({
               localDir: config.sourceMaps.localDir,
+              storage: sourceMapStorage,
               now: new Date(),
               retentionDays: config.sourceMaps.retention.days,
               batchSize: config.sourceMaps.retention.batchSize,
@@ -481,6 +488,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
       { name: "healthSampleQueue.close", run: () => healthSampleQueue?.close() ?? Promise.resolve() },
       { name: "healthSampleConnection.quit", run: () => healthSampleConnection?.quit() ?? Promise.resolve() },
       { name: "connection.quit", run: () => connection?.quit() ?? Promise.resolve() },
+      { name: "sourceMapStorage.close", run: () => sourceMapStorage.close() },
       { name: "db.destroy", run: () => db.destroy() }
     ],
     10_000,

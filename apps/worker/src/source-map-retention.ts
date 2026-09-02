@@ -1,8 +1,7 @@
-import { rm } from "node:fs/promises";
 import type { SourceMapArtifactRecord } from "@sigmon/db/repositories/source-maps.js";
 import {
-  assertSourceMapStorageRoot,
-  resolveSourceMapArtifactPath
+  openSourceMapStorageSession,
+  type SourceMapStorageSession
 } from "../../api/src/source-maps/storage-root.js";
 
 export type SourceMapRetentionDeletedCounts = {
@@ -30,37 +29,23 @@ type SourceMapRetentionRuntime = {
     batchSize: number;
   }) => Promise<SourceMapArtifactRecord[]>;
   softDeleteArtifact: (id: string) => Promise<SourceMapArtifactRecord | null>;
-  removeFile?: (resolvedPath: string) => Promise<void>;
+  storage?: SourceMapStorageSession;
+  nodeEnv?: string;
 };
-
-function isEnoent(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
-}
-
-async function deleteSourceMapFileIfPresent(
-  canonicalRoot: string,
-  storagePath: string,
-  removeFile: (resolvedPath: string) => Promise<void>
-): Promise<boolean> {
-  const resolvedStoragePath = await resolveSourceMapArtifactPath(canonicalRoot, storagePath, { allowMissing: true });
-  if (!resolvedStoragePath) return false;
-  try {
-    await removeFile(resolvedStoragePath);
-  } catch (error) {
-    if (isEnoent(error)) {
-      return false;
-    }
-    throw error;
-  }
-  return true;
-}
 
 export async function deleteExpiredSourceMapArtifacts(
   runtime: SourceMapRetentionRuntime
 ): Promise<SourceMapRetentionDeletedCounts> {
-  let canonicalRoot: string;
+  let storage: SourceMapStorageSession;
+  let ownsStorage = false;
   try {
-    canonicalRoot = await assertSourceMapStorageRoot(runtime.localDir, "require");
+    storage = runtime.storage ?? await openSourceMapStorageSession({
+      localDir: runtime.localDir,
+      mode: "require",
+      nodeEnv: runtime.nodeEnv ?? process.env.NODE_ENV ?? "production"
+    });
+    ownsStorage = runtime.storage === undefined;
+    await storage.assertAuthority();
   } catch (error) {
     throw new SourceMapRetentionError(
       "source_map_storage_unavailable",
@@ -69,26 +54,26 @@ export async function deleteExpiredSourceMapArtifacts(
     );
   }
 
-  const cutoff = new Date(runtime.now.getTime() - runtime.retentionDays * 24 * 60 * 60 * 1000);
-  const artifacts = await runtime.listExpiredArtifacts({ cutoff, batchSize: runtime.batchSize });
-  let sourceMapArtifacts = 0;
-  let sourceMapFiles = 0;
-  const removeFile = runtime.removeFile ?? ((resolvedPath: string) => rm(resolvedPath, { force: false }));
+  try {
+    const cutoff = new Date(runtime.now.getTime() - runtime.retentionDays * 24 * 60 * 60 * 1000);
+    const artifacts = await runtime.listExpiredArtifacts({ cutoff, batchSize: runtime.batchSize });
+    let sourceMapArtifacts = 0;
+    let sourceMapFiles = 0;
 
-  for (const artifact of artifacts) {
-    try {
-      if (await deleteSourceMapFileIfPresent(canonicalRoot, artifact.storagePath, removeFile)) {
-        sourceMapFiles += 1;
+    for (const artifact of artifacts) {
+      try {
+        if (await storage.deleteArtifact(artifact.storagePath)) sourceMapFiles += 1;
+        const deleted = await runtime.softDeleteArtifact(artifact.id);
+        if (deleted) sourceMapArtifacts += 1;
+      } catch (error) {
+        throw new SourceMapRetentionError(error instanceof Error ? error.message : String(error), {
+          sourceMapArtifacts,
+          sourceMapFiles
+        }, error);
       }
-      const deleted = await runtime.softDeleteArtifact(artifact.id);
-      if (deleted) sourceMapArtifacts += 1;
-    } catch (error) {
-      throw new SourceMapRetentionError(error instanceof Error ? error.message : String(error), {
-        sourceMapArtifacts,
-        sourceMapFiles
-      }, error);
     }
+    return { sourceMapArtifacts, sourceMapFiles };
+  } finally {
+    if (ownsStorage) await storage.close();
   }
-
-  return { sourceMapArtifacts, sourceMapFiles };
 }

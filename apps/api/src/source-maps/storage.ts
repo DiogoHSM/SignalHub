@@ -1,6 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
 import type { Db } from "@sigmon/db";
 import {
   createSourceMapArtifact,
@@ -14,11 +12,7 @@ import type {
   SourceMapUploadInput
 } from "../routes/admin.js";
 import { extractSourceMapsFromZip, inferMinifiedFileFromMap, normalizeMinifiedFile, parseSourceMapJson } from "./parser.js";
-import {
-  assertSourceMapStorageRoot,
-  ensureSourceMapArtifactDirectory,
-  resolveSourceMapArtifactPath
-} from "./storage-root.js";
+import { type SourceMapStorageSession } from "./storage-root.js";
 
 export type StoredArtifact = {
   storagePath: string;
@@ -27,38 +21,19 @@ export type StoredArtifact = {
 };
 
 type StoredArtifactPathInput = {
-  localDir: string;
+  storage: SourceMapStorageSession;
   storagePath: string;
 };
 
-function safeSegment(value: string): string {
-  const segment = value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 160);
-  return segment && !/^\.+$/.test(segment) ? segment : "unknown";
-}
-
-async function validateStoragePath({ localDir, storagePath }: StoredArtifactPathInput): Promise<string> {
-  const canonicalRoot = await assertSourceMapStorageRoot(localDir, "require");
-  const resolvedStoragePath = await resolveSourceMapArtifactPath(canonicalRoot, storagePath, { allowMissing: false });
-  if (!resolvedStoragePath) throw new Error("source_map_storage_path_invalid");
-  return resolvedStoragePath;
-}
-
 export async function storeSourceMapFile(input: {
-  localDir: string;
+  storage: SourceMapStorageSession;
   projectId: string;
   environmentId: string;
   release: string;
   artifactId: string;
   content: Buffer;
 }): Promise<StoredArtifact> {
-  const canonicalRoot = await assertSourceMapStorageRoot(input.localDir, "require");
-  const directory = await ensureSourceMapArtifactDirectory(
-    canonicalRoot,
-    [safeSegment(input.projectId), safeSegment(input.environmentId), safeSegment(input.release)]
-  );
-
-  const storagePath = path.join(directory, `${safeSegment(input.artifactId)}.map`);
-  await writeFile(storagePath, input.content, { flag: "wx" });
+  const storagePath = await input.storage.createArtifact(`${input.artifactId}.map`, input.content);
 
   return {
     storagePath,
@@ -68,11 +43,15 @@ export async function storeSourceMapFile(input: {
 }
 
 export async function readSourceMapFile(input: StoredArtifactPathInput): Promise<string> {
-  return readFile(await validateStoragePath(input), "utf8");
+  return (await input.storage.readArtifact(input.storagePath)).toString("utf8");
 }
 
 export async function deleteSourceMapFile(input: StoredArtifactPathInput): Promise<void> {
-  await rm(await validateStoragePath(input), { force: false });
+  if (!(await input.storage.deleteArtifact(input.storagePath))) {
+    const error = new Error(`ENOENT: source map artifact not found, unlink '${input.storagePath}'`) as NodeJS.ErrnoException;
+    error.code = "ENOENT";
+    throw error;
+  }
 }
 
 async function deleteSourceMapFileIfPresent(input: StoredArtifactPathInput): Promise<void> {
@@ -86,8 +65,8 @@ async function deleteSourceMapFileIfPresent(input: StoredArtifactPathInput): Pro
   }
 }
 
-async function cleanupStoredFiles(localDir: string, storagePaths: string[]): Promise<void> {
-  await Promise.all(storagePaths.map((storagePath) => deleteSourceMapFileIfPresent({ localDir, storagePath })));
+async function cleanupStoredFiles(storage: SourceMapStorageSession, storagePaths: string[]): Promise<void> {
+  await Promise.all(storagePaths.map((storagePath) => storage.cleanupCreatedArtifact(storagePath)));
 }
 
 function assertUniqueMinifiedFiles(sourceMaps: Array<{ minifiedFile: string }>): void {
@@ -114,7 +93,7 @@ function sourceMapArtifactUploader(input: SourceMapUploadInput | SourceMapBundle
 
 export async function uploadSingleSourceMap(input: {
   db: Db;
-  localDir: string;
+  storage: SourceMapStorageSession;
   input: SourceMapUploadInput;
 }): Promise<SourceMapArtifactRecord[]> {
   const map = parseSourceMapJson(input.input.content.toString("utf8"));
@@ -127,7 +106,7 @@ export async function uploadSingleSourceMap(input: {
   }
 
   const stored = await storeSourceMapFile({
-    localDir: input.localDir,
+    storage: input.storage,
     projectId: input.input.projectId,
     environmentId: input.input.environmentId,
     release: input.input.release,
@@ -151,14 +130,14 @@ export async function uploadSingleSourceMap(input: {
 
     return [artifact];
   } catch (error) {
-    await cleanupStoredFiles(input.localDir, [stored.storagePath]);
+    await cleanupStoredFiles(input.storage, [stored.storagePath]);
     throw error;
   }
 }
 
 export async function uploadSourceMapBundle(input: {
   db: Db;
-  localDir: string;
+  storage: SourceMapStorageSession;
   input: SourceMapBundleUploadInput;
 }): Promise<SourceMapArtifactRecord[]> {
   const sourceMaps = extractSourceMapsFromZip(input.input.content);
@@ -177,7 +156,7 @@ export async function uploadSourceMapBundle(input: {
     }> = [];
     for (const sourceMap of sourceMaps) {
       const stored = await storeSourceMapFile({
-        localDir: input.localDir,
+        storage: input.storage,
         projectId: input.input.projectId,
         environmentId: input.input.environmentId,
         release: input.input.release,
@@ -209,14 +188,14 @@ export async function uploadSourceMapBundle(input: {
       return artifacts;
       });
   } catch (error) {
-    await cleanupStoredFiles(input.localDir, writtenStoragePaths);
+    await cleanupStoredFiles(input.storage, writtenStoragePaths);
     throw error;
   }
 }
 
 export async function deleteSourceMapArtifactAndFile(input: {
   db: Db;
-  localDir: string;
+  storage: SourceMapStorageSession;
   input: { id: string; projectId: string; environmentId: string };
 }): Promise<void> {
   const artifact = await getSourceMapArtifact(input.db, input.input);
@@ -226,7 +205,7 @@ export async function deleteSourceMapArtifactAndFile(input: {
 
   // Keep the DB row active if file deletion fails so the admin delete can be retried coherently.
   await deleteSourceMapFileIfPresent({
-    localDir: input.localDir,
+    storage: input.storage,
     storagePath: artifact.storagePath
   });
 

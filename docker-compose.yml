@@ -71,6 +71,8 @@ services:
       - backup_data:/var/lib/sigmon/backups
       - source_map_data:/var/lib/sigmon/source-maps
     depends_on:
+      api:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:

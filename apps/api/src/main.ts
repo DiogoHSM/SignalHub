@@ -281,7 +281,7 @@ import {
   uploadSourceMapBundle
 } from "./source-maps/storage.js";
 import { resolveErrorStackWithSourceMaps } from "./source-maps/resolver.js";
-import { listenAfterSourceMapStorage } from "./source-maps/storage-root.js";
+import { listenAfterSourceMapStorage, openSourceMapStorageSession } from "./source-maps/storage-root.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
 import { listenWithCleanup, runShutdownSteps, runSignalShutdown } from "./runtime.js";
 import { fetchWithTimeoutAndRetry } from "./fetch-retry.js";
@@ -319,6 +319,11 @@ const googleUserInfoSchema = z.object({
 
 const logger = createStructuredLogger("api");
 const config = loadConfig();
+const sourceMapStorage = await openSourceMapStorageSession({
+  localDir: config.sourceMaps.localDir,
+  mode: "create",
+  nodeEnv: config.nodeEnv
+});
 const outboundPolicy = new OutboundPolicy({
   privateCidrs: config.outbound.privateCidrs,
   allowLoopback: config.outbound.allowLoopback,
@@ -583,6 +588,7 @@ function runManualRetention() {
     deleteExpiredSourceMapArtifacts: () =>
       deleteExpiredSourceMapArtifacts({
         localDir: config.sourceMaps.localDir,
+        storage: sourceMapStorage,
         now: new Date(),
         retentionDays: config.sourceMaps.retention.days,
         batchSize: config.sourceMaps.retention.batchSize,
@@ -885,7 +891,7 @@ const app = await buildApp({
           }),
         getCachedErrorStackResolution: (errorId) => getCachedErrorStackResolution(db, errorId),
         findSourceMapArtifactForFrame: (scope) => findSourceMapArtifactForFrame(db, scope),
-        readSourceMapFile: ({ storagePath }) => readSourceMapFile({ localDir: config.sourceMaps.localDir, storagePath }),
+        readSourceMapFile: ({ storagePath }) => readSourceMapFile({ storage: sourceMapStorage, storagePath }),
         replaceErrorStackResolutions: (resolutionInput) => replaceErrorStackResolutions(db, resolutionInput)
       }),
     getFleet: (window) => getFleetRollup(db, { window, getHealth: getSystemHealth }),
@@ -972,19 +978,19 @@ const app = await buildApp({
     uploadMap: (input) =>
       uploadSingleSourceMap({
         db,
-        localDir: config.sourceMaps.localDir,
+        storage: sourceMapStorage,
         input
       }),
     uploadBundle: (input) =>
       uploadSourceMapBundle({
         db,
-        localDir: config.sourceMaps.localDir,
+        storage: sourceMapStorage,
         input
       }),
     remove: (input) =>
       deleteSourceMapArtifactAndFile({
         db,
-        localDir: config.sourceMaps.localDir,
+        storage: sourceMapStorage,
         input
       }),
     maxUploadBytes: config.sourceMaps.maxUploadMb * 1024 * 1024
@@ -1011,13 +1017,13 @@ const app = await buildApp({
     uploadMap: (input) =>
       uploadSingleSourceMap({
         db,
-        localDir: config.sourceMaps.localDir,
+        storage: sourceMapStorage,
         input
       }),
     uploadBundle: (input) =>
       uploadSourceMapBundle({
         db,
-        localDir: config.sourceMaps.localDir,
+        storage: sourceMapStorage,
         input
       })
   },
@@ -1085,6 +1091,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
       { name: "telemetryQueue.close", run: () => telemetryQueue.close() },
       { name: "authQuotaRedis.close", run: () => authQuotaRedis.close() },
       { name: "rateLimitRedis.close", run: () => closeRateLimitRedis(rateLimitRedis) },
+      { name: "sourceMapStorage.close", run: () => sourceMapStorage.close() },
       { name: "redis.quit", run: () => redis.quit() },
       { name: "db.destroy", run: () => db.destroy() }
     ],
@@ -1095,11 +1102,11 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 
 logger.info({ port: config.port }, "API starting");
 await listenWithCleanup({
-  listen: () =>
-    listenAfterSourceMapStorage({
-      localDir: config.sourceMaps.localDir,
-      listen: () => app.listen({ port: config.port, host: "0.0.0.0" })
-    }),
+  listen: () => listenAfterSourceMapStorage({
+    localDir: config.sourceMaps.localDir,
+    initialize: () => sourceMapStorage.assertAuthority(),
+    listen: () => app.listen({ port: config.port, host: "0.0.0.0" })
+  }),
   cleanup: () => shutdown("SIGTERM"),
   logger
 });
