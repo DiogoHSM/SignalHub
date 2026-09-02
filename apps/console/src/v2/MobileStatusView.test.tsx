@@ -124,4 +124,14 @@ describe("MobileStatusView", () => {
 
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });
+
+  it("uses the shared hit target for mobile refresh, sign-out, and project controls", async () => {
+    const client = makeClient();
+    render(<MobileStatusView client={client} user={ADMIN_USER} onSignOut={vi.fn()} />);
+
+    await screen.findByText("Operational");
+    expect(screen.getByRole("button", { name: "Sign out" })).toHaveClass("sh-hit-target");
+    expect(screen.getByRole("button", { name: /refresh/i })).toHaveClass("sh-hit-target");
+    expect(screen.getByRole("button", { name: /Pinima/ })).toHaveClass("sh-hit-target");
+  });
 });

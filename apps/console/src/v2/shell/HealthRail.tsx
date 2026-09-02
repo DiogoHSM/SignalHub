@@ -98,7 +98,7 @@ export function ProjectCard({ p, selected, expanded, onSelect, onToggle, onOpenE
   return (
     <div className={`hr-card status-card ${selected ? "is-selected" : ""}`} data-status={p.status}>
       <div
-        className="hr-card__main"
+        className="hr-card__main sh-hit-target"
         role="button"
         tabIndex={0}
         onClick={() => onSelect(p.id)}
@@ -125,13 +125,15 @@ export function ProjectCard({ p, selected, expanded, onSelect, onToggle, onOpenE
             </div>
           </div>
           <button
-            className="hr-expand"
+            className="hr-expand sh-hit-target"
+            type="button"
             aria-label={expanded ? "Collapse environments" : "Expand environments"}
             aria-expanded={expanded}
             onClick={(e) => {
               e.stopPropagation();
               onToggle(p.id);
             }}
+            onKeyDown={(e) => e.stopPropagation()}
           >
             <Icon
               name="chevd"
@@ -203,7 +205,8 @@ export function ProjectCard({ p, selected, expanded, onSelect, onToggle, onOpenE
           ) : null}
           {expanded && environments?.status === "ready" ? environments.data.map((environment) => (
             <button
-              className="hr-env"
+              className="hr-env sh-hit-target"
+              type="button"
               key={environment.name}
               aria-label={`${environment.name} · ${environment.status}`}
               onClick={() => onOpenEnv(p.id, environment.name)}
@@ -257,7 +260,8 @@ export function HealthRail({
     return (
       <aside className="hr hr--collapsed">
         <button
-          className="hr-collapsebtn"
+          className="hr-collapsebtn sh-hit-target"
+          type="button"
           title="Expand project radar"
           onClick={onToggleCollapse}
           aria-label="Expand project radar"
@@ -271,7 +275,8 @@ export function HealthRail({
           {projects.map((p) => (
             <button
               key={p.id}
-              className={`hr-collapsed-item ${p.id === selectedProjectId ? "is-selected" : ""}`}
+              className={`hr-collapsed-item sh-hit-target ${p.id === selectedProjectId ? "is-selected" : ""}`}
+              type="button"
               title={`${p.name} · ${sev(p.status).label}${p.incidents ? ` · ${p.incidents} incidents` : ""}`}
               onClick={() => {
                 onToggleCollapse();
@@ -307,7 +312,8 @@ export function HealthRail({
           <strong style={{ fontSize: 13 }}>All projects</strong>
         </div>
         <button
-          className="hr-collapsebtn"
+          className="hr-collapsebtn sh-hit-target"
+          type="button"
           title="Collapse radar"
           onClick={onToggleCollapse}
           aria-label="Collapse radar"

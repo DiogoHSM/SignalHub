@@ -53,7 +53,7 @@ export function MobileStatusView({ client, user, onSignOut }: MobileStatusViewPr
         <span className="ms-head__title">SignalMonitor</span>
         <span className="ms-head__spacer" />
         <span className="ms-head__user">{user.email}</span>
-        <button className="ms-head__signout" type="button" onClick={() => void onSignOut()}>
+        <button className="ms-head__signout sh-hit-target" type="button" onClick={() => void onSignOut()}>
           Sign out
         </button>
       </header>
@@ -82,7 +82,7 @@ export function MobileStatusView({ client, user, onSignOut }: MobileStatusViewPr
             <span>
               {fleet.rollup.incidents} open incident{fleet.rollup.incidents === 1 ? "" : "s"}
             </span>
-            <button className="ms-refresh" type="button" onClick={() => void fleet.refreshFleet()}>
+            <button className="ms-refresh sh-hit-target" type="button" onClick={() => void fleet.refreshFleet()}>
               updated {timeAgo(fleet.lastUpdated)} · refresh
             </button>
           </div>
@@ -98,7 +98,7 @@ export function MobileStatusView({ client, user, onSignOut }: MobileStatusViewPr
               return (
                 <div key={project.id} className="ms-card status-card" data-status={project.status} data-open={isOpen}>
                   <button
-                    className="ms-card__main"
+                    className="ms-card__main sh-hit-target"
                     type="button"
                     onClick={() => {
                       const next = isOpen ? null : project.id;

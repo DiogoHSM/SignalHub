@@ -271,6 +271,56 @@ describe("TracesScreen — detail", () => {
     expect(screen.getAllByText("$ 0.02").length).toBeGreaterThanOrEqual(1); // cost of the llm span
   });
 
+  it.each(["{Enter}", " "])("selects a detail span row with %s", async (key) => {
+    mockList(traces);
+    mockSpans(detail);
+    render(<TracesScreen ctx={makeCtx()} />);
+    await openDashboardTrace();
+
+    const row = screen.getByRole("button", { name: /postgres\.query/i });
+    expect(row).toHaveAttribute("tabindex", "0");
+    expect(row).toHaveClass("sh-hit-target");
+    row.focus();
+    let defaultPrevented = false;
+    const observeDefault = (event: KeyboardEvent) => {
+      if (event.target === row) defaultPrevented = event.defaultPrevented;
+    };
+    document.addEventListener("keydown", observeDefault);
+    await userEvent.keyboard(key);
+    document.removeEventListener("keydown", observeDefault);
+
+    const panel = screen.getByText("Span detail").closest(".sh-card") as HTMLElement;
+    expect(within(panel).getByText("postgres.query")).toBeInTheDocument();
+    expect(defaultPrevented).toBe(true);
+  });
+
+  it.each(["{Enter}", " "])("keeps nested expand %s from selecting its span row", async (key) => {
+    mockList(traces);
+    mockSpans(detail);
+    render(<TracesScreen ctx={makeCtx()} />);
+    await openDashboardTrace();
+
+    const expand = screen.getByRole("button", { name: "Collapse" });
+    expect(expand).toHaveClass("sh-hit-target");
+    expand.focus();
+    await userEvent.keyboard(key);
+
+    const panel = screen.getByText("Span detail").closest(".sh-card") as HTMLElement;
+    expect(within(panel).getByText("llm.gpt-5 explain")).toBeInTheDocument();
+  });
+
+  it("keeps a nested expand click from selecting its span row", async () => {
+    mockList(traces);
+    mockSpans(detail);
+    render(<TracesScreen ctx={makeCtx()} />);
+    await openDashboardTrace();
+
+    await userEvent.click(screen.getByRole("button", { name: "Collapse" }));
+
+    const panel = screen.getByText("Span detail").closest(".sh-card") as HTMLElement;
+    expect(within(panel).getByText("llm.gpt-5 explain")).toBeInTheDocument();
+  });
+
   it("Open incident is a stub toast; Copy ID toasts", async () => {
     mockList(traces);
     mockSpans(detail);

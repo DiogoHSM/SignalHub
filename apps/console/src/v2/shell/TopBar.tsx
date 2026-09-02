@@ -67,7 +67,8 @@ function ProjectSwitcher({
       {/* Project pill */}
       <div style={{ position: "relative" }}>
         <button
-          className="sw-pill"
+          className="sw-pill sh-hit-target"
+          type="button"
           onClick={() => setOpen(open === "project" ? null : "project")}
           aria-expanded={open === "project"}
         >
@@ -83,7 +84,8 @@ function ProjectSwitcher({
               return (
                 <button
                   key={proj.id}
-                  className={`sw-opt ${proj.id === project.id ? "is-active" : ""}`}
+                  className={`sw-opt sh-hit-target ${proj.id === project.id ? "is-active" : ""}`}
+                  type="button"
                   onClick={() => {
                     onSelectProject(proj.id);
                     setOpen(null);
@@ -104,7 +106,8 @@ function ProjectSwitcher({
       {/* Environment pill */}
       <div style={{ position: "relative" }}>
         <button
-          className="sw-pill"
+          className="sw-pill sh-hit-target"
+          type="button"
           onClick={() => setOpen(open === "env" ? null : "env")}
           aria-expanded={open === "env"}
         >
@@ -119,7 +122,8 @@ function ProjectSwitcher({
               return (
                 <button
                   key={envItem.id}
-                  className={`sw-opt ${envItem.id === env.id ? "is-active" : ""}`}
+                  className={`sw-opt sh-hit-target ${envItem.id === env.id ? "is-active" : ""}`}
+                  type="button"
                   onClick={() => {
                     onSelectEnv(envItem.id);
                     setOpen(null);
@@ -149,7 +153,7 @@ function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
           <span key={i} style={{ display: "contents" }}>
             {i > 0 ? <Icon name="chev" size={12} style={{ color: "var(--fg-faint)" }} /> : null}
             {it.onClick && !last ? (
-              <button className="bc-seg bc-seg--link" onClick={it.onClick}>
+              <button className="bc-seg bc-seg--link sh-hit-target" type="button" onClick={it.onClick}>
                 {it.label}
               </button>
             ) : (
@@ -249,21 +253,17 @@ export function TopBar({
       />
       <Icon name="chev" size={13} style={{ color: "var(--fg-faint)", margin: "0 2px" }} />
       <Breadcrumb items={crumb} />
-      <div className="tb-search" onClick={onOpenSearch} style={{ cursor: "pointer" }}>
+      <button className="tb-search sh-hit-target" type="button" onClick={onOpenSearch}>
         <Icon name="search" size={14} />
         <span>Search events, errors, tenants, traces…</span>
         <kbd>⌘K</kbd>
-      </div>
+      </button>
       <div className="tb-actions">
-        <button className="tb-icon" title="Refresh now" onClick={onRefresh}>
+        <button className="tb-icon sh-hit-target" type="button" title="Refresh now" onClick={onRefresh}>
           <Icon name="refresh" size={15} />
         </button>
-        <button className="tb-icon" title="Notifications">
-          <Icon name="bell" size={15} />
-          <span className="tb-icon__dot" />
-        </button>
         {railCollapsed ? (
-          <button className="tb-icon" title="Show project radar" onClick={onToggleRail}>
+          <button className="tb-icon sh-hit-target" type="button" title="Show project radar" onClick={onToggleRail}>
             <Icon name="panelExpand" size={15} />
           </button>
         ) : null}
@@ -271,7 +271,7 @@ export function TopBar({
           <button
             ref={accountTriggerRef}
             type="button"
-            className="tb-avatar"
+            className="tb-avatar sh-hit-target"
             aria-label="Open account menu"
             aria-haspopup="menu"
             aria-expanded={accountOpen}
@@ -288,7 +288,7 @@ export function TopBar({
             <div className="sw-menu" style={{ right: 0, left: "auto", minWidth: 220 }}>
               <div className="sw-menu__head" style={{ textTransform: "none" }}>{userEmail ?? "Console operator"}</div>
               <div ref={accountMenuRef} role="menu" aria-label="Account" onKeyDown={moveAccountFocus}>
-                <button className="sw-opt" role="menuitem" type="button" disabled={!onSignOut || isSigningOut} onClick={() => void signOut()}>
+                <button className="sw-opt sh-hit-target" role="menuitem" type="button" disabled={!onSignOut || isSigningOut} onClick={() => void signOut()}>
                   <Icon name="arrow" size={14} />
                   <span>{isSigningOut ? "Signing out…" : "Sign out"}</span>
                 </button>

@@ -4,6 +4,15 @@
    Omissions: html/body/#root dropped; sh-ping/sh-pulse keyframes omitted (ship from F1 keyframes.css). */
 
 /* ====== APP SHELL ====== */
+.sh-v2 .sh-hit-target {
+  min-width: 44px;
+  min-height: 44px;
+}
+.sh-v2 :where(button, [role="button"]):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .sh-v2 .app {
   display: grid;
   grid-template-columns: 64px minmax(0, 1fr) var(--rail-w, 322px);
@@ -56,7 +65,7 @@
 .sh-v2 .bc-seg--link { cursor: pointer; transition: color .14s; }
 .sh-v2 .bc-seg--link:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
 .sh-v2 .bc-seg--current { color: var(--fg); font-weight: 600; }
-.sh-v2 .tb-search { flex: 1; display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 8px; background: var(--bg-surface); border: 1px solid var(--border-subtle); color: var(--fg-muted); max-width: 420px; font-size: 12.5px; margin-left: 6px; cursor: text; }
+.sh-v2 .tb-search { flex: 1; display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 8px; background: var(--bg-surface); border: 1px solid var(--border-subtle); color: var(--fg-muted); max-width: 420px; font: inherit; font-size: 12.5px; text-align: left; margin-left: 6px; cursor: pointer; }
 .sh-v2 .tb-search kbd { margin-left: auto; padding: 1px 6px; border-radius: 4px; background: var(--bg-surface-2); border: 1px solid var(--border); font-size: 11px; }
 .sh-v2 .tb-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .sh-v2 .tb-icon { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-surface); color: var(--fg-secondary); display: grid; place-items: center; position: relative; transition: background .14s, color .14s; }
@@ -129,7 +138,7 @@
 .sh-v2 .span-row { transition: background .12s; }
 .sh-v2 .span-toggle { width: 16px; height: 16px; border-radius: 4px; border: none; background: transparent; color: var(--fg-muted); display: grid; place-items: center; flex-shrink: 0; transition: background .12s; }
 .sh-v2 .span-toggle:hover { background: var(--bg-surface-3); color: var(--fg); }
-.sh-v2 .sh-iconbtn-sm { width: 26px; height: 26px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--fg-muted); display: grid; place-items: center; transition: background .14s, color .14s, border-color .14s; }
+.sh-v2 .sh-iconbtn-sm { width: 26px; height: 26px; min-width: 44px; min-height: 44px; border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--fg-muted); display: grid; place-items: center; transition: background .14s, color .14s, border-color .14s; }
 .sh-v2 .sh-iconbtn-sm:hover { background: var(--bg-surface-2); color: var(--fg); border-color: var(--border-subtle); }
 .sh-v2 .alert-row__actions { opacity: 0; transition: opacity .14s; }
 .sh-v2 .alert-row:hover .alert-row__actions { opacity: 1; }

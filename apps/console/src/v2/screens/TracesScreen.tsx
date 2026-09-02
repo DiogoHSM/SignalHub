@@ -589,15 +589,26 @@ function WaterfallRow({ span, totalMs, treeMode, isCollapsed, isActive, onSelect
   const showToggle = treeMode && span.hasChildren;
   return (
     <div
-      className={`sh-row span-row ${isActive ? "is-active" : ""}`}
+      className={`sh-row span-row sh-hit-target ${isActive ? "is-active" : ""}`}
       style={{ gridTemplateColumns: "280px 60px 1fr", padding: "9px 16px", cursor: "pointer" }}
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 5, paddingLeft: span.level * 16, minWidth: 0 }}>
         {showToggle ? (
           <button
-            className="span-toggle"
+            className="span-toggle sh-hit-target"
+            type="button"
             onClick={(e) => { e.stopPropagation(); onToggle(); }}
+            onKeyDown={(e) => e.stopPropagation()}
             aria-label={isCollapsed ? "Expand" : "Collapse"}
           >
             <Icon name="chevd" size={12} style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform .2s" }} />

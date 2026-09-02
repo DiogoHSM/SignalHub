@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 const root = process.cwd().endsWith("apps/console") ? process.cwd() : join(process.cwd(), "apps", "console");
 const css = readFileSync(join(root, "src", "styles", "v2", "shell.css"), "utf8");
+const componentsCss = readFileSync(join(root, "src", "styles", "v2", "components.css"), "utf8");
+const mobileCss = readFileSync(join(root, "src", "v2", "mobile-status.css"), "utf8");
 const keyframesCss = readFileSync(join(root, "src", "styles", "v2", "keyframes.css"), "utf8");
 
 function mediaBlocks(source: string, query: string): string {
@@ -70,5 +72,16 @@ describe("v2 shell css is scoped", () => {
     expect(reduced).toMatch(/\.toast[^{}]*\{[^}]*opacity:\s*1[^}]*transform:\s*none/s);
     expect(reduced).toContain(".hr-expand");
     expect(reduced).toMatch(/transition-duration:\s*0\.01ms/);
+  });
+
+  it("defines one 44px shared hit target across desktop, component, and mobile styles", () => {
+    const allCss = `${css}\n${componentsCss}\n${mobileCss}`;
+    expect(allCss).toMatch(/\.sh-hit-target\s*\{[^}]*min-width:\s*44px[^}]*min-height:\s*44px/s);
+    expect(allCss).toMatch(/\.sh-iconbtn-sm\s*\{[^}]*min-width:\s*44px[^}]*min-height:\s*44px/s);
+  });
+
+  it("shows a shared focus-visible ring on native and custom interactive controls", () => {
+    const allCss = `${css}\n${componentsCss}\n${mobileCss}`;
+    expect(allCss).toMatch(/:where\([^)]*button[^)]*\[role=["']button["'][^)]*\):focus-visible\s*\{[^}]*outline:\s*2px solid var\(--focus-ring\)[^}]*outline-offset:\s*2px/s);
   });
 });

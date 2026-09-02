@@ -133,9 +133,34 @@ describe("HealthRail", () => {
 
     const firstExpand = expandButtons[0] as HTMLElement;
     expect(firstExpand.getAttribute("aria-expanded")).toBe("false");
+    expect(firstExpand).toHaveClass("sh-hit-target");
 
     await user.click(firstExpand);
     expect(onToggleExpand).toHaveBeenCalledWith("prj_1");
+  });
+
+  it("keeps keyboard activation of expand from selecting the project", async () => {
+    const onSelectProject = vi.fn();
+    const onToggleExpand = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <HealthRail
+        collapsed={false}
+        onToggleCollapse={() => {}}
+        selectedProjectId={undefined}
+        onSelectProject={onSelectProject}
+        onOpenEnv={() => {}}
+        expandedIds={new Set()}
+        onToggleExpand={onToggleExpand}
+        fleet={defaultFleet}
+      />
+    );
+
+    const expand = screen.getAllByRole("button", { name: "Expand environments" })[0];
+    expand.focus();
+    await user.keyboard("{Enter}");
+    expect(onToggleExpand).toHaveBeenCalledWith("prj_1");
+    expect(onSelectProject).not.toHaveBeenCalled();
   });
 
   it("expanded card shows aria-expanded=true on the expand button", () => {
@@ -220,6 +245,8 @@ describe("HealthRail", () => {
 
     const items = document.querySelectorAll(".hr-collapsed-item");
     expect(items).toHaveLength(2);
+    expect(Array.from(items).every((item) => item.classList.contains("sh-hit-target"))).toBe(true);
+    expect(document.querySelector(".hr-collapsebtn")).toHaveClass("sh-hit-target");
   });
 
   it("renders infra dots (api, db, redis, queue) inside each project card", () => {
@@ -269,6 +296,29 @@ describe("HealthRail", () => {
 
     const cardMains = document.querySelectorAll(".hr-card__main");
     await user.click(cardMains[0] as HTMLElement);
+    expect(onSelectProject).toHaveBeenCalledWith("prj_1");
+  });
+
+  it.each(["{Enter}", " "])("selects a project card with %s", async (key) => {
+    const onSelectProject = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <HealthRail
+        collapsed={false}
+        onToggleCollapse={() => {}}
+        selectedProjectId={undefined}
+        onSelectProject={onSelectProject}
+        onOpenEnv={() => {}}
+        expandedIds={new Set()}
+        onToggleExpand={() => {}}
+        fleet={defaultFleet}
+      />
+    );
+
+    const project = screen.getByRole("button", { name: /Alpha/ });
+    expect(project).toHaveAttribute("tabindex", "0");
+    project.focus();
+    await user.keyboard(key);
     expect(onSelectProject).toHaveBeenCalledWith("prj_1");
   });
 
