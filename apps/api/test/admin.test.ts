@@ -2665,6 +2665,32 @@ describe("admin routes", () => {
     });
   });
 
+  it("rejects unknown data governance retention categories", async () => {
+    const upsert = vi.fn(async () => dataGovernancePolicy());
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        dataGovernance: { get: async () => dataGovernancePolicy(), upsert }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/admin/data-governance",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        retentionPolicy: { events: 60, unknownCategory: 45 },
+        propertyRules: []
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_data_governance_request" });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
   it("manages warehouse export destinations and manual runs for admins", async () => {
     const repositoryDestination = () => ({
       ...warehouseDestination(),

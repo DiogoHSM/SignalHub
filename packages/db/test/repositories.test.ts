@@ -12797,9 +12797,8 @@ describe("repositories", () => {
   });
 
   // PER-451 (V1): in rollup mode the entry_event eligibility filter must be resolved against
-  // event_actor_daily, not raw `events` -- `events` is purged by the same retentionEventsDays
-  // horizon that flips the query into rollup mode, so in steady state the raw table never has
-  // rows old enough for a long-range rollup query to see. Regression test for
+  // event_actor_daily, not raw `events`, because the scope's effective events policy may have
+  // deleted historical raw rows independently of the installation routing threshold. Regression test for
   // .claude/docs/AUDIT-2026-07-26/findings/PER-440.md (finding V1).
   it("resolves entry-event eligibility against the rollup once raw events are purged", async () => {
     await withDb(async (db) => {
@@ -12833,9 +12832,8 @@ describe("repositories", () => {
         to: new Date("2025-12-03T00:00:00.000Z")
       });
 
-      // Simulate steady-state retention: purge raw `events` older than retentionEventsDays,
-      // exactly like the real background job. old_user's entry/return events are ~180 days old,
-      // well past a 90-day cutoff, so both rows are deleted here.
+      // Simulate a scope with no events override: its installation-default cutoff is 90 days.
+      // old_user's entry/return events are ~180 days old, so both rows are deleted here.
       await deleteExpiredTelemetry(db, {
         eventsDays: 90,
         errorsDays: 9999,

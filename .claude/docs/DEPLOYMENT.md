@@ -167,7 +167,7 @@ Set `RETENTION_ENABLED=false` to stop scheduled deletion while keeping the queue
 
 ## Event Rollups
 
-The `event_actor_daily` daily rollup is built into the scheduler role and backs long-range retention queries (`range_days` beyond `RETENTION_EVENTS_DAYS`). Set `EVENT_ROLLUPS_ENABLED`, `EVENT_ROLLUPS_INTERVAL_MINUTES`, and `EVENT_ROLLUPS_LOOKBACK_DAYS` in `.env` to control it. After running `pnpm db:migrate` for the migrations that add `event_actor_daily`/`event_rollup_state`, restart the worker so the new scheduler picks up the change. Keep `EVENT_ROLLUPS_LOOKBACK_DAYS` comfortably larger than `RETENTION_EVENTS_DAYS` so the rollup always finishes covering a day before raw retention purges it.
+The `event_actor_daily` daily rollup is built into the scheduler role and backs cohort requests whose range crosses the installation `RETENTION_EVENTS_DAYS` routing threshold. That threshold is not the effective raw-row lifetime: a scoped events policy can delete raw `events` sooner or keep them longer, and cohort routing is not scope-aware. Set `EVENT_ROLLUPS_ENABLED`, `EVENT_ROLLUPS_INTERVAL_MINUTES`, and `EVENT_ROLLUPS_LOOKBACK_DAYS` in `.env` to control the rollup. After running `pnpm db:migrate` for the migrations that add `event_actor_daily`/`event_rollup_state`, restart the worker so the new scheduler picks up the change. Configure `EVENT_ROLLUPS_LOOKBACK_DAYS` to cover the longest effective scoped events window or cohort range the installation must answer; `event_actor_daily` itself is not removed by raw telemetry retention.
 
 ## Simple Alerts
 

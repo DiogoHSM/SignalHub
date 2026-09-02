@@ -334,6 +334,37 @@ describe("API docs", () => {
     }
   });
 
+  it("documents the closed data governance retention categories", async () => {
+    const server = await createApp();
+    const response = await server.inject({ method: "GET", url: "/openapi.json" });
+    const spec = response.json();
+    const categories = [
+      "events",
+      "errors",
+      "traces",
+      "spans",
+      "llmCalls",
+      "profiles",
+      "breadcrumbs",
+      "webVitals",
+      "clicks",
+      "replays"
+    ];
+    const schemas = [
+      spec.components.schemas.DataGovernancePolicy.properties.retentionPolicy,
+      spec.paths["/admin/data-governance"].put.requestBody.content["application/json"].schema.properties.retentionPolicy
+    ];
+
+    for (const schema of schemas) {
+      expect(Object.keys(schema.properties)).toEqual(categories);
+      expect(schema.additionalProperties).toBe(false);
+      expect(schema.description).toMatch(/omitted categories use.*installation defaults/i);
+      for (const category of categories) {
+        expect(schema.properties[category]).toEqual({ type: "integer", minimum: 1, maximum: 3650 });
+      }
+    }
+  });
+
   it("redirects /docs to the Scalar docs page", async () => {
     const server = await createApp();
 

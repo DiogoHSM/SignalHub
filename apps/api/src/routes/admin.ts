@@ -1002,27 +1002,21 @@ const updateReadTokenSchema = z
   .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
 
 const dataGovernanceScopeQuerySchema = analyticsSegmentScopeQuerySchema;
-const dataGovernanceRetentionCategorySchema = z.enum([
-  "events",
-  "errors",
-  "traces",
-  "spans",
-  "llmCalls",
-  "profiles",
-  "breadcrumbs",
-  "webVitals",
-  "clicks",
-  "replays"
-]);
+const retentionDaysSchema = z.number().int().min(1).max(3650);
 const dataGovernanceRetentionPolicySchema = z
-  .record(z.string(), z.number().int().min(1).max(3650))
-  .transform((input) =>
-    Object.fromEntries(
-      Object.entries(input).filter(([category]) =>
-        dataGovernanceRetentionCategorySchema.safeParse(category).success
-      )
-    )
-  );
+  .object({
+    events: retentionDaysSchema.optional(),
+    errors: retentionDaysSchema.optional(),
+    traces: retentionDaysSchema.optional(),
+    spans: retentionDaysSchema.optional(),
+    llmCalls: retentionDaysSchema.optional(),
+    profiles: retentionDaysSchema.optional(),
+    breadcrumbs: retentionDaysSchema.optional(),
+    webVitals: retentionDaysSchema.optional(),
+    clicks: retentionDaysSchema.optional(),
+    replays: retentionDaysSchema.optional()
+  })
+  .strict();
 const dataGovernancePropertyRuleSchema = z.object({
   target: z.enum([
     "metadata",

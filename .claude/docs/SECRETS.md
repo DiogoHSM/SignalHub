@@ -55,7 +55,7 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `RETENTION_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled telemetry deletion in the worker. |
 | `RETENTION_INTERVAL_MINUTES` | No | `60` | Non-secret operational config. Minutes between scheduled retention runs. |
 | `RETENTION_BATCH_SIZE` | No | `1000` | Non-secret operational config. Maximum rows deleted per telemetry table per delete batch. |
-| `RETENTION_EVENTS_DAYS` | No | `90` | Non-secret operational config. Event retention window. |
+| `RETENTION_EVENTS_DAYS` | No | `90` | Non-secret operational config. Installation fallback for events, clicks, replays, and web-vitals deletion, and the fixed cohort raw-versus-rollup routing threshold. A valid scoped category value replaces its deletion fallback. |
 | `RETENTION_ERRORS_DAYS` | No | `180` | Non-secret operational config. Error retention window. |
 | `RETENTION_TRACES_DAYS` | No | `90` | Non-secret operational config. Trace retention window. |
 | `RETENTION_SPANS_DAYS` | No | `90` | Non-secret operational config. Span retention window. |
@@ -65,7 +65,7 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `RETENTION_DEAD_LETTER_JOBS_DAYS` | No | `30` | Non-secret operational config. Dead-letter job retention window; action history remains in `dead_letter_job_actions`. |
 | `EVENT_ROLLUPS_ENABLED` | No | `true` | Non-secret operational config. Enables the worker's daily `event_actor_daily` rollup job used to serve long-range retention queries. |
 | `EVENT_ROLLUPS_INTERVAL_MINUTES` | No | `60` | Non-secret operational config. Minutes between scheduled event rollup runs. |
-| `EVENT_ROLLUPS_LOOKBACK_DAYS` | No | `400` | Non-secret operational config. Backfill window on the rollup's first run; intentionally longer than `RETENTION_EVENTS_DAYS` so the rollup finishes covering a day before raw events for it are purged. |
+| `EVENT_ROLLUPS_LOOKBACK_DAYS` | No | `400` | Non-secret operational config. First-run actor-rollup backfill window. Set it to cover the longest effective scoped events window or cohort range operators rely on; it is not derived from `RETENTION_EVENTS_DAYS`. |
 | `ALERTS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled alert evaluation in the worker. |
 | `ALERTS_INTERVAL_MINUTES` | No | `1` | Non-secret operational config. Minutes between scheduled alert evaluation runs. |
 | `ALERTS_WEBHOOK_TIMEOUT_MS` | No | `5000` | Non-secret operational config. Timeout for generic webhook alert deliveries. |

@@ -325,7 +325,7 @@ reserved for a future privacy-safe widget flow with masking and explicit consent
 
 Operators can analyze temporal retention cohorts with `GET /query/events/retention`. Cohorts are anchored on each actor's `user_profiles.first_seen_at` (their real first appearance), not the minimum `entry_event` timestamp inside the queried window — an actor who existed before the window but re-fires the entry event inside it does not start a new cohort. `entry_event` is an optional cohort eligibility filter; `return_event` is optional and, when absent, any event counts as retained activity across daily, weekly, or monthly intervals.
 
-An optional `range_days` (1..730) overrides the `window`-derived range for long lookback queries. Ranges older than the configured raw event retention window (`RETENTION_EVENTS_DAYS`) are served from the `event_actor_daily` daily rollup instead of raw events, and the response reports `source: "raw" | "rollup"` accordingly.
+An optional `range_days` (1..730) overrides the `window`-derived range for long lookback queries. Ranges crossing the installation `RETENTION_EVENTS_DAYS` threshold are served from the `event_actor_daily` daily rollup instead of raw events, and the response reports `source: "raw" | "rollup"` accordingly. This routing threshold is not scope-aware: the scoped events policy independently controls raw-row deletion and may be shorter or longer. A shorter scoped window can therefore remove raw rows while a request still routes to the raw path; a longer window can retain raw rows after requests route to rollups.
 
 Example query:
 

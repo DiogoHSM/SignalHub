@@ -2382,10 +2382,9 @@ export async function getEventRetention(db: Db, filters: EventRetentionFilters):
   // not-yet-rolled activity isn't silently dropped from the response.
   const todayStartUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
-  // PER-451 (V1): in rollup mode, `events` is purged by the same retentionEventsDays horizon that
-  // put us in rollup mode, so in steady state it no longer holds rows old enough to answer this
-  // check for long-range cohorts. Resolve eligibility against event_actor_daily instead -- its PK
-  // already carries event_name -- UNIONed with a raw-`events` tail for today's not-yet-rolled rows.
+  // PER-451 (V1): rollup-mode eligibility must come from event_actor_daily because scoped events
+  // retention can delete historical raw rows independently of this installation routing threshold.
+  // Its PK already carries event_name; UNION a raw-`events` tail for today's not-yet-rolled rows.
   const entryEligibility = entryEvent
     ? source === "rollup"
       ? sql`

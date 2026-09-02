@@ -44,6 +44,22 @@ const identifyAcceptedResponse = {
   }
 };
 
+const dataGovernanceRetentionProperties = {
+  events: { type: "integer", minimum: 1, maximum: 3650 },
+  errors: { type: "integer", minimum: 1, maximum: 3650 },
+  traces: { type: "integer", minimum: 1, maximum: 3650 },
+  spans: { type: "integer", minimum: 1, maximum: 3650 },
+  llmCalls: { type: "integer", minimum: 1, maximum: 3650 },
+  profiles: { type: "integer", minimum: 1, maximum: 3650 },
+  breadcrumbs: { type: "integer", minimum: 1, maximum: 3650 },
+  webVitals: { type: "integer", minimum: 1, maximum: 3650 },
+  clicks: { type: "integer", minimum: 1, maximum: 3650 },
+  replays: { type: "integer", minimum: 1, maximum: 3650 }
+};
+
+const dataGovernanceRetentionDescription =
+  "Closed per-category project/environment overrides in days. Omitted categories use their corresponding installation defaults; clicks, replays, and webVitals inherit RETENTION_EVENTS_DAYS. Unknown categories are rejected.";
+
 const jsonBody = (schema: string, example: Record<string, unknown>) => ({
   required: true,
   content: {
@@ -845,8 +861,9 @@ export const openApiDocument = {
           environmentId: { type: "string" },
           retentionPolicy: {
             type: "object",
-            description: "Optional per-category project/environment overrides in days. Scoped values replace installation defaults whether shorter or longer; omitted categories use their defaults.",
-            additionalProperties: { type: "integer", minimum: 1, maximum: 3650 },
+            description: dataGovernanceRetentionDescription,
+            properties: dataGovernanceRetentionProperties,
+            additionalProperties: false,
             examples: [{ events: 90, errors: 180, traces: 30 }]
           },
           propertyRules: {
@@ -2876,8 +2893,9 @@ export const openApiDocument = {
                   environmentId: { type: "string" },
                   retentionPolicy: {
                     type: "object",
-                    description: "Per-category scoped overrides. Omitted categories use their installation defaults.",
-                    additionalProperties: { type: "integer", minimum: 1, maximum: 3650 },
+                    description: dataGovernanceRetentionDescription,
+                    properties: dataGovernanceRetentionProperties,
+                    additionalProperties: false,
                     examples: [{ events: 90, errors: 180, traces: 30 }]
                   },
                   propertyRules: {
@@ -4545,7 +4563,7 @@ export const openApiDocument = {
     "/query/events/retention": {
       get: queryReadRoute(
         "Query event retention curves",
-        "Analyze retention cohorts for a project environment. Cohorts are anchored on each actor's user_profiles.first_seen_at, not the minimum entry_event timestamp inside the queried window. Query with project_id, environment_id, window=24h|7d|30d, optional entry_event (cohort eligibility filter), optional return_event (absent means any event counts as retained), optional period=daily|weekly|monthly, optional intervals=2..12, and optional range_days=1..730 to override the window-derived range for long lookback queries. Ranges older than the configured raw event retention window are served from the event_actor_daily rollup, reported as source=raw|rollup in the response."
+        "Analyze retention cohorts for a project environment. Cohorts are anchored on each actor's user_profiles.first_seen_at, not the minimum entry_event timestamp inside the queried window. Query with project_id, environment_id, window=24h|7d|30d, optional entry_event (cohort eligibility filter), optional return_event (absent means any event counts as retained), optional period=daily|weekly|monthly, optional intervals=2..12, and optional range_days=1..730 to override the window-derived range for long lookback queries. RETENTION_EVENTS_DAYS remains the installation-level raw-versus-rollup routing threshold; scoped events retention independently controls raw-row deletion and can be shorter or longer. The response reports source=raw|rollup."
       )
     },
     "/query/events/click-map": {
