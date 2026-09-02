@@ -69,6 +69,63 @@ describe("loadConfig", () => {
   };
   const baseEnv = () => ({ ...validEnv });
 
+  it("defaults outbound private CIDRs and loopback access to disabled", () => {
+    expect(loadConfig(baseEnv()).outbound).toEqual({
+      privateCidrs: [],
+      allowLoopback: false
+    });
+  });
+
+  it("loads strict private IPv4 and ULA CIDRs", () => {
+    expect(
+      loadConfig({
+        ...baseEnv(),
+        OUTBOUND_PRIVATE_CIDRS: "10.20.0.0/16, fd12:3456::/32"
+      }).outbound
+    ).toEqual({
+      privateCidrs: ["10.20.0.0/16", "fd12:3456::/32"],
+      allowLoopback: false
+    });
+  });
+
+  it("allows loopback opt-in only outside production", () => {
+    expect(
+      loadConfig({
+        ...baseEnv(),
+        NODE_ENV: "development",
+        ALLOW_LOOPBACK_OUTBOUND: "true"
+      }).outbound.allowLoopback
+    ).toBe(true);
+
+    expect(() => loadConfig({ ...baseEnv(), ALLOW_LOOPBACK_OUTBOUND: "true" })).toThrow(
+      "outbound_loopback_production_forbidden"
+    );
+  });
+
+  it.each([
+    "10.0.0.0/8,,fd00::/8",
+    "10.0.0.1/8",
+    "10.0.0.0/7",
+    "0.0.0.0/0",
+    "127.0.0.0/8",
+    "100.64.0.0/10",
+    "169.254.0.0/16",
+    "192.0.2.0/24",
+    "224.0.0.0/4",
+    "8.8.8.0/24",
+    "::/0",
+    "::1/128",
+    "fe80::/10",
+    "2001:db8::/32",
+    "ff00::/8",
+    "::ffff:10.0.0.0/104",
+    "not-a-cidr"
+  ])("rejects non-private, broad, non-canonical, or malformed private CIDR %s", (cidr) => {
+    expect(() => loadConfig({ ...baseEnv(), OUTBOUND_PRIVATE_CIDRS: cidr })).toThrow(
+      "outbound_private_cidr_invalid"
+    );
+  });
+
   it("loads the current and previous data-encryption keys", () => {
     const config = loadConfig({
       ...baseEnv(),

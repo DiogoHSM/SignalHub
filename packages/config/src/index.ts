@@ -1,9 +1,11 @@
 import { z } from "zod";
 import { BlockList, isIP } from "node:net";
 import { SecretBox } from "./secret-box.js";
+import { parseOutboundPrivateCidrs } from "./network-security.js";
 
 export * from "./logger.js";
 export * from "./network-security.js";
+export * from "./safe-lookup.js";
 export * from "./secret-box.js";
 
 const emptyStringToUndefined = (value: unknown) => (value === "" ? undefined : value);
@@ -180,6 +182,11 @@ const rawConfigSchema = z.object({
   LANDING_HOSTS: optionalEnvString,
   BROWSER_CORS_ORIGINS: optionalEnvString,
   TRUSTED_PROXY_CIDRS: optionalEnvString,
+  OUTBOUND_PRIVATE_CIDRS: optionalEnvString,
+  ALLOW_LOOPBACK_OUTBOUND: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   RETENTION_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -299,6 +306,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   requireNoProductionPlaceholder("BOOTSTRAP_ADMIN_PASSWORD", parsed.BOOTSTRAP_ADMIN_PASSWORD, parsed.NODE_ENV);
   requireProductionDatabasePasswordIsNotPlaceholder(parsed.DATABASE_URL, parsed.NODE_ENV);
 
+  if (parsed.NODE_ENV === "production" && parsed.ALLOW_LOOPBACK_OUTBOUND) {
+    throw new Error("outbound_loopback_production_forbidden");
+  }
+
   if (parsed.NODE_ENV === "production" && !parsed.DATA_ENCRYPTION_KEY) {
     throw new Error("DATA_ENCRYPTION_KEY is required in production");
   }
@@ -382,6 +393,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       origins: parseOriginList(parsed.BROWSER_CORS_ORIGINS)
     },
     trustedProxyCidrs: parseTrustedProxyCidrs(parsed.TRUSTED_PROXY_CIDRS, parsed.NODE_ENV),
+    outbound: {
+      privateCidrs: parseOutboundPrivateCidrs(parsed.OUTBOUND_PRIVATE_CIDRS),
+      allowLoopback: parsed.ALLOW_LOOPBACK_OUTBOUND
+    },
     auth: {
       login: {
         sourceMaxAttempts: parsed.LOGIN_SOURCE_MAX_ATTEMPTS,
