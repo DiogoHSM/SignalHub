@@ -13,9 +13,11 @@ describe("StatusDot", () => {
 
   it("renders the ping layer only when pulsing on a non-ok status", () => {
     const ping = render(<StatusDot status="critical" pulse />);
-    expect(ping.container.querySelectorAll("span").length).toBe(3); // wrapper + ping + dot
+    const pingLayer = ping.container.querySelector(".sh-status-dot__ping") as HTMLElement;
+    expect(pingLayer).not.toBeNull();
+    expect(pingLayer.style.animation).toBe("");
     cleanup();
     const noPing = render(<StatusDot status="ok" pulse />);
-    expect(noPing.container.querySelectorAll("span").length).toBe(2); // wrapper + dot
+    expect(noPing.container.querySelector(".sh-status-dot__ping")).toBeNull();
   });
 });

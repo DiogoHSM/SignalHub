@@ -150,3 +150,42 @@
 
 .sh-v2 .hr-list::-webkit-scrollbar, .sh-v2 .app-workspace ::-webkit-scrollbar { width: 9px; height: 9px; }
 .sh-v2 .hr-list::-webkit-scrollbar-thumb, .sh-v2 .app-workspace ::-webkit-scrollbar-thumb { background: var(--bg-surface-3); border-radius: 5px; border: 2px solid var(--bg-canvas); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-v2 .page[data-anim="nav"],
+  .sh-v2 .page[data-anim="forward"],
+  .sh-v2 .page[data-anim="back"],
+  .sh-v2 .sw-menu,
+  .sh-v2 .toast,
+  .sh-v2 .hr-live__dot,
+  .sh-v2 .sh-live-dot {
+    animation: none;
+  }
+
+  .sh-v2 .page[data-anim="nav"],
+  .sh-v2 .page[data-anim="forward"],
+  .sh-v2 .page[data-anim="back"],
+  .sh-v2 .sw-menu,
+  .sh-v2 .toast {
+    opacity: 1;
+    transform: none;
+  }
+
+  .sh-v2 .hr-live__dot,
+  .sh-v2 .sh-live-dot {
+    opacity: 1;
+  }
+
+  .sh-v2 .hr-acc,
+  .sh-v2 .sw-menu,
+  .sh-v2 .sw-opt,
+  .sh-v2 .toast,
+  .sh-v2 .toast__x,
+  .sh-v2 .hr-expand,
+  .sh-v2 .hr-expand svg {
+    transition-duration: 0.01ms !important;
+  }
+
+  .sh-v2 .hr-acc { grid-template-rows: 0fr; }
+  .sh-v2 .hr-acc[data-open="true"] { grid-template-rows: 1fr; }
+}
