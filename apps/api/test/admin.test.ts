@@ -2875,6 +2875,30 @@ describe("admin routes", () => {
     expect(createResponse.json().destination).not.toHaveProperty("connection_url");
     expect(createResponse.json().destination).not.toHaveProperty("connection_url_encrypted");
 
+    for (const connectionUrl of [
+      "https://writer:request-secret@warehouse.internal/analytics",
+      "postgres://writer:request-secret@127.0.0.1/analytics",
+      "postgres://writer:request-secret@warehouse.internal/analytics?sslmode=disable",
+      "postgres://writer:request-secret@warehouse.internal/analytics?rejectUnauthorized=false"
+    ]) {
+      const unsafeResponse = await app.inject({
+        method: "POST",
+        url: "/admin/warehouse-destinations",
+        payload: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          name: "Unsafe warehouse",
+          destinationType: "postgres",
+          connectionUrl,
+          datasets: ["events"]
+        }
+      });
+      expect(unsafeResponse.statusCode).toBe(400);
+      expect(unsafeResponse.json()).toEqual({ error: "invalid_warehouse_export_request" });
+      expect(unsafeResponse.body).not.toContain("request-secret");
+    }
+    expect(createDestination).toHaveBeenCalledOnce();
+
     const invalidDatasetResponse = await app.inject({
       method: "POST",
       url: "/admin/warehouse-destinations",
@@ -2888,6 +2912,20 @@ describe("admin routes", () => {
       }
     });
     expect(invalidDatasetResponse.statusCode).toBe(400);
+
+    const unsafePatchResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_1",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        connectionUrl: "postgres://writer:patch-secret@10.0.0.8/analytics"
+      }
+    });
+    expect(unsafePatchResponse.statusCode).toBe(400);
+    expect(unsafePatchResponse.json()).toEqual({ error: "invalid_warehouse_export_request" });
+    expect(unsafePatchResponse.body).not.toContain("patch-secret");
+    expect(updateDestination).not.toHaveBeenCalled();
 
     const patchResponse = await app.inject({
       method: "PATCH",

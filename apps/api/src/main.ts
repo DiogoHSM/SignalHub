@@ -793,6 +793,10 @@ const app = await buildApp({
             listActiveDestinations: async () => [destination],
             selectBatch: (selectedDestination, batchInput) => selectWarehouseExportBatch(db, selectedDestination, batchInput),
             writeBatch: (writeInput) => writePostgresWarehouseBatch(writeInput),
+            postgresOptions: {
+              outboundPolicy,
+              timeouts: config.warehouseExports
+            },
             updateCursor: (cursorInput) => updateWarehouseDestinationCursor(db, cursorInput),
             recordRun: (runInput) => recordWarehouseExportRun(db, runInput)
           },

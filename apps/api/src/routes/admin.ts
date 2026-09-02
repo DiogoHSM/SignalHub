@@ -8,6 +8,7 @@ import {
 } from "@sigmon/telemetry/api-keys";
 import {
   OutboundPolicy,
+  parseWarehousePostgresUrl,
   validateOutboundHttpTransport
 } from "@sigmon/config";
 import type {
@@ -1714,6 +1715,15 @@ function validateOutboundHttpUrl(
 ): boolean {
   try {
     validateOutboundHttpTransport(rawUrl, options.outboundPolicy ?? new OutboundPolicy(), { requireHttps });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validateWarehousePostgresConnectionUrl(rawUrl: string, options: AdminRouteOptions): boolean {
+  try {
+    parseWarehousePostgresUrl(rawUrl, options.outboundPolicy ?? new OutboundPolicy());
     return true;
   } catch {
     return false;
@@ -3622,7 +3632,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     const parsed = warehouseDestinationCreateSchema.safeParse(request.body);
-    if (!parsed.success) {
+    if (!parsed.success || !validateWarehousePostgresConnectionUrl(parsed.data.connectionUrl, options)) {
       return reply.status(400).send({ error: "invalid_warehouse_export_request" });
     }
 
@@ -3644,7 +3654,12 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
 
     const params = idParamsSchema.safeParse(request.params);
     const parsed = warehouseDestinationPatchSchema.safeParse(request.body);
-    if (!params.success || !parsed.success) {
+    if (
+      !params.success ||
+      !parsed.success ||
+      (typeof parsed.data.connectionUrl === "string" &&
+        !validateWarehousePostgresConnectionUrl(parsed.data.connectionUrl, options))
+    ) {
       return reply.status(400).send({ error: "invalid_warehouse_export_request" });
     }
 

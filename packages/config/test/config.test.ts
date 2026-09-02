@@ -388,6 +388,57 @@ describe("loadConfig", () => {
     });
   });
 
+  it("loads coherent bounded warehouse export deadline defaults and overrides", () => {
+    expect(loadConfig(baseEnv()).warehouseExports).toEqual({
+      enabled: true,
+      intervalMinutes: 15,
+      connectionTimeoutMs: 5_000,
+      statementTimeoutMs: 30_000,
+      lockTimeoutMs: 5_000,
+      queryTimeoutMs: 35_000,
+      totalTimeoutMs: 60_000
+    });
+
+    expect(loadConfig({
+      ...baseEnv(),
+      WAREHOUSE_CONNECTION_TIMEOUT_MS: "2000",
+      WAREHOUSE_STATEMENT_TIMEOUT_MS: "12000",
+      WAREHOUSE_LOCK_TIMEOUT_MS: "3000",
+      WAREHOUSE_QUERY_TIMEOUT_MS: "15000",
+      WAREHOUSE_TOTAL_TIMEOUT_MS: "25000"
+    }).warehouseExports).toMatchObject({
+      connectionTimeoutMs: 2_000,
+      statementTimeoutMs: 12_000,
+      lockTimeoutMs: 3_000,
+      queryTimeoutMs: 15_000,
+      totalTimeoutMs: 25_000
+    });
+  });
+
+  it.each([
+    "WAREHOUSE_CONNECTION_TIMEOUT_MS",
+    "WAREHOUSE_STATEMENT_TIMEOUT_MS",
+    "WAREHOUSE_LOCK_TIMEOUT_MS",
+    "WAREHOUSE_QUERY_TIMEOUT_MS",
+    "WAREHOUSE_TOTAL_TIMEOUT_MS"
+  ] as const)("rejects non-positive or excessive %s", (fieldName) => {
+    expect(() => loadConfig({ ...baseEnv(), [fieldName]: "0" })).toThrow();
+    expect(() => loadConfig({ ...baseEnv(), [fieldName]: "900001" })).toThrow();
+  });
+
+  it("rejects warehouse deadline combinations whose total cannot cover an inner stage", () => {
+    expect(() => loadConfig({
+      ...baseEnv(),
+      WAREHOUSE_STATEMENT_TIMEOUT_MS: "60000",
+      WAREHOUSE_TOTAL_TIMEOUT_MS: "60000"
+    })).toThrow("warehouse_export_timeouts_incoherent");
+    expect(() => loadConfig({
+      ...baseEnv(),
+      WAREHOUSE_STATEMENT_TIMEOUT_MS: "40000",
+      WAREHOUSE_QUERY_TIMEOUT_MS: "30000"
+    })).toThrow("warehouse_export_timeouts_incoherent");
+  });
+
   it("loads breadcrumb retention config with defaults and overrides", () => {
     const defaults = loadConfig(baseEnv());
     expect(defaults.retention.breadcrumbsDays).toBe(30);

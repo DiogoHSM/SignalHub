@@ -345,6 +345,10 @@ const stopWarehouseExports = runsScheduler && config.warehouseExports.enabled
           listActiveDestinations: () => listActiveWarehouseDestinations(db, secretBox),
           selectBatch: (destination, input) => selectWarehouseExportBatch(db, destination, input),
           writeBatch: (input) => writePostgresWarehouseBatch(input),
+          postgresOptions: {
+            outboundPolicy,
+            timeouts: config.warehouseExports
+          },
           updateCursor: (input) => updateWarehouseDestinationCursor(db, input),
           recordRun: (input) => recordWarehouseExportRun(db, input)
         })

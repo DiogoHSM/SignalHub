@@ -9,6 +9,7 @@ export { isRetryableOutboundError } from "./outbound-error.js";
 export * from "./safe-lookup.js";
 export * from "./safe-http-client.js";
 export * from "./secret-box.js";
+export * from "./warehouse-security.js";
 
 const emptyStringToUndefined = (value: unknown) => (value === "" ? undefined : value);
 const optionalEnvString = z.preprocess(emptyStringToUndefined, z.string().optional());
@@ -19,6 +20,8 @@ const optionalTrimmedEnvString = z.preprocess(
 const optionalEnvUrl = z.preprocess(emptyStringToUndefined, z.string().url().optional());
 const optionalPositiveInteger = (defaultValue: number) =>
   z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(1).default(defaultValue));
+const optionalBoundedPositiveInteger = (defaultValue: number, maximum = 900_000) =>
+  z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(1).max(maximum).default(defaultValue));
 const optionalNonNegativeInteger = (defaultValue: number) =>
   z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(0).default(defaultValue));
 
@@ -227,6 +230,11 @@ const rawConfigSchema = z.object({
     .default("true")
     .transform((value) => value === "true"),
   WAREHOUSE_EXPORTS_INTERVAL_MINUTES: optionalPositiveInteger(15),
+  WAREHOUSE_CONNECTION_TIMEOUT_MS: optionalBoundedPositiveInteger(5_000),
+  WAREHOUSE_STATEMENT_TIMEOUT_MS: optionalBoundedPositiveInteger(30_000),
+  WAREHOUSE_LOCK_TIMEOUT_MS: optionalBoundedPositiveInteger(5_000),
+  WAREHOUSE_QUERY_TIMEOUT_MS: optionalBoundedPositiveInteger(35_000),
+  WAREHOUSE_TOTAL_TIMEOUT_MS: optionalBoundedPositiveInteger(60_000),
   SMTP_HOST: optionalTrimmedEnvString,
   SMTP_PORT: optionalPositiveInteger(587),
   SMTP_USERNAME: optionalTrimmedEnvString,
@@ -342,6 +350,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     }
   }
 
+  if (
+    parsed.WAREHOUSE_TOTAL_TIMEOUT_MS <= Math.max(
+      parsed.WAREHOUSE_CONNECTION_TIMEOUT_MS,
+      parsed.WAREHOUSE_STATEMENT_TIMEOUT_MS,
+      parsed.WAREHOUSE_LOCK_TIMEOUT_MS,
+      parsed.WAREHOUSE_QUERY_TIMEOUT_MS
+    ) ||
+    parsed.WAREHOUSE_QUERY_TIMEOUT_MS < parsed.WAREHOUSE_STATEMENT_TIMEOUT_MS
+  ) {
+    throw new Error("warehouse_export_timeouts_incoherent");
+  }
+
   const smtpConfigured = Boolean(
     parsed.SMTP_HOST ||
       parsed.SMTP_USERNAME ||
@@ -440,7 +460,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     },
     warehouseExports: {
       enabled: parsed.WAREHOUSE_EXPORTS_ENABLED,
-      intervalMinutes: parsed.WAREHOUSE_EXPORTS_INTERVAL_MINUTES
+      intervalMinutes: parsed.WAREHOUSE_EXPORTS_INTERVAL_MINUTES,
+      connectionTimeoutMs: parsed.WAREHOUSE_CONNECTION_TIMEOUT_MS,
+      statementTimeoutMs: parsed.WAREHOUSE_STATEMENT_TIMEOUT_MS,
+      lockTimeoutMs: parsed.WAREHOUSE_LOCK_TIMEOUT_MS,
+      queryTimeoutMs: parsed.WAREHOUSE_QUERY_TIMEOUT_MS,
+      totalTimeoutMs: parsed.WAREHOUSE_TOTAL_TIMEOUT_MS
     },
     smtp: {
       enabled: smtpConfigured,
