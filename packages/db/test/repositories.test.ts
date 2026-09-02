@@ -2117,50 +2117,59 @@ describe("repositories", () => {
       const project = await createProject(db, { name: "Governed Retention" });
       const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
 
-      await insertEvent(db, {
-        id: "evt_governed_old",
-        projectId: project.id,
-        environmentId: environment.id,
-        timestamp: new Date("2026-01-01T00:00:00.000Z"),
-        receivedAt: new Date("2026-01-01T00:00:00.000Z"),
-        name: "governed.old"
-      });
-      await insertEvent(db, {
-        id: "evt_governed_fresh",
-        projectId: project.id,
-        environmentId: environment.id,
-        timestamp: new Date("2026-02-20T00:00:00.000Z"),
-        receivedAt: new Date("2026-02-20T00:00:00.000Z"),
-        name: "governed.fresh"
-      });
-      await upsertDataGovernancePolicy(db, {
-        projectId: project.id,
-        environmentId: environment.id,
-        retentionPolicy: { events: 30 },
-        propertyRules: []
-      });
+      try {
+        await insertEvent(db, {
+          id: "evt_governed_old",
+          projectId: project.id,
+          environmentId: environment.id,
+          timestamp: new Date("2026-01-01T00:00:00.000Z"),
+          receivedAt: new Date("2026-01-01T00:00:00.000Z"),
+          name: "governed.old"
+        });
+        await insertEvent(db, {
+          id: "evt_governed_fresh",
+          projectId: project.id,
+          environmentId: environment.id,
+          timestamp: new Date("2026-02-20T00:00:00.000Z"),
+          receivedAt: new Date("2026-02-20T00:00:00.000Z"),
+          name: "governed.fresh"
+        });
+        await upsertDataGovernancePolicy(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          retentionPolicy: { events: 30 },
+          propertyRules: []
+        });
 
-      const deleted = await deleteExpiredTelemetry(db, {
-        eventsDays: 365,
-        errorsDays: 365,
-        tracesDays: 365,
-        spansDays: 365,
-        llmCallsDays: 365,
-        profilesDays: 365,
-        breadcrumbsDays: 365,
-        deadLetterJobsDays: 365,
-        sourceMapsEnabled: false,
-        sourceMapsDays: 365,
-        sourceMapsBatchSize: 100,
-        now: new Date("2026-03-05T00:00:00.000Z"),
-        batchSize: 100
-      });
+        const deleted = await deleteExpiredTelemetry(db, {
+          eventsDays: 365,
+          errorsDays: 365,
+          tracesDays: 365,
+          spansDays: 365,
+          llmCallsDays: 365,
+          profilesDays: 365,
+          breadcrumbsDays: 365,
+          deadLetterJobsDays: 365,
+          sourceMapsEnabled: false,
+          sourceMapsDays: 365,
+          sourceMapsBatchSize: 100,
+          now: new Date("2026-03-05T00:00:00.000Z"),
+          batchSize: 100
+        });
 
-      expect(deleted.events).toBe(1);
-      await expect(db.selectFrom("events").select("id").where("id", "=", "evt_governed_old").executeTakeFirst()).resolves.toBeUndefined();
-      await expect(db.selectFrom("events").select("id").where("id", "=", "evt_governed_fresh").executeTakeFirst()).resolves.toMatchObject({
-        id: "evt_governed_fresh"
-      });
+        expect(deleted.events).toBe(1);
+        await expect(db.selectFrom("events").select("id").where("id", "=", "evt_governed_old").executeTakeFirst()).resolves.toBeUndefined();
+        await expect(db.selectFrom("events").select("id").where("id", "=", "evt_governed_fresh").executeTakeFirst()).resolves.toMatchObject({
+          id: "evt_governed_fresh"
+        });
+      } finally {
+        await db.deleteFrom("events").where("id", "in", ["evt_governed_old", "evt_governed_fresh"]).execute();
+        await db
+          .deleteFrom("data_governance_policies")
+          .where("project_id", "=", project.id)
+          .where("environment_id", "=", environment.id)
+          .execute();
+      }
     });
   });
 
