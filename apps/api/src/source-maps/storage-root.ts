@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { link, lstat, mkdir, open, realpath, rm, unlink, type FileHandle } from "node:fs/promises";
+import { link, lstat, mkdir, open, opendir, realpath, rm, unlink, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 export const SOURCE_MAP_STORAGE_MARKER_NAME = ".sigmon-source-map-storage";
@@ -153,6 +153,7 @@ export async function assertSourceMapStorageRoot(
 export type SourceMapStorageOperationHooks = {
   afterParentPinned?: () => Promise<void>;
   afterCreateBeforeRootCheck?: () => Promise<void>;
+  beforeDeleteRevalidation?: () => Promise<void>;
 };
 export type OpenSourceMapStorageSessionInput = {
   localDir: string;
@@ -184,6 +185,9 @@ function assertOpaqueArtifactName(fileName: string): void {
 }
 
 type ParentCapability = { parent: FileHandle; finalName: string; handles: FileHandle[] };
+export type SourceMapArtifactInspection = { exists: false } | { exists: true; modifiedAt: Date };
+export type SourceMapArtifactFile = { storagePath: string; modifiedAt: Date };
+export type SourceMapArtifactDeleteResult = "deleted" | "missing" | "fresh";
 
 export class SourceMapStorageSession {
   readonly canonicalRoot: string;
@@ -268,6 +272,202 @@ export class SourceMapStorageSession {
 
   private linuxFinalPath(capability: ParentCapability): string {
     return path.posix.join(this.procFdRoot, String(capability.parent.fd), capability.finalName);
+  }
+
+  private async inspectRegularFile(finalPath: string): Promise<SourceMapArtifactInspection> {
+    let before;
+    try {
+      before = await lstat(finalPath);
+    } catch (error) {
+      if (isErrorCode(error, "ENOENT")) return { exists: false };
+      throw error;
+    }
+    if (before.isSymbolicLink() || !before.isFile()) throw invalidStoragePath();
+    const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+    let handle: FileHandle;
+    try {
+      handle = await open(finalPath, constants.O_RDONLY | noFollow);
+    } catch (error) {
+      if (isErrorCode(error, "ENOENT")) return { exists: false };
+      if (isInvalidEntryError(error)) throw invalidStoragePath();
+      throw error;
+    }
+    try {
+      const opened = await handle.stat();
+      if (!opened.isFile() || !sameIdentity(before, opened)) throw invalidStoragePath();
+      return { exists: true, modifiedAt: opened.mtime };
+    } finally {
+      await handle.close();
+    }
+  }
+
+  async inspectArtifact(storagePath: string, hookOverrides?: SourceMapStorageOperationHooks): Promise<SourceMapArtifactInspection> {
+    if (this.closed) throw unavailable();
+    const parsed = parseStoragePath(this.canonicalRoot, storagePath);
+    if (this.platform !== "linux" && !parsed.flat) throw invalidStoragePath();
+    await this.assertConfiguredRootIdentity();
+    const hooks = this.hooks(hookOverrides);
+    if (this.platform === "linux") {
+      let capability: ParentCapability;
+      try {
+        capability = await this.pinLinuxParent(parsed.segments);
+      } catch (error) {
+        if (isErrorCode(error, "ENOENT")) return { exists: false };
+        throw error;
+      }
+      try {
+        await hooks.afterParentPinned?.();
+        return await this.inspectRegularFile(this.linuxFinalPath(capability));
+      } finally {
+        await Promise.allSettled(capability.handles.map((handle) => handle.close()));
+      }
+    }
+
+    await hooks.afterParentPinned?.();
+    const result = await this.inspectRegularFile(path.join(this.canonicalRoot, parsed.segments[0]));
+    await this.assertConfiguredRootIdentity();
+    return result;
+  }
+
+  async listArtifactFilesPage(input: {
+    afterStoragePath: string | null;
+    batchSize: number;
+  }): Promise<SourceMapArtifactFile[]> {
+    if (this.closed) throw unavailable();
+    if (!Number.isInteger(input.batchSize) || input.batchSize < 1 || input.batchSize > 100) {
+      throw new Error("source_map_reconciliation_batch_size_invalid");
+    }
+    await this.assertAuthority();
+    const candidates: SourceMapArtifactFile[] = [];
+    const offer = (candidate: SourceMapArtifactFile) => {
+      if (input.afterStoragePath !== null && candidate.storagePath <= input.afterStoragePath) return;
+      candidates.push(candidate);
+      candidates.sort((left, right) => left.storagePath < right.storagePath ? -1 : left.storagePath > right.storagePath ? 1 : 0);
+      if (candidates.length > input.batchSize) candidates.pop();
+    };
+
+    if (this.platform === "linux") {
+      const directoryFlag = typeof constants.O_DIRECTORY === "number" ? constants.O_DIRECTORY : 0;
+      const noFollow = typeof constants.O_NOFOLLOW === "number" ? constants.O_NOFOLLOW : 0;
+      const visit = async (parent: FileHandle, segments: string[]): Promise<void> => {
+        const directory = await opendir(path.posix.join(this.procFdRoot, String(parent.fd)));
+        try {
+          for await (const entry of directory) {
+            if (!STORAGE_SEGMENT.test(entry.name)) continue;
+            const childSegments = [...segments, entry.name];
+            const finalPath = path.posix.join(this.procFdRoot, String(parent.fd), entry.name);
+            let stats;
+            try {
+              stats = await lstat(finalPath);
+            } catch (error) {
+              if (isErrorCode(error, "ENOENT")) continue;
+              throw error;
+            }
+            if (stats.isSymbolicLink()) continue;
+            if (stats.isDirectory()) {
+              if (childSegments.length >= 4) continue;
+              let child: FileHandle | undefined;
+              try {
+                child = await open(finalPath, constants.O_RDONLY | directoryFlag | noFollow);
+                const opened = await child.stat();
+                if (!opened.isDirectory() || !sameIdentity(stats, opened)) continue;
+                await visit(child, childSegments);
+              } catch (error) {
+                if (!isErrorCode(error, "ENOENT") && !isInvalidEntryError(error)) throw error;
+              } finally {
+                await child?.close();
+              }
+              continue;
+            }
+            if (!stats.isFile()) continue;
+            const storagePath = path.join(this.canonicalRoot, ...childSegments);
+            try {
+              parseStoragePath(this.canonicalRoot, storagePath);
+            } catch {
+              continue;
+            }
+            const inspected = await this.inspectRegularFile(finalPath);
+            if (inspected.exists) offer({ storagePath, modifiedAt: inspected.modifiedAt });
+          }
+        } finally {
+          await directory.close().catch(() => undefined);
+        }
+      };
+      await visit(this.rootHandle, []);
+    } else {
+      const directory = await opendir(this.canonicalRoot);
+      try {
+        for await (const entry of directory) {
+          if (!FLAT_ARTIFACT.test(entry.name)) continue;
+          const storagePath = path.join(this.canonicalRoot, entry.name);
+          let stats;
+          try {
+            stats = await lstat(storagePath);
+          } catch (error) {
+            if (isErrorCode(error, "ENOENT")) continue;
+            throw error;
+          }
+          if (stats.isSymbolicLink() || !stats.isFile()) continue;
+          const inspected = await this.inspectRegularFile(storagePath);
+          if (inspected.exists) offer({ storagePath, modifiedAt: inspected.modifiedAt });
+        }
+      } finally {
+        await directory.close().catch(() => undefined);
+      }
+    }
+    await this.assertConfiguredRootIdentity();
+    return candidates;
+  }
+
+  async deleteArtifactIfOlderThan(
+    storagePath: string,
+    cutoff: Date,
+    hookOverrides?: SourceMapStorageOperationHooks
+  ): Promise<SourceMapArtifactDeleteResult> {
+    if (this.closed) throw unavailable();
+    if (Number.isNaN(cutoff.getTime())) throw new Error("source_map_reconciliation_cutoff_invalid");
+    const parsed = parseStoragePath(this.canonicalRoot, storagePath);
+    if (this.platform !== "linux" && !parsed.flat) throw invalidStoragePath();
+    await this.assertConfiguredRootIdentity();
+    const hooks = this.hooks(hookOverrides);
+
+    const deleteChecked = async (finalPath: string): Promise<SourceMapArtifactDeleteResult> => {
+      const first = await this.inspectRegularFile(finalPath);
+      if (!first.exists) return "missing";
+      if (first.modifiedAt.getTime() > cutoff.getTime()) return "fresh";
+      await hooks.beforeDeleteRevalidation?.();
+      const current = await this.inspectRegularFile(finalPath);
+      if (!current.exists) return "missing";
+      if (current.modifiedAt.getTime() > cutoff.getTime()) return "fresh";
+      try {
+        await unlink(finalPath);
+        return "deleted";
+      } catch (error) {
+        if (isErrorCode(error, "ENOENT")) return "missing";
+        throw error;
+      }
+    };
+
+    if (this.platform === "linux") {
+      let capability: ParentCapability;
+      try {
+        capability = await this.pinLinuxParent(parsed.segments);
+      } catch (error) {
+        if (isErrorCode(error, "ENOENT")) return "missing";
+        throw error;
+      }
+      try {
+        await hooks.afterParentPinned?.();
+        return await deleteChecked(this.linuxFinalPath(capability));
+      } finally {
+        await Promise.allSettled(capability.handles.map((handle) => handle.close()));
+      }
+    }
+
+    await hooks.afterParentPinned?.();
+    const result = await deleteChecked(path.join(this.canonicalRoot, parsed.segments[0]));
+    await this.assertConfiguredRootIdentity();
+    return result;
   }
 
   async createArtifact(fileName: string, content: Buffer, hookOverrides?: SourceMapStorageOperationHooks): Promise<string> {

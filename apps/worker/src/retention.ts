@@ -23,7 +23,7 @@ export type RetentionRuntime = {
     run: (lockedRuntime: RetentionLockedRuntime) => Promise<T>
   ) => Promise<{ locked: false } | { locked: true; result: T }>;
   deleteExpiredSourceMapArtifacts: () => Promise<
-    Pick<RetentionDeletedCounts, "sourceMapArtifacts" | "sourceMapFiles">
+    Pick<RetentionDeletedCounts, "sourceMapArtifacts" | "sourceMapFiles"> & { skipped?: boolean }
   >;
   recordRetentionRun: (input: {
     startedAt: Date;
@@ -40,7 +40,11 @@ export type RetentionLockedRuntime = {
   deleteExpiredDeadLetterJobs?: () => Promise<number>;
 };
 
-export async function runRetentionOnce(runtime: RetentionRuntime): Promise<{ ran: boolean; skipped: boolean }> {
+export async function runRetentionOnce(runtime: RetentionRuntime): Promise<{
+  ran: boolean;
+  skipped: boolean;
+  sourceMapsSkipped?: boolean;
+}> {
   const startedAt = runtime.now();
   let result: { locked: false } | { locked: true; result: RetentionDeletedCounts };
   try {
@@ -71,7 +75,21 @@ export async function runRetentionOnce(runtime: RetentionRuntime): Promise<{ ran
   if (runtime.policy.sourceMapsEnabled) {
     try {
       const sourceMapsDeleted = await runtime.deleteExpiredSourceMapArtifacts();
-      deleted = { ...deleted, ...sourceMapsDeleted };
+      deleted = {
+        ...deleted,
+        sourceMapArtifacts: sourceMapsDeleted.sourceMapArtifacts,
+        sourceMapFiles: sourceMapsDeleted.sourceMapFiles
+      };
+      if (sourceMapsDeleted.skipped) {
+        await runtime.recordRetentionRun({
+          startedAt,
+          finishedAt: runtime.now(),
+          status: "success",
+          deleted,
+          policy: runtime.policy
+        });
+        return { ran: true, skipped: false, sourceMapsSkipped: true };
+      }
     } catch (error) {
       const sourceMapsDeleted =
         error instanceof SourceMapRetentionError ? error.deleted : { sourceMapArtifacts: 0, sourceMapFiles: 0 };

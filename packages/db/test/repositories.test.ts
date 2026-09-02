@@ -235,12 +235,17 @@ import {
   createSourceMapArtifact,
   deleteSourceMapArtifact,
   findSourceMapArtifactForFrame,
+  findActiveSourceMapMetadataByStoragePaths,
   getCachedErrorStackResolution,
+  listActiveSourceMapMetadataPage,
   listExpiredSourceMapArtifacts,
   listSourceMapArtifacts,
   listSourceMapArtifactsPage,
   replaceErrorStackResolutions,
-  softDeleteSourceMapArtifactForRetention
+  softDeleteSourceMapMetadataForReconciliation,
+  softDeleteSourceMapArtifactForRetention,
+  withSourceMapStorageLock,
+  withSourceMapStorageLockOnConnection
 } from "../src/repositories/source-maps.js";
 import {
   createSourceMapUploadTokenRecord,
@@ -3480,6 +3485,120 @@ describe("repositories", () => {
         where id in ('smap_older', 'smap_old_1', 'smap_old_2', 'smap_old_deleted', 'smap_fresh')
       `.execute(db);
     });
+  });
+
+  it("pages active reconciliation metadata by stable id and bounds path membership queries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Source Map Reconciliation Paging" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "Production" });
+      const user = await createUser(db, {
+        email: "sourcemaps-reconciliation-paging@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      await sql`
+        insert into source_map_artifacts
+          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id, deleted_at)
+        values
+          ('smap_reconcile_003', ${project.id}, ${environment.id}, 'web@1', '3.js', '3.js.map', 'application/json', 1, 'sha3', '/storage/3.map', ${user.id}, null),
+          ('smap_reconcile_001', ${project.id}, ${environment.id}, 'web@1', '1.js', '1.js.map', 'application/json', 1, 'sha1', '/storage/1.map', ${user.id}, null),
+          ('smap_reconcile_002', ${project.id}, ${environment.id}, 'web@1', '2.js', '2.js.map', 'application/json', 1, 'sha2', '/storage/2.map', ${user.id}, ${new Date("2026-01-01T00:00:00.000Z")})
+      `.execute(db);
+
+      const first = await listActiveSourceMapMetadataPage(db, { afterId: null, batchSize: 1 });
+      const second = await listActiveSourceMapMetadataPage(db, { afterId: first[0].id, batchSize: 1 });
+      expect(first).toEqual([{ id: "smap_reconcile_001", storagePath: "/storage/1.map" }]);
+      expect(second).toEqual([{ id: "smap_reconcile_003", storagePath: "/storage/3.map" }]);
+      await expect(listActiveSourceMapMetadataPage(db, { afterId: null, batchSize: 101 }))
+        .rejects.toThrow("source_map_reconciliation_batch_size_invalid");
+
+      await expect(findActiveSourceMapMetadataByStoragePaths(db, ["/storage/3.map", "/storage/2.map"]))
+        .resolves.toEqual([{ id: "smap_reconcile_003", storagePath: "/storage/3.map" }]);
+      await expect(findActiveSourceMapMetadataByStoragePaths(db, Array.from({ length: 101 }, (_, index) => `/storage/${index}.map`)))
+        .rejects.toThrow("source_map_reconciliation_batch_size_invalid");
+
+      await sql`delete from source_map_artifacts where id like 'smap_reconcile_%'`.execute(db);
+    });
+  });
+
+  it("soft-deletes reconciliation metadata only when its current locator still matches", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Source Map Reconciliation Delete" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "Production" });
+      const user = await createUser(db, {
+        email: "sourcemaps-reconciliation-delete@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      await sql`
+        insert into source_map_artifacts
+          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id)
+        values
+          ('smap_reconcile_delete', ${project.id}, ${environment.id}, 'web@1', 'app.js', 'app.js.map', 'application/json', 1, 'sha', '/storage/current.map', ${user.id})
+      `.execute(db);
+
+      await expect(softDeleteSourceMapMetadataForReconciliation(db, {
+        id: "smap_reconcile_delete",
+        storagePath: "/storage/stale.map"
+      })).resolves.toBeNull();
+      await expect(softDeleteSourceMapMetadataForReconciliation(db, {
+        id: "smap_reconcile_delete",
+        storagePath: "/storage/current.map"
+      })).resolves.toEqual(expect.objectContaining({ id: "smap_reconcile_delete" }));
+      await expect(softDeleteSourceMapMetadataForReconciliation(db, {
+        id: "smap_reconcile_delete",
+        storagePath: "/storage/current.map"
+      })).resolves.toBeNull();
+
+      await sql`delete from source_map_artifacts where id = 'smap_reconcile_delete'`.execute(db);
+    });
+  });
+
+  it("pins the source-map storage advisory lock to one connection and releases it on errors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const first = await withSourceMapStorageLock(db, async (lockedDb) => {
+        const holder = await sql<{ pid: number; lockCount: string }>`
+          select pg_backend_pid() as pid,
+            (select count(*)::text from pg_locks where pid = pg_backend_pid() and locktype = 'advisory') as "lockCount"
+        `.execute(lockedDb);
+        const nested = await withSourceMapStorageLock(db, async () => "nested");
+        return { holder: holder.rows[0], nested };
+      });
+
+      expect(first).toEqual({
+        locked: true,
+        result: {
+          holder: expect.objectContaining({ pid: expect.any(Number), lockCount: "1" }),
+          nested: { locked: false }
+        }
+      });
+
+      await expect(withSourceMapStorageLock(db, async () => {
+        throw new Error("source_map_primary_failure");
+      })).rejects.toThrow("source_map_primary_failure");
+      await expect(withSourceMapStorageLock(db, async () => "released"))
+        .resolves.toEqual({ locked: true, result: "released" });
+    });
+  });
+
+  it("preserves the primary source-map storage failure when advisory unlock also fails", async () => {
+    const primary = new Error("source_map_primary_failure");
+    const connection = {} as Transaction<Database>;
+
+    const promise = withSourceMapStorageLockOnConnection(connection, async () => {
+      throw primary;
+    }, {
+      tryAcquire: async () => true,
+      release: async () => { throw new Error("source_map_unlock_failure"); }
+    });
+
+    await expect(promise).rejects.toBe(primary);
   });
 
   it("soft-deletes a retained source-map artifact and cached resolutions", async () => {

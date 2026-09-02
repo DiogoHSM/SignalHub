@@ -36,6 +36,10 @@ import {
 const SOURCE_MAP_STORAGE_MARKER_NAME = ".sigmon-source-map-storage";
 const SOURCE_MAP_STORAGE_MARKER_CONTENT = "sigmon-source-map-storage-v1\n";
 
+async function acquireSourceMapStorageLock<T>(run: () => Promise<T>) {
+  return { locked: true as const, result: await run() };
+}
+
 async function markSourceMapStorageRoot(root: string): Promise<void> {
   await writeFile(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME), SOURCE_MAP_STORAGE_MARKER_CONTENT);
 }
@@ -1163,6 +1167,35 @@ describe("backup scheduler integration helpers", () => {
 });
 
 describe("deleteExpiredSourceMapArtifacts", () => {
+  it("reports storage-lock contention without mutation so the scheduler can continue", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-lock-"));
+    let storage: SourceMapStorageSession | undefined;
+    try {
+      await markSourceMapStorageRoot(root);
+      storage = await openSourceMapStorageSession({ localDir: root, mode: "require", nodeEnv: "test" });
+      const listExpiredArtifacts = vi.fn(async () => []);
+      const softDeleteArtifact = vi.fn(async () => null);
+
+      const result = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        storage,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        withStorageLock: async () => ({ locked: false }),
+        listExpiredArtifacts,
+        softDeleteArtifact
+      });
+
+      expect(result).toEqual({ sourceMapArtifacts: 0, sourceMapFiles: 0, skipped: true });
+      expect(listExpiredArtifacts).not.toHaveBeenCalled();
+      expect(softDeleteArtifact).not.toHaveBeenCalled();
+    } finally {
+      await storage?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("fails closed before listing metadata for every unavailable storage authority state", async () => {
     const parent = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-unavailable-"));
     const outsideMarker = path.join(parent, "outside-marker");
@@ -1228,6 +1261,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
           now: new Date("2026-05-13T00:00:00.000Z"),
           retentionDays: 30,
           batchSize: 10,
+          withStorageLock: acquireSourceMapStorageLock,
           listExpiredArtifacts,
           softDeleteArtifact
         }).catch((caught: unknown) => caught);
@@ -1261,6 +1295,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts,
         softDeleteArtifact
       }).catch((caught: unknown) => caught);
@@ -1290,6 +1325,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts: async () => [
           {
             id: "smap_1",
@@ -1331,7 +1367,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
 
       await expect(readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
       expect(calls).toEqual(["smap_1"]);
-      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1 });
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1, skipped: false });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1349,6 +1385,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts: async () => [
           {
             id: "smap_missing",
@@ -1389,7 +1426,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
       });
 
       expect(deletedIds).toEqual(["smap_missing"]);
-      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0 });
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0, skipped: false });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1407,6 +1444,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts: async () => [
           {
             id: "smap_missing_parent",
@@ -1447,7 +1485,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
       });
 
       expect(deletedIds).toEqual(["smap_missing_parent"]);
-      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0 });
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0, skipped: false });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1474,6 +1512,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts: async () => [
           {
             id: "smap_raced",
@@ -1516,7 +1555,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
       const result = await deleteExpiredSourceMapArtifacts(runtime);
 
       expect(deletedIds).toEqual(["smap_raced"]);
-      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0 });
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0, skipped: false });
     } finally {
       await storage?.close();
       await rm(root, { recursive: true, force: true });
@@ -1555,6 +1594,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts: async () => [{
           id: "smap_race",
           projectId: "prj_1",
@@ -1589,7 +1629,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         })
       });
 
-      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1 });
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1, skipped: false });
       await expect(readFile(path.join(movedParent, "env_1", "release_1", "artifact.map"))).rejects.toMatchObject({ code: "ENOENT" });
       await expect(readFile(outsideFile, "utf8")).resolves.toBe("outside");
     } finally {
@@ -1626,6 +1666,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts: async () => [
           {
             id: "smap_blocked",
@@ -1673,6 +1714,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
           now: new Date("2026-05-13T00:00:00.000Z"),
           retentionDays: 30,
           batchSize: 10,
+          withStorageLock: acquireSourceMapStorageLock,
           listExpiredArtifacts: async () => [
             {
               id: "smap_outside",
@@ -1718,6 +1760,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts: async () => [
           {
             id: "smap_symlink_dir",
@@ -1759,7 +1802,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
 
       await expect(readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
       expect(deletedIds).toEqual(["smap_symlink_dir"]);
-      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1 });
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1, skipped: false });
     } finally {
       await rm(linkPath, { force: true });
       await rm(root, { recursive: true, force: true });
@@ -1782,6 +1825,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
           now: new Date("2026-05-13T00:00:00.000Z"),
           retentionDays: 30,
           batchSize: 10,
+          withStorageLock: acquireSourceMapStorageLock,
           listExpiredArtifacts: async () => [
             {
               id: "smap_symlink_file",
@@ -1832,6 +1876,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
           now: new Date("2026-05-13T00:00:00.000Z"),
           retentionDays: 30,
           batchSize: 10,
+          withStorageLock: acquireSourceMapStorageLock,
           listExpiredArtifacts: async () => [
             {
               id: "smap_intermediate_symlink",
@@ -1863,6 +1908,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
           now: new Date("2026-05-13T00:00:00.000Z"),
           retentionDays: 30,
           batchSize: 10,
+          withStorageLock: acquireSourceMapStorageLock,
           listExpiredArtifacts: async () => [
             {
               id: "smap_intermediate_special",
@@ -1906,6 +1952,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
           now: new Date("2026-05-13T00:00:00.000Z"),
           retentionDays: 30,
           batchSize: 10,
+          withStorageLock: acquireSourceMapStorageLock,
           listExpiredArtifacts: async () => [
             {
               id: "smap_symlink_parent",
@@ -1940,6 +1987,53 @@ describe("deleteExpiredSourceMapArtifacts", () => {
 });
 
 describe("runRetentionOnce", () => {
+  it("surfaces source-map storage-lock contention while completing the scheduler run", async () => {
+    const records: unknown[] = [];
+    const result = await runRetentionOnce({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      policy: {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        profilesDays: 30,
+        breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
+      },
+      withLock: async (run) => ({
+        locked: true,
+        result: await run({
+          deleteExpiredTelemetry: async () => ({
+            events: 0,
+            errors: 0,
+            traces: 0,
+            spans: 0,
+            llmCalls: 0,
+            webVitals: 0,
+            profiles: 0,
+            breadcrumbs: 0,
+            deadLetterJobs: 0,
+            sourceMapArtifacts: 0,
+            sourceMapFiles: 0
+          })
+        })
+      }),
+      deleteExpiredSourceMapArtifacts: async () => ({
+        sourceMapArtifacts: 0,
+        sourceMapFiles: 0,
+        skipped: true
+      }),
+      recordRetentionRun: async (record) => { records.push(record); }
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false, sourceMapsSkipped: true });
+    expect(records).toHaveLength(1);
+  });
+
   it("records successful retention runs", async () => {
     const calls: string[] = [];
     const result = await runRetentionOnce({

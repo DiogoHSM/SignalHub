@@ -7,6 +7,7 @@ import type { Database, ErrorStackResolutionsTable, SourceMapArtifactsTable } fr
 type SourceMapArtifactRow = Selectable<SourceMapArtifactsTable>;
 type ErrorStackResolutionRow = Selectable<ErrorStackResolutionsTable>;
 type SourceMapDb = Db | Transaction<Database>;
+const sourceMapStorageAdvisoryLockId = 927380402920;
 
 function isTransaction(db: SourceMapDb): db is Transaction<Database> {
   return db.isTransaction;
@@ -66,6 +67,11 @@ type SourceMapArtifactCursorPayload = {
 export type SourceMapArtifactPage = {
   artifacts: SourceMapArtifactRecord[];
   cursor?: string;
+};
+
+export type SourceMapReconciliationMetadata = {
+  id: string;
+  storagePath: string;
 };
 
 type SourceMapArtifactUploader =
@@ -277,6 +283,42 @@ export async function listExpiredSourceMapArtifacts(
   return rows.map(toSourceMapArtifact);
 }
 
+function assertReconciliationBatchSize(batchSize: number): void {
+  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 100) {
+    throw new Error("source_map_reconciliation_batch_size_invalid");
+  }
+}
+
+export async function listActiveSourceMapMetadataPage(
+  db: SourceMapDb,
+  input: { afterId: string | null; batchSize: number }
+): Promise<SourceMapReconciliationMetadata[]> {
+  assertReconciliationBatchSize(input.batchSize);
+  let query = db
+    .selectFrom("source_map_artifacts")
+    .select(["id", "storage_path"])
+    .where("deleted_at", "is", null);
+  if (input.afterId !== null) query = query.where("id", ">", input.afterId);
+  const rows = await query.orderBy("id", "asc").limit(input.batchSize).execute();
+  return rows.map((row) => ({ id: row.id, storagePath: row.storage_path }));
+}
+
+export async function findActiveSourceMapMetadataByStoragePaths(
+  db: SourceMapDb,
+  storagePaths: string[]
+): Promise<SourceMapReconciliationMetadata[]> {
+  if (storagePaths.length === 0) return [];
+  assertReconciliationBatchSize(storagePaths.length);
+  const rows = await db
+    .selectFrom("source_map_artifacts")
+    .select(["id", "storage_path"])
+    .where("deleted_at", "is", null)
+    .where("storage_path", "in", storagePaths)
+    .orderBy("id", "asc")
+    .execute();
+  return rows.map((row) => ({ id: row.id, storagePath: row.storage_path }));
+}
+
 export async function getSourceMapArtifact(
   db: SourceMapDb,
   input: { id: string; projectId: string; environmentId: string }
@@ -413,6 +455,83 @@ export async function softDeleteSourceMapArtifactForRetention(
   await deleteCachedErrorStackResolutionsForArtifact(db, id);
 
   return deleted ? toSourceMapArtifact(deleted) : null;
+}
+
+export async function softDeleteSourceMapMetadataForReconciliation(
+  db: SourceMapDb,
+  input: SourceMapReconciliationMetadata
+): Promise<SourceMapArtifactRecord | null> {
+  if (!isTransaction(db)) {
+    return db.transaction().execute((trx) => softDeleteSourceMapMetadataForReconciliation(trx, input));
+  }
+
+  const deleted = await db
+    .updateTable("source_map_artifacts")
+    .set({ deleted_at: new Date() })
+    .where("id", "=", input.id)
+    .where("storage_path", "=", input.storagePath)
+    .where("deleted_at", "is", null)
+    .returningAll()
+    .executeTakeFirst();
+  if (!deleted) return null;
+  await deleteCachedErrorStackResolutionsForArtifact(db, deleted.id);
+  return toSourceMapArtifact(deleted);
+}
+
+type SourceMapStorageLockOperations = {
+  tryAcquire: (db: SourceMapDb) => Promise<boolean>;
+  release: (db: SourceMapDb) => Promise<void>;
+};
+
+async function tryAcquireSourceMapStorageLock(db: SourceMapDb): Promise<boolean> {
+  const result = await sql<{ locked: boolean }>`
+    select pg_try_advisory_lock(${sourceMapStorageAdvisoryLockId}) as locked
+  `.execute(db);
+  return result.rows[0]?.locked === true;
+}
+
+async function releaseSourceMapStorageLock(db: SourceMapDb): Promise<void> {
+  await sql`select pg_advisory_unlock(${sourceMapStorageAdvisoryLockId})`.execute(db);
+}
+
+export async function withSourceMapStorageLockOnConnection<T>(
+  db: SourceMapDb,
+  run: (lockedDb: SourceMapDb) => Promise<T>,
+  operations: SourceMapStorageLockOperations = {
+    tryAcquire: tryAcquireSourceMapStorageLock,
+    release: releaseSourceMapStorageLock
+  }
+): Promise<{ locked: false } | { locked: true; result: T }> {
+  if (!(await operations.tryAcquire(db))) return { locked: false };
+
+  let result: T | undefined;
+  let primaryError: unknown;
+  let failed = false;
+  try {
+    result = await run(db);
+  } catch (error) {
+    failed = true;
+    primaryError = error;
+  }
+
+  let releaseError: unknown;
+  try {
+    await operations.release(db);
+  } catch (error) {
+    releaseError = error;
+  }
+  if (failed) throw primaryError;
+  if (releaseError !== undefined) throw releaseError;
+  return { locked: true, result: result as T };
+}
+
+export async function withSourceMapStorageLock<T>(
+  db: Db,
+  run: (lockedDb: SourceMapDb) => Promise<T>
+): Promise<{ locked: false } | { locked: true; result: T }> {
+  return db.connection().execute((connectionDb) =>
+    withSourceMapStorageLockOnConnection(connectionDb, run)
+  );
 }
 
 export async function getCachedErrorStackResolution(

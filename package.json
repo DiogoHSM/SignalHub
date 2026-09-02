@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "source-maps:upload": "tsx packages/cli/src/index.ts sourcemaps upload",
+    "source-maps:reconcile": "tsx scripts/reconcile-source-maps.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "secrets:migrate": "tsx scripts/migrate-integration-secrets.ts",
     "backup:create": "tsx scripts/backup-create.ts",

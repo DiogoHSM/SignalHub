@@ -153,7 +153,8 @@ import {
   listExpiredSourceMapArtifacts,
   listSourceMapArtifactsPage,
   replaceErrorStackResolutions,
-  softDeleteSourceMapArtifactForRetention
+  softDeleteSourceMapArtifactForRetention,
+  withSourceMapStorageLock
 } from "@sigmon/db/repositories/source-maps.js";
 import {
   createSourceMapUploadTokenRecord,
@@ -592,15 +593,20 @@ function runManualRetention() {
         now: new Date(),
         retentionDays: config.sourceMaps.retention.days,
         batchSize: config.sourceMaps.retention.batchSize,
+        withStorageLock: (run) => withSourceMapStorageLock(db, async () => run()),
         listExpiredArtifacts: (input) => listExpiredSourceMapArtifacts(db, input),
         softDeleteArtifact: (id) => softDeleteSourceMapArtifactForRetention(db, id)
       }),
     recordRetentionRun: (input) => recordRetentionRun(db, input)
   }).then((result) => ({
-    status: result.skipped ? ("skipped" as const) : ("success" as const),
-    message: result.skipped ? "Retention skipped because another run is active." : "Retention completed.",
+    status: result.skipped || result.sourceMapsSkipped ? ("skipped" as const) : ("success" as const),
+    message: result.skipped
+      ? "Retention skipped because another run is active."
+      : result.sourceMapsSkipped
+        ? "Retention completed; source-map cleanup skipped because storage maintenance is active."
+        : "Retention completed.",
     ran: result.ran,
-    skipped: result.skipped
+    skipped: result.skipped || result.sourceMapsSkipped === true
   }));
 }
 

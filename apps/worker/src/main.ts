@@ -29,7 +29,8 @@ import {
 } from "@sigmon/db/repositories/system.js";
 import {
   listExpiredSourceMapArtifacts,
-  softDeleteSourceMapArtifactForRetention
+  softDeleteSourceMapArtifactForRetention,
+  withSourceMapStorageLock
 } from "@sigmon/db/repositories/source-maps.js";
 import {
   evaluateAlertRule,
@@ -237,6 +238,7 @@ const stopRetention = runsScheduler && config.retention.enabled
               now: new Date(),
               retentionDays: config.sourceMaps.retention.days,
               batchSize: config.sourceMaps.retention.batchSize,
+              withStorageLock: (run) => withSourceMapStorageLock(db, async () => run()),
               listExpiredArtifacts: (input) => listExpiredSourceMapArtifacts(db, input),
               softDeleteArtifact: (id) => softDeleteSourceMapArtifactForRetention(db, id)
             }),
