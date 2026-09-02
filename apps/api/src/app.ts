@@ -2,7 +2,7 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
-import { redactLogFields } from "@sigmon/config";
+import { OutboundPolicy, redactLogFields } from "@sigmon/config";
 import Fastify, { type FastifyError, type FastifyHttpOptions } from "fastify";
 import type { Server } from "node:http";
 import { registerRequestContext } from "./plugins/request-context.js";
@@ -56,6 +56,7 @@ export type BuildAppOptions = {
   hashHeartbeatSecret?: (secret: string) => Promise<string>;
   googleOAuthEnabled?: boolean;
   nodeEnv?: string;
+  outboundPolicy?: OutboundPolicy;
   console?: Omit<ConsoleRouteOptions, "browserCorsOrigins" | "googleOAuthEnabled">;
   landing?: Omit<LandingRouteOptions, "consoleEnabled">;
   corsOrigin?: string | string[];
@@ -254,6 +255,7 @@ export async function buildApp(options: BuildAppOptions) {
   const browserOriginCache = new BrowserOriginCache(
     options.isBrowserCorsOriginAllowed ?? (async () => false)
   );
+  const outboundPolicy = options.outboundPolicy ?? new OutboundPolicy();
   const fastifyOptions: FastifyHttpOptions<Server> = {
     logger: {
       level: nodeEnv === "test" ? "silent" : "info",
@@ -382,7 +384,8 @@ export async function buildApp(options: BuildAppOptions) {
     hashApiKeySecret: options.hashApiKeySecret,
     hashHeartbeatSecret: options.hashHeartbeatSecret,
     browserOriginCache,
-    nodeEnv: options.nodeEnv
+    nodeEnv: options.nodeEnv,
+    outboundPolicy
   });
   registerAlertRoutes(app, {
     auth: options.auth,

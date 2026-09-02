@@ -200,6 +200,9 @@ importers:
       '@sigmon/telemetry':
         specifier: workspace:*
         version: link:../../packages/telemetry
+      '@smithy/node-http-handler':
+        specifier: ^4.6.1
+        version: 4.6.1
       bullmq:
         specifier: ^5.76.4
         version: 5.76.4

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { LookupFunction } from "node:net";
+import { OutboundPolicy } from "@sigmon/config";
 import type { TelemetryJobPayload } from "@sigmon/queues";
 import {
   deliverNotification,
@@ -52,6 +53,201 @@ function createWriter(): TelemetryWriter {
     insertBreadcrumb: vi.fn(async () => undefined)
   };
 }
+
+describe("Task 4 privileged HTTP transport", () => {
+  const now = new Date("2026-05-06T12:00:00.000Z");
+  const payload = {
+    alertEventId: "evt_task4",
+    ruleId: "rule_task4",
+    ruleName: "Task 4",
+    ruleType: "error_count" as const,
+    severity: "warning" as const,
+    projectId: "prj_1",
+    environmentId: "env_1",
+    triggeredAt: now.toISOString(),
+    window: { from: now.toISOString(), to: now.toISOString(), minutes: 1 },
+    observedValue: "2",
+    threshold: "1",
+    message: "alert",
+    sigmon: { source: "sigmon" as const }
+  };
+
+  function webhookChannel(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "chn_task4",
+      name: "Webhook",
+      type: "webhook" as const,
+      url: "https://hooks.example.test/deliver",
+      secretHeaderName: null,
+      secretHeaderValue: null,
+      hasSecret: false,
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      ...overrides
+    };
+  }
+
+  function task4HttpMonitor(overrides: Partial<MonitorRecord> = {}): MonitorRecord {
+    return {
+      id: "mon_task4",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      notificationChannelId: null,
+      kind: "http",
+      name: "Task 4 monitor",
+      enabled: true,
+      status: "unknown",
+      url: "https://public.example.test/health",
+      method: "GET",
+      expectedStatus: "2xx",
+      bodyContains: "ok",
+      timeoutMs: 500,
+      intervalMinutes: 5,
+      failureThreshold: 2,
+      recoveryThreshold: 1,
+      consecutiveFailures: 0,
+      consecutiveSuccesses: 0,
+      expectedIntervalMinutes: null,
+      graceMinutes: null,
+      secretHash: null,
+      lastCheckedAt: null,
+      lastCheckStatus: null,
+      lastCheckLatencyMs: null,
+      lastCheckResponseStatus: null,
+      lastCheckErrorMessage: null,
+      lastHeartbeatAt: null,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      ...overrides
+    };
+  }
+
+  it("rejects plaintext Slack, Discord, and secret-bearing custom webhook delivery", async () => {
+    for (const channel of [
+      webhookChannel({ type: "slack", url: "http://hooks.slack.test/token" }),
+      webhookChannel({ type: "discord", url: "http://discord.test/token" }),
+      webhookChannel({
+        url: "http://hooks.example.test/deliver",
+        secretHeaderName: "X-Sigmon-Secret",
+        secretHeaderValue: null,
+        hasSecret: false
+      }),
+      webhookChannel({
+        url: "http://hooks.example.test/deliver",
+        secretHeaderName: "X-Sigmon-Secret",
+        secretHeaderValue: "header-secret",
+        hasSecret: true
+      })
+    ]) {
+      const requestImpl = vi.fn(async () => ({ status: 204 }));
+      const result = await deliverWebhook({
+        channel: channel as never,
+        payload,
+        timeoutMs: 500,
+        nodeEnv: "production",
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+        requestImpl
+      } as never);
+
+      expect(result, channel.type).toEqual({
+        status: "failed",
+        responseStatus: null,
+        errorMessage: "Webhook HTTPS is required"
+      });
+      expect(requestImpl).not.toHaveBeenCalled();
+    }
+  });
+
+  it("allows plaintext secret-bearing delivery only to explicit non-production loopback", async () => {
+    const requestImpl = vi.fn(async () => ({ status: 204 }));
+    const result = await deliverWebhook({
+      channel: webhookChannel({
+        url: "http://127.0.0.1:3000/deliver",
+        secretHeaderName: "X-Sigmon-Secret",
+        secretHeaderValue: "header-secret",
+        hasSecret: true
+      }),
+      payload,
+      timeoutMs: 500,
+      nodeEnv: "test",
+      outboundPolicy: new OutboundPolicy({ nodeEnv: "test", allowLoopback: true }),
+      requestImpl
+    } as never);
+
+    expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
+    expect(requestImpl).toHaveBeenCalledOnce();
+  });
+
+  it("uses one webhook delivery budget across attempts and retry delays", async () => {
+    const requestImpl = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return { status: 503 };
+    });
+
+    const result = await deliverWebhook({
+      channel: webhookChannel(),
+      payload,
+      timeoutMs: 50,
+      nodeEnv: "production",
+      outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+      requestImpl,
+      attempts: 3,
+      retryDelayMs: 30
+    } as never);
+
+    expect(result).toEqual({ status: "failed", responseStatus: null, errorMessage: "Webhook delivery timed out" });
+    expect(requestImpl).toHaveBeenCalledOnce();
+  });
+
+  it("redacts URL and header secrets from webhook connector failures", async () => {
+    const requestImpl = vi.fn(async () => {
+      throw new Error("connect https://hooks.example.test/private?token=url-secret X-Sigmon-Secret=header-secret");
+    });
+
+    const result = await deliverWebhook({
+      channel: webhookChannel({
+        secretHeaderName: "X-Sigmon-Secret",
+        secretHeaderValue: "header-secret",
+        hasSecret: true
+      }),
+      payload,
+      timeoutMs: 500,
+      nodeEnv: "production",
+      outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+      requestImpl
+    } as never);
+
+    expect(result.errorMessage).toBe("Webhook request failed");
+    expect(result.errorMessage).not.toContain("private");
+    expect(result.errorMessage).not.toContain("url-secret");
+    expect(result.errorMessage).not.toContain("header-secret");
+  });
+
+  it("routes monitors through the shared bounded connector without a DNS preflight", async () => {
+    const resolveHostname = vi.fn(async () => {
+      throw new Error("preflight must not run");
+    });
+    const requestImpl = vi.fn(async () => ({ status: 200, body: "ok", latencyMs: 12 }));
+    const policy = new OutboundPolicy({ nodeEnv: "production" });
+
+    const result = await checkHttpMonitor({
+      monitor: task4HttpMonitor({ url: "http://public.example.test/health" }),
+      timeoutMs: 500,
+      outboundPolicy: policy,
+      resolveHostname,
+      requestImpl
+    } as never);
+
+    expect(result).toEqual({ status: "success", latencyMs: 12, responseStatus: 200, errorMessage: null });
+    expect(resolveHostname).not.toHaveBeenCalled();
+    expect(requestImpl).toHaveBeenCalledWith(
+      expect.objectContaining({ policy, maxResponseBytes: 65_536, redirectLimit: 0 })
+    );
+  });
+});
 
 function createDeferred() {
   let resolve!: () => void;
@@ -2639,7 +2835,10 @@ describe("deliverWebhook", () => {
 
   it("does not send a production request when a hostname resolves to a private address", async () => {
     for (const address of ["10.0.0.1", "169.254.169.254", "127.0.0.1", "fc00::1", "fe80::1"]) {
-      const requestImpl = vi.fn(async () => ({ status: 204 }));
+      const family = address.includes(":") ? 6 : 4;
+      const requestLookup: LookupFunction = (_hostname, _options, callback) => {
+        callback(null, [{ address, family }], family);
+      };
 
       const result = await deliverWebhook({
         channel: {
@@ -2658,8 +2857,7 @@ describe("deliverWebhook", () => {
         payload,
         timeoutMs: 5000,
         nodeEnv: "production",
-        resolveHostname: async () => [{ address }],
-        requestImpl
+        requestLookup
       });
 
       expect(result, address).toEqual({
@@ -2667,12 +2865,13 @@ describe("deliverWebhook", () => {
         responseStatus: null,
         errorMessage: "unsafe webhook target"
       });
-      expect(requestImpl, address).not.toHaveBeenCalled();
     }
   });
 
   it("does not send a development request when a hostname resolves to a private address", async () => {
-    const requestImpl = vi.fn(async () => ({ status: 204 }));
+    const requestLookup: LookupFunction = (_hostname, _options, callback) => {
+      callback(null, [{ address: "169.254.169.254", family: 4 }], 4);
+    };
 
     const result = await deliverWebhook({
       channel: {
@@ -2691,8 +2890,7 @@ describe("deliverWebhook", () => {
       payload,
       timeoutMs: 5000,
       nodeEnv: "development",
-      resolveHostname: async () => [{ address: "169.254.169.254", family: 4 }],
-      requestImpl
+      requestLookup
     });
 
     expect(result).toEqual({
@@ -2700,12 +2898,12 @@ describe("deliverWebhook", () => {
       responseStatus: null,
       errorMessage: "unsafe webhook target"
     });
-    expect(requestImpl).not.toHaveBeenCalled();
   });
 
   it("does not send a development request when a hostname resolves to an unsafe IPv4-embedded IPv6 address", async () => {
-    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
-    const requestImpl = vi.fn(async () => ({ status: 204 }));
+    const requestLookup: LookupFunction = (_hostname, _options, callback) => {
+      callback(null, [{ address: "64:ff9b::a9fe:a9fe", family: 6 }], 6);
+    };
 
     const result = await deliverWebhook({
       channel: {
@@ -2724,9 +2922,7 @@ describe("deliverWebhook", () => {
       payload,
       timeoutMs: 5000,
       nodeEnv: "development",
-      resolveHostname: async () => [{ address: "64:ff9b::a9fe:a9fe", family: 6 }],
-      fetchImpl,
-      requestImpl
+      requestLookup
     });
 
     expect(result).toEqual({
@@ -2734,12 +2930,13 @@ describe("deliverWebhook", () => {
       responseStatus: null,
       errorMessage: "unsafe webhook target"
     });
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(requestImpl).not.toHaveBeenCalled();
   });
 
   it("does not send a production request when hostname DNS resolution fails", async () => {
-    const requestImpl = vi.fn(async () => ({ status: 204 }));
+    const requestLookup: LookupFunction = (_hostname, _options, callback) => {
+      const error = Object.assign(new Error("lookup failed"), { code: "ENOTFOUND" });
+      callback(error, [], 0);
+    };
 
     const result = await deliverWebhook({
       channel: {
@@ -2758,10 +2955,7 @@ describe("deliverWebhook", () => {
       payload,
       timeoutMs: 5000,
       nodeEnv: "production",
-      resolveHostname: async () => {
-        throw new Error("lookup failed");
-      },
-      requestImpl
+      requestLookup
     });
 
     expect(result).toEqual({
@@ -2769,7 +2963,6 @@ describe("deliverWebhook", () => {
       responseStatus: null,
       errorMessage: "Webhook DNS resolution failed"
     });
-    expect(requestImpl).not.toHaveBeenCalled();
   });
 
   it("does not retry permanent connection-time DNS failures", async () => {
@@ -2843,7 +3036,7 @@ describe("deliverWebhook", () => {
     expect(result).toEqual({
       status: "failed",
       responseStatus: null,
-      errorMessage: "Invalid character in header content"
+      errorMessage: "Webhook request failed"
     });
     expect(requestImpl).toHaveBeenCalledTimes(1);
   });
@@ -2852,7 +3045,7 @@ describe("deliverWebhook", () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
     const requestLookup: LookupFunction = (hostname, _options, callback) => {
       expect(hostname).toBe("hooks.example.com");
-      callback(null, "169.254.169.254", 4);
+      callback(null, [{ address: "169.254.169.254", family: 4 }], 4);
     };
 
     const result = await deliverWebhook({
@@ -2889,7 +3082,7 @@ describe("deliverWebhook", () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
     const requestLookup: LookupFunction = (hostname, _options, callback) => {
       expect(hostname).toBe("hooks.example.com");
-      callback(null, "127.0.0.1", 4);
+      callback(null, [{ address: "127.0.0.1", family: 4 }], 4);
     };
 
     const result = await deliverWebhook({

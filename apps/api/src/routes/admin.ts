@@ -6,7 +6,10 @@ import {
   createSourceMapUploadToken,
   hashApiKey as hashTelemetryApiKey
 } from "@sigmon/telemetry/api-keys";
-import { validateWebhookTargetUrl } from "@sigmon/config";
+import {
+  OutboundPolicy,
+  validateOutboundHttpTransport
+} from "@sigmon/config";
 import type {
   CreateHeartbeatMonitorInput,
   CreateHttpMonitorInput,
@@ -582,6 +585,7 @@ export type AdminRouteOptions = {
   hashHeartbeatSecret?: (secret: string) => Promise<string>;
   browserOriginCache?: BrowserOriginCacheControl;
   nodeEnv?: string;
+  outboundPolicy?: OutboundPolicy;
 };
 
 const createUserSchema = z.object({
@@ -1703,9 +1707,13 @@ function isValidSecretHeaderName(headerName: string | null | undefined): boolean
   return normalizedHeaderName.startsWith("x-") || normalizedHeaderName.startsWith("sigmon-");
 }
 
-function validateWebhookUrl(rawUrl: string, _nodeEnv: string | undefined): boolean {
+function validateOutboundHttpUrl(
+  rawUrl: string,
+  options: AdminRouteOptions,
+  requireHttps: boolean
+): boolean {
   try {
-    validateWebhookTargetUrl(rawUrl);
+    validateOutboundHttpTransport(rawUrl, options.outboundPolicy ?? new OutboundPolicy(), { requireHttps });
     return true;
   } catch {
     return false;
@@ -1780,7 +1788,35 @@ function isValidNotificationChannelInput(
     return true;
   }
 
-  return validateWebhookUrl(input.url, options.nodeEnv) && isValidSecretHeaderName(input.secretHeaderName);
+  const requireHttps =
+    input.type === "slack" ||
+    input.type === "discord" ||
+    Boolean(input.secretHeaderName || input.secretHeaderValue);
+  return validateOutboundHttpUrl(input.url, options, requireHttps) && isValidSecretHeaderName(input.secretHeaderName);
+}
+
+function isValidNotificationChannelFinalState(
+  current: NotificationChannelRecord,
+  update: UpdateNotificationChannelInput,
+  options: AdminRouteOptions
+): boolean {
+  const type = update.type ?? current.type;
+  if (type === "email") return true;
+  const url = update.url === undefined ? current.url : update.url;
+  if (typeof url !== "string") return false;
+  const secretHeaderName =
+    update.secretHeaderName === undefined ? current.secretHeaderName : update.secretHeaderName;
+  const hasSecret =
+    update.secretHeaderName === null || update.secretHeaderValue === null
+      ? false
+      : typeof update.secretHeaderValue === "string"
+        ? true
+        : current.hasSecret;
+  return validateOutboundHttpUrl(
+    url,
+    options,
+    type === "slack" || type === "discord" || Boolean(secretHeaderName) || hasSecret
+  );
 }
 
 async function requireAdmin(
@@ -4342,9 +4378,21 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     const parsed = updateNotificationChannelSchema.safeParse(request.body);
     if (
       !parsed.success ||
-      (typeof parsed.data.url === "string" && !validateWebhookUrl(parsed.data.url, options.nodeEnv)) ||
       (parsed.data.secretHeaderName !== undefined && !isValidSecretHeaderName(parsed.data.secretHeaderName))
     ) {
+      return reply.status(400).send({ error: "invalid_notification_channel_request" });
+    }
+
+    let currentChannel: NotificationChannelRecord | null | undefined;
+    try {
+      currentChannel = await options.alerts.getNotificationChannel?.(params.data.id);
+    } catch {
+      return reply.status(503).send({ error: "notification_channels_unavailable" });
+    }
+    if (!currentChannel) {
+      return reply.status(404).send({ error: "notification_channel_not_found" });
+    }
+    if (!isValidNotificationChannelFinalState(currentChannel, parsed.data, options)) {
       return reply.status(400).send({ error: "invalid_notification_channel_request" });
     }
 
@@ -4557,7 +4605,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     const parsed = httpMonitorSchema.safeParse(request.body);
-    if (!parsed.success || !validateWebhookUrl(parsed.data.url, options.nodeEnv)) {
+    if (!parsed.success || !validateOutboundHttpUrl(parsed.data.url, options, false)) {
       return reply.status(400).send({ error: "invalid_monitor_request" });
     }
     if (!(await validateMonitorNotificationChannel(parsed.data.notificationChannelId, options, reply))) {
@@ -4637,7 +4685,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     if (
       !params.success ||
       !parsed.success ||
-      (typeof parsed.data.url === "string" && !validateWebhookUrl(parsed.data.url, options.nodeEnv))
+      (typeof parsed.data.url === "string" && !validateOutboundHttpUrl(parsed.data.url, options, false))
     ) {
       return reply.status(400).send({ error: "invalid_monitor_request" });
     }

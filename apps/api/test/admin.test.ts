@@ -40,6 +40,7 @@ import {
 } from "../src/auth/session-service.js";
 import { getSessionCookieOptions, type AuthDependencies } from "../src/routes/auth.js";
 import type { UserAdministrationDependencies } from "../src/routes/admin.js";
+import { OutboundPolicy } from "@sigmon/config";
 
 let app: FastifyInstance | undefined;
 
@@ -4197,5 +4198,147 @@ describe("read token administration", () => {
       url: "/admin/read-tokens/rdtok_1?project_id=prj_1&environment_id=env_1"
     });
     expect(revoked.statusCode).toBe(204);
+  });
+
+  it("enforces final notification-channel transport rules on create and partial update", async () => {
+    const existingHttpChannel = {
+      id: "chn_http",
+      name: "Custom",
+      type: "webhook" as const,
+      url: "http://hooks.example.test/deliver",
+      emailRecipients: [] as string[],
+      secretHeaderName: null,
+      secretHeaderValue: null,
+      hasSecret: false,
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      archivedAt: null
+    };
+    const createNotificationChannel = vi.fn(async (input) => ({ ...existingHttpChannel, ...input, id: "chn_new" }));
+    const updateNotificationChannel = vi.fn(async (_id, input) => ({ ...existingHttpChannel, ...input }));
+    const getNotificationChannel = vi.fn(async (id: string) => {
+      if (id === "chn_slack") {
+        return { ...existingHttpChannel, id, type: "slack" as const, url: "https://hooks.slack.test/token" };
+      }
+      if (id === "chn_secret") {
+        return {
+          ...existingHttpChannel,
+          id,
+          url: "https://hooks.example.test/deliver",
+          secretHeaderName: "X-Sigmon-Secret",
+          hasSecret: true
+        };
+      }
+      return existingHttpChannel;
+    });
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      nodeEnv: "production",
+      outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+      alerts: { createNotificationChannel, updateNotificationChannel, getNotificationChannel }
+    } as never);
+
+    for (const payload of [
+      { name: "Slack", type: "slack", url: "http://hooks.slack.test/token" },
+      { name: "Discord", type: "discord", url: "http://discord.test/token" },
+      {
+        name: "Custom secret name",
+        type: "webhook",
+        url: "http://hooks.example.test/deliver",
+        secretHeaderName: "X-Sigmon-Secret"
+      },
+      {
+        name: "Custom secret",
+        type: "webhook",
+        url: "http://hooks.example.test/deliver",
+        secretHeaderName: "X-Sigmon-Secret",
+        secretHeaderValue: "secret"
+      }
+    ]) {
+      const response = await app.inject({ method: "POST", url: "/admin/notification-channels", payload });
+      expect(response.statusCode, payload.type).toBe(400);
+      expect(response.json()).toEqual({ error: "invalid_notification_channel_request" });
+    }
+
+    const patch = await app.inject({
+      method: "PATCH",
+      url: "/admin/notification-channels/chn_http",
+      payload: { secretHeaderName: "X-Sigmon-Secret", secretHeaderValue: "secret" }
+    });
+    expect(patch.statusCode).toBe(400);
+    expect(patch.json()).toEqual({ error: "invalid_notification_channel_request" });
+    const nameOnlyPatch = await app.inject({
+      method: "PATCH",
+      url: "/admin/notification-channels/chn_http",
+      payload: { secretHeaderName: "X-Sigmon-Secret" }
+    });
+    expect(nameOnlyPatch.statusCode).toBe(400);
+    expect(nameOnlyPatch.json()).toEqual({ error: "invalid_notification_channel_request" });
+    for (const [id, payload] of [
+      ["chn_http", { type: "slack" }],
+      ["chn_slack", { url: "http://hooks.slack.test/new-token" }],
+      ["chn_secret", { url: "http://hooks.example.test/deliver" }]
+    ] as const) {
+      const response = await app.inject({
+        method: "PATCH",
+        url: `/admin/notification-channels/${id}`,
+        payload
+      });
+      expect(response.statusCode, id).toBe(400);
+      expect(response.json()).toEqual({ error: "invalid_notification_channel_request" });
+    }
+    expect(getNotificationChannel).toHaveBeenCalledWith("chn_http");
+    expect(createNotificationChannel).not.toHaveBeenCalled();
+    expect(updateNotificationChannel).not.toHaveBeenCalled();
+  });
+
+  it("uses the configured outbound policy for public HTTP monitors and explicit private development targets", async () => {
+    const createHttpMonitor = vi.fn(async (input) => ({
+      id: "mon_new",
+      ...input,
+      status: "unknown" as const,
+      consecutiveFailures: 0,
+      consecutiveSuccesses: 0,
+      expectedIntervalMinutes: null,
+      graceMinutes: null,
+      secretHash: null,
+      lastCheckedAt: null,
+      lastCheckStatus: null,
+      lastCheckLatencyMs: null,
+      lastCheckResponseStatus: null,
+      lastCheckErrorMessage: null,
+      lastHeartbeatAt: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      archivedAt: null
+    }));
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      nodeEnv: "development",
+      outboundPolicy: new OutboundPolicy({ nodeEnv: "development", privateCidrs: ["10.20.0.0/16"] }),
+      monitors: { createHttpMonitor }
+    } as never);
+
+    for (const url of ["http://public.example.test/health", "https://10.20.3.4/health"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/admin/monitors/http",
+        payload: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          name: "HTTP monitor",
+          url,
+          method: "GET",
+          intervalMinutes: 5,
+          failureThreshold: 2,
+          recoveryThreshold: 1
+        }
+      });
+      expect(response.statusCode, url).toBe(201);
+    }
+    expect(createHttpMonitor).toHaveBeenCalledTimes(2);
   });
 });

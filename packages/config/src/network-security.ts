@@ -118,6 +118,25 @@ export function validateOutboundUrl(rawUrl: string, policy: OutboundPolicy = new
   return url;
 }
 
+export function validateOutboundHttpTransport(
+  rawUrl: string,
+  policy: OutboundPolicy,
+  options: { requireHttps?: boolean } = {}
+): URL {
+  const url = policy.validateOutboundUrl(rawUrl);
+  if (options.requireHttps === true && url.protocol !== "https:" && !isExplicitLoopbackUrl(url, policy)) {
+    throw new Error("outbound_https_required");
+  }
+  return url;
+}
+
+export function isExplicitLoopbackUrl(url: URL, policy: OutboundPolicy): boolean {
+  if (!policy.allowsLoopback()) return false;
+  const hostname = stripIpv6Brackets(url.hostname).toLowerCase();
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
+  return classifyAddress(hostname) === "loopback";
+}
+
 export function parseOutboundPrivateCidrs(value: string | undefined): string[] {
   if (value === undefined || value.trim() === "") {
     return [];

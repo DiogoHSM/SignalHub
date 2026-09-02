@@ -1,7 +1,7 @@
 import { Worker } from "bullmq";
 import { Redis } from "ioredis";
 import { sql } from "kysely";
-import { createStructuredLogger, loadConfig, SecretBox } from "@sigmon/config";
+import { createStructuredLogger, loadConfig, OutboundPolicy, SecretBox } from "@sigmon/config";
 import { createDb } from "@sigmon/db";
 import { createTelemetryQueue } from "@sigmon/queues";
 import type { TelemetryJobPayload } from "@sigmon/queues";
@@ -99,6 +99,11 @@ import { recordFeedbackItem } from "@sigmon/db/repositories/feedback-widget.js";
 
 const logger = createStructuredLogger("worker");
 const config = loadConfig();
+const outboundPolicy = new OutboundPolicy({
+  privateCidrs: config.outbound.privateCidrs,
+  allowLoopback: config.outbound.allowLoopback,
+  nodeEnv: config.nodeEnv
+});
 const secretBox = config.dataEncryption.currentKey
   ? new SecretBox({
       currentKey: config.dataEncryption.currentKey,
@@ -290,7 +295,8 @@ const stopAlerts = runsScheduler && config.alerts.enabled
               smtp: config.smtp,
               timeoutMs: config.alerts.webhookTimeoutMs,
               nodeEnv: config.nodeEnv,
-              publicEndpoint: config.console.publicEndpoint
+              publicEndpoint: config.console.publicEndpoint,
+              outboundPolicy
             }),
           recordDelivery: (input) => recordNotificationDelivery(db, input)
         })
@@ -310,7 +316,7 @@ const stopMonitors = runsScheduler && config.monitors.enabled
           listStaleHeartbeatMonitors: () =>
             listStaleHeartbeatMonitors(db, { now: new Date(), limit: config.monitors.maxConcurrency }),
           checkHttpMonitor: (monitor): Promise<MonitorCheckResult> =>
-            checkHttpMonitor({ monitor, timeoutMs: config.monitors.httpTimeoutMs }),
+            checkHttpMonitor({ monitor, timeoutMs: config.monitors.httpTimeoutMs, outboundPolicy }),
           recordMonitorCheck: (input) => recordMonitorCheck(db, input),
           recordAlertEvent: (input) => recordMonitorAlertEvent(db, input),
           getNotificationChannel: (id) => getNotificationChannel(db, id, { includeSecret: true, secretBox }),
@@ -321,7 +327,8 @@ const stopMonitors = runsScheduler && config.monitors.enabled
               smtp: config.smtp,
               timeoutMs: config.alerts.webhookTimeoutMs,
               nodeEnv: config.nodeEnv,
-              publicEndpoint: config.console.publicEndpoint
+              publicEndpoint: config.console.publicEndpoint,
+              outboundPolicy
             }),
           recordDelivery: (input) => recordNotificationDelivery(db, input)
         })
@@ -361,6 +368,7 @@ const stopBackups = runsScheduler && config.backups.enabled
           now: () => new Date(),
           trigger: "scheduled",
           config: backupConfig,
+          outboundPolicy,
           withLock: (run) => withBackupLock(db, run),
           recordBackupRun: (input) => recordBackupRun(db, input)
         })

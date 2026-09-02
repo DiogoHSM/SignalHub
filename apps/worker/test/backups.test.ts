@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { EventEmitter } from "node:events";
 import { Readable } from "node:stream";
-import { SecretBox } from "@sigmon/config";
+import { OutboundPolicy, SecretBox } from "@sigmon/config";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
 import { sql } from "kysely";
 import { GenericContainer, Wait } from "testcontainers";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -321,6 +322,379 @@ describe("dumpPostgresDatabase", () => {
 });
 
 describe("uploadBackupToS3", () => {
+  it("rejects a plaintext credential-bearing public endpoint before client creation", async () => {
+    const createClient = vi.fn(() => ({ send: vi.fn(), destroy: vi.fn() }));
+
+    await expect(
+      uploadBackupToS3({
+        filePath: "C:/not-read.dump",
+        key: "prod/not-read.dump",
+        s3: {
+          enabled: true,
+          endpoint: "http://s3.example.test/private?token=secret",
+          region: "auto",
+          bucket: "bucket",
+          accessKeyId: "access",
+          secretAccessKey: "secret",
+          prefix: "prod"
+        },
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+        createClient
+      } as never)
+    ).rejects.toThrow("backup_s3_https_required");
+    expect(createClient).not.toHaveBeenCalled();
+  });
+
+  it("configures the signed S3 client with one retry owner, safe agents, deadlines, and lifecycle cleanup", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-task4-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const destroy = vi.fn();
+    const send = vi.fn(async (_command: unknown, options?: { abortSignal?: AbortSignal }) => {
+      expect(options?.abortSignal).toBeInstanceOf(AbortSignal);
+    });
+    let clientConfig: Record<string, unknown> | undefined;
+    const createClient = vi.fn((config) => {
+      clientConfig = config as unknown as Record<string, unknown>;
+      return { send, destroy };
+    });
+    const lookup = vi.fn((_hostname, options, callback) => {
+      expect(options).toMatchObject({ all: true, verbatim: true });
+      callback(null, [{ address: "127.0.0.1", family: 4 }], 4);
+    }) as never;
+
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(`${dumpPath}.sha256`, "checksum  sigmon.dump\n");
+      await uploadBackupToS3({
+        filePath: dumpPath,
+        key: "prod/sigmon.dump",
+        s3: {
+          enabled: true,
+          endpoint: "https://s3.example.test",
+          region: "auto",
+          bucket: "bucket",
+          accessKeyId: "access",
+          secretAccessKey: "secret",
+          prefix: "prod"
+        },
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+        lookup,
+        timeoutMs: 1_000,
+        createClient
+      } as never);
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+
+    expect(clientConfig).toMatchObject({ maxAttempts: 1 });
+    expect(clientConfig?.requestHandler).toBeInstanceOf(NodeHttpHandler);
+    const handlerOptions = await (clientConfig?.requestHandler as unknown as { configProvider: Promise<Record<string, unknown>> })
+      .configProvider;
+    expect(handlerOptions).toMatchObject({
+      connectionTimeout: expect.any(Number),
+      requestTimeout: 1_000,
+      socketTimeout: expect.any(Number),
+      throwOnRequestTimeout: true
+    });
+    const httpsAgent = handlerOptions.httpsAgent as { options: { lookup: Function; rejectUnauthorized?: boolean }; maxSockets: number };
+    expect(httpsAgent.maxSockets).toBeLessThanOrEqual(4);
+    expect(httpsAgent.options.rejectUnauthorized).not.toBe(false);
+    await new Promise<void>((resolve) => {
+      httpsAgent.options.lookup("s3.example.test", {}, (error: NodeJS.ErrnoException | null) => {
+        expect(error?.code).toBe("EACCES");
+        resolve();
+      });
+    });
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(destroy).toHaveBeenCalledOnce();
+  });
+
+  it("destroys the S3 client when an upload fails", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-task4-fail-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const destroy = vi.fn();
+    const send = vi.fn(async () => {
+      const error = new Error("denied") as Error & { $metadata?: { httpStatusCode: number } };
+      error.$metadata = { httpStatusCode: 403 };
+      throw error;
+    });
+
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(`${dumpPath}.sha256`, "checksum  sigmon.dump\n");
+      await expect(
+        uploadBackupToS3({
+          filePath: dumpPath,
+          key: "prod/sigmon.dump",
+          s3: {
+            enabled: true,
+            endpoint: "https://s3.example.test",
+            region: "auto",
+            bucket: "bucket",
+            accessKeyId: "access",
+            secretAccessKey: "secret",
+            prefix: "prod"
+          },
+          outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+          createClient: () => ({ send, destroy })
+        } as never)
+      ).rejects.toThrow("backup_s3_upload_failed");
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+    expect(destroy).toHaveBeenCalledOnce();
+  });
+
+  it("destroys the S3 client when the checksum sidecar check fails after construction", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-task4-sidecar-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const destroy = vi.fn();
+    const send = vi.fn(async () => undefined);
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await expect(
+        uploadBackupToS3({
+          filePath: dumpPath,
+          key: "prod/sigmon.dump",
+          s3: {
+            enabled: true,
+            endpoint: "https://s3.example.test",
+            region: "auto",
+            bucket: "bucket",
+            accessKeyId: "access",
+            secretAccessKey: "secret",
+            prefix: "prod"
+          },
+          outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+          createClient: () => ({ send, destroy })
+        } as never)
+      ).rejects.toThrow();
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+    expect(send).not.toHaveBeenCalled();
+    expect(destroy).toHaveBeenCalledOnce();
+  });
+
+  it("applies the total S3 deadline while the checksum sidecar check is pending", async () => {
+    const destroy = vi.fn();
+    const send = vi.fn(async () => undefined);
+    const statFn = vi.fn(() => new Promise<never>(() => undefined));
+
+    await expect(
+      uploadBackupToS3({
+        filePath: "C:/pending/sigmon.dump",
+        key: "prod/sigmon.dump",
+        s3: {
+          enabled: true,
+          endpoint: "https://s3.example.test",
+          region: "auto",
+          bucket: "bucket",
+          accessKeyId: "access",
+          secretAccessKey: "secret",
+          prefix: "prod"
+        },
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+        timeoutMs: 25,
+        statFn,
+        createClient: () => ({ send, destroy })
+      } as never)
+    ).rejects.toThrow("backup_s3_timeout");
+
+    expect(statFn).toHaveBeenCalledOnce();
+    expect(send).not.toHaveBeenCalled();
+    expect(destroy).toHaveBeenCalledOnce();
+  });
+
+  it("aborts one total S3 operation deadline and ignores a late send completion", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-task4-timeout-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const destroy = vi.fn();
+    const streams: Readable[] = [];
+    let completeSend!: () => void;
+    let observedSignal: AbortSignal | undefined;
+    const send = vi.fn((_command: unknown, options?: { abortSignal?: AbortSignal }) => {
+      observedSignal = options?.abortSignal;
+      return new Promise<void>((resolve) => {
+        completeSend = resolve;
+      });
+    });
+    const createReadStreamFn = vi.fn((path: string) => {
+      const stream = Readable.from([path.endsWith(".sha256") ? "checksum  sigmon.dump\n" : "backup-content"]);
+      streams.push(stream);
+      return stream;
+    });
+
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(`${dumpPath}.sha256`, "checksum  sigmon.dump\n");
+      const operation = uploadBackupToS3({
+        filePath: dumpPath,
+        key: "prod/sigmon.dump",
+        s3: {
+          enabled: true,
+          endpoint: "https://s3.example.test",
+          region: "auto",
+          bucket: "bucket",
+          accessKeyId: "access",
+          secretAccessKey: "secret",
+          prefix: "prod"
+        },
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+        timeoutMs: 25,
+        createClient: () => ({ send, destroy }),
+        createReadStreamFn
+      } as never);
+
+      await expect(operation).rejects.toThrow("backup_s3_timeout");
+      expect(observedSignal?.aborted).toBe(true);
+      completeSend();
+      await expect(operation).rejects.toThrow("backup_s3_timeout");
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+    expect(send).toHaveBeenCalledOnce();
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(streams.every((stream) => stream.destroyed)).toBe(true);
+  });
+
+  it("allows plaintext S3 only for explicit non-production loopback", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-task4-loopback-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    const destroy = vi.fn();
+    const send = vi.fn(async () => undefined);
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(`${dumpPath}.sha256`, "checksum  sigmon.dump\n");
+      await uploadBackupToS3({
+        filePath: dumpPath,
+        key: "dev/sigmon.dump",
+        s3: {
+          enabled: true,
+          endpoint: "http://127.0.0.1:9000",
+          region: "auto",
+          bucket: "bucket",
+          accessKeyId: "access",
+          secretAccessKey: "secret",
+          prefix: "dev"
+        },
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "test", allowLoopback: true }),
+        createClient: () => ({ send, destroy })
+      } as never);
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(destroy).toHaveBeenCalledOnce();
+  });
+
+  it("destroys the request handler when S3 client construction throws", async () => {
+    const destroyHandler = vi.spyOn(NodeHttpHandler.prototype, "destroy");
+    try {
+      await expect(
+        uploadBackupToS3({
+          filePath: "C:/not-read.dump",
+          key: "prod/not-read.dump",
+          s3: {
+            enabled: true,
+            endpoint: "https://s3.example.test",
+            region: "auto",
+            bucket: "bucket",
+            accessKeyId: "access",
+            secretAccessKey: "secret",
+            prefix: "prod"
+          },
+          outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+          createClient: () => {
+            throw new Error("client construction failed");
+          }
+        } as never)
+      ).rejects.toThrow("backup_s3_client_failed");
+      expect(destroyHandler).toHaveBeenCalledOnce();
+    } finally {
+      destroyHandler.mockRestore();
+    }
+  });
+
+  it("does not let cleanup errors mask the primary S3 failure", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-task4-cleanup-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(`${dumpPath}.sha256`, "checksum  sigmon.dump\n");
+      await expect(
+        uploadBackupToS3({
+          filePath: dumpPath,
+          key: "prod/sigmon.dump",
+          s3: {
+            enabled: true,
+            endpoint: "https://s3.example.test",
+            region: "auto",
+            bucket: "bucket",
+            accessKeyId: "access",
+            secretAccessKey: "secret",
+            prefix: "prod"
+          },
+          outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+          createClient: () => ({
+            send: async () => {
+              const error = new Error("primary upload failure") as Error & { $metadata?: { httpStatusCode: number } };
+              error.$metadata = { httpStatusCode: 403 };
+              throw error;
+            },
+            destroy: () => {
+              throw new Error("cleanup failure");
+            }
+          })
+        } as never)
+      ).rejects.toThrow("backup_s3_upload_failed");
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns a stable S3 failure category without endpoint paths, queries, or credentials", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-task4-redaction-"));
+    const dumpPath = join(localDir, "sigmon.dump");
+    try {
+      await writeFile(dumpPath, "backup-content");
+      await writeFile(`${dumpPath}.sha256`, "checksum  sigmon.dump\n");
+      const operation = uploadBackupToS3({
+        filePath: dumpPath,
+        key: "prod/sigmon.dump",
+        s3: {
+          enabled: true,
+          endpoint: "https://s3.example.test/private/token-path?access=secret-query",
+          region: "auto",
+          bucket: "bucket",
+          accessKeyId: "access-key-secret",
+          secretAccessKey: "secret-key-secret",
+          prefix: "prod"
+        },
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+        createClient: () => ({
+          send: async () => {
+            const error = new Error(
+              "failed https://s3.example.test/private/token-path?access=secret-query access-key-secret secret-key-secret"
+            ) as Error & { $metadata?: { httpStatusCode: number } };
+            error.$metadata = { httpStatusCode: 403 };
+            throw error;
+          }
+        })
+      } as never);
+
+      await expect(operation).rejects.toThrow("backup_s3_upload_failed");
+      await operation.catch((error: Error) => {
+        expect(error.message).not.toContain("token-path");
+        expect(error.message).not.toContain("secret-query");
+        expect(error.message).not.toContain("access-key-secret");
+        expect(error.message).not.toContain("secret-key-secret");
+      });
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
   it("uses configured S3 client options and uploads the dump and checksum sidecar", async () => {
     const localDir = await mkdtemp(join(tmpdir(), "sigmon-upload-"));
     const dumpPath = join(localDir, "sigmon.dump");
@@ -357,7 +731,7 @@ describe("uploadBackupToS3", () => {
       await rm(localDir, { recursive: true, force: true });
     }
 
-    expect(createClient).toHaveBeenCalledWith({
+    expect(createClient).toHaveBeenCalledWith(expect.objectContaining({
       endpoint: "https://example.r2.cloudflarestorage.com",
       region: "auto",
       credentials: {
@@ -365,7 +739,7 @@ describe("uploadBackupToS3", () => {
         secretAccessKey: "secret"
       },
       forcePathStyle: true
-    });
+    }));
     expect(createReadStreamFn).toHaveBeenCalledWith(dumpPath);
     expect(createReadStreamFn).toHaveBeenCalledWith(sidecarPath);
     expect(send).toHaveBeenCalledTimes(2);
@@ -448,7 +822,7 @@ describe("uploadBackupToS3", () => {
             return stream;
           }
         })
-      ).rejects.toThrow("s3 failed secret=hidden");
+      ).rejects.toThrow("backup_s3_upload_failed");
 
       expect(streams.every((stream) => stream.destroyed)).toBe(true);
     } finally {
@@ -491,7 +865,7 @@ describe("uploadBackupToS3", () => {
           createClient: () => ({ send }),
           createReadStreamFn
         })
-      ).rejects.toThrow("S3 access denied");
+      ).rejects.toThrow("backup_s3_upload_failed");
     } finally {
       await rm(localDir, { recursive: true, force: true });
     }

@@ -1,13 +1,8 @@
-import { lookup as dnsLookup, type LookupAddress } from "node:dns";
-import { lookup as resolveDns } from "node:dns/promises";
-import { request as httpRequest } from "node:http";
-import { request as httpsRequest } from "node:https";
-import { isIP, type LookupFunction } from "node:net";
+import type { LookupFunction } from "node:net";
 import {
-  assertSafeResolvedAddresses,
-  assertSafeWebhookHost,
-  validateWebhookTargetUrl,
-  type ResolvedAddress
+  OutboundPolicy,
+  safeHttpRequest,
+  type SafeHttpRequestInput
 } from "@sigmon/config";
 import type { NotificationChannelRecord } from "@sigmon/db/repositories/alerts.js";
 import type { MonitorRecord } from "@sigmon/db/repositories/monitors.js";
@@ -22,12 +17,7 @@ export type MonitorCheckResult = {
 };
 
 type ResolveHostname = (hostname: string) => Promise<Array<{ address: string; family?: number }>>;
-type MonitorRequest = (input: {
-  url: URL;
-  method: "GET" | "HEAD";
-  timeoutMs: number;
-  lookup: LookupFunction;
-}) => Promise<{ status: number; body: string; latencyMs: number }>;
+type MonitorRequest = (input: SafeHttpRequestInput) => Promise<{ status: number; body: string; latencyMs: number }>;
 
 type PendingDelivery = {
   eventId: string;
@@ -204,34 +194,29 @@ export async function checkHttpMonitor(input: {
   requestImpl?: MonitorRequest;
   resolveHostname?: ResolveHostname;
   requestLookup?: LookupFunction;
+  outboundPolicy?: OutboundPolicy;
 }): Promise<MonitorCheckResult> {
   if (input.monitor.kind !== "http" || !input.monitor.url || !input.monitor.method) {
     return failedCheck("invalid HTTP monitor");
   }
 
   let url: URL;
+  const policy = input.outboundPolicy ?? new OutboundPolicy();
   try {
-    url = validateWebhookTargetUrl(input.monitor.url);
+    url = policy.validateOutboundUrl(input.monitor.url);
   } catch (error) {
     return failedCheck(formatMonitorTargetError(error));
   }
 
-  if (shouldResolveMonitorHostname(url)) {
-    const resolveHostname = input.resolveHostname ?? defaultResolveHostname;
-    try {
-      const resolved = await resolveHostname(url.hostname);
-      assertSafeResolvedAddresses(toResolvedAddresses(resolved));
-    } catch (error) {
-      return failedCheck(formatMonitorDnsError(error));
-    }
-  }
-
   try {
-    const response = await (input.requestImpl ?? defaultMonitorRequest)({
+    const response = await (input.requestImpl ?? safeHttpRequest)({
       url,
       method: input.monitor.method,
       timeoutMs: input.monitor.timeoutMs ?? input.timeoutMs,
-      lookup: createValidatingMonitorLookup(input.requestLookup ?? defaultMonitorLookup)
+      maxResponseBytes: 65_536,
+      redirectLimit: 0,
+      policy,
+      lookup: input.requestLookup
     });
 
     if (!isExpectedStatus(response.status, input.monitor.expectedStatus)) {
@@ -352,151 +337,26 @@ function isExpectedStatus(status: number, expectedStatus: string | null): boolea
   return status === Number(expectedStatus);
 }
 
-function defaultResolveHostname(hostname: string): Promise<ResolvedAddress[]> {
-  return resolveDns(hostname, { all: true });
-}
-
-function toResolvedAddresses(addresses: Array<{ address: string; family?: number }>): ResolvedAddress[] {
-  return addresses.map((address) => ({ address: address.address, family: address.family ?? isIP(address.address) }));
-}
-
-const defaultMonitorLookup: LookupFunction = (hostname, options, callback) => {
-  dnsLookup(hostname, options, callback);
-};
-
-function defaultMonitorRequest(input: {
-  url: URL;
-  method: "GET" | "HEAD";
-  timeoutMs: number;
-  lookup: LookupFunction;
-}): Promise<{ status: number; body: string; latencyMs: number }> {
-  return input.url.protocol === "https:" ? requestHttpsMonitor(input) : requestHttpMonitor(input);
-}
-
-type NodeRequest = typeof httpRequest;
-
-function requestHttpMonitor(input: {
-  url: URL;
-  method: "GET" | "HEAD";
-  timeoutMs: number;
-  lookup: LookupFunction;
-}): Promise<{ status: number; body: string; latencyMs: number }> {
-  return requestMonitor(httpRequest, input);
-}
-
-function requestHttpsMonitor(input: {
-  url: URL;
-  method: "GET" | "HEAD";
-  timeoutMs: number;
-  lookup: LookupFunction;
-}): Promise<{ status: number; body: string; latencyMs: number }> {
-  return requestMonitor(httpsRequest, input);
-}
-
-function requestMonitor(
-  requestFn: NodeRequest,
-  input: {
-    url: URL;
-    method: "GET" | "HEAD";
-    timeoutMs: number;
-    lookup: LookupFunction;
-  }
-): Promise<{ status: number; body: string; latencyMs: number }> {
-  return new Promise((resolve, reject) => {
-    const startedAt = Date.now();
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const chunks: string[] = [];
-    let bytes = 0;
-
-    const request = requestFn(
-      input.url,
-      {
-        method: input.method,
-        lookup: input.lookup
-      },
-      (response) => {
-        response.setEncoding("utf8");
-        response.on("data", (chunk: string) => {
-          if (bytes >= 65_536) return;
-          const remaining = 65_536 - bytes;
-          const chunkBytes = Buffer.byteLength(chunk);
-          chunks.push(chunkBytes > remaining ? chunk.slice(0, remaining) : chunk);
-          bytes += chunkBytes;
-        });
-        response.on("end", () => {
-          if (timeout) clearTimeout(timeout);
-          resolve({ status: response.statusCode ?? 0, body: chunks.join(""), latencyMs: Date.now() - startedAt });
-        });
-      }
-    );
-
-    timeout = setTimeout(() => {
-      request.destroy(new Error("Monitor request timed out"));
-    }, input.timeoutMs);
-
-    request.on("error", reject);
-    request.on("close", () => {
-      if (timeout) clearTimeout(timeout);
-    });
-    request.end();
-  });
-}
-
-function createValidatingMonitorLookup(lookup: LookupFunction): LookupFunction {
-  return (hostname, options, callback) => {
-    lookup(hostname, options, (error, address, family) => {
-      if (error) {
-        callback(error, address as string, family);
-        return;
-      }
-
-      if (Array.isArray(address)) {
-        for (const entry of address) {
-          try {
-            assertSafeWebhookHost(entry.address);
-          } catch {
-            callback(new Error("unsafe monitor target"), entry.address, entry.family);
-            return;
-          }
-        }
-        callback(null, address as LookupAddress[], family);
-        return;
-      }
-
-      try {
-        assertSafeWebhookHost(address);
-      } catch {
-        callback(new Error("unsafe monitor target"), address, family);
-        return;
-      }
-      callback(null, address, family);
-    });
-  };
-}
-
-function shouldResolveMonitorHostname(url: URL): boolean {
-  const host = url.hostname.toLowerCase().replace(/^\[(.*)\]$/, "$1");
-  return host !== "localhost" && isIP(host) === 0;
-}
-
 function formatMonitorTargetError(error: unknown): string {
   if (!(error instanceof Error)) return "invalid monitor URL";
-  if (error.message === "unsafe webhook target") return "unsafe monitor target";
-  return error.message.replaceAll("webhook", "monitor");
-}
-
-function formatMonitorDnsError(error: unknown): string {
-  if (error instanceof Error && error.message === "unsafe webhook target") return "unsafe monitor target";
-  return "Monitor DNS resolution failed";
+  if (error.message === "outbound_url_invalid") return "invalid monitor URL";
+  if (error.message === "outbound_protocol_forbidden") return "monitor URL must use http or https";
+  if (error.message === "outbound_credentials_forbidden") return "monitor URL credentials are not allowed";
+  return "unsafe monitor target";
 }
 
 function formatMonitorRequestError(error: unknown): string {
   if (!(error instanceof Error)) return "Monitor request failed";
+  if (error.message === "outbound_http_target_forbidden") return "unsafe monitor target";
+  if (error.message === "outbound_http_lookup_failed") return "Monitor DNS resolution failed";
+  if (error.message === "outbound_http_timeout") return "Monitor request timed out";
+  if (error.message === "outbound_http_response_too_large") return "Monitor response too large";
   const code = (error as NodeJS.ErrnoException).code;
   if (code === "ENOTFOUND" || code === "EAI_AGAIN" || code === "ENODATA") {
     return "Monitor DNS resolution failed";
   }
-  return error.message;
+  if (/timed out/i.test(error.message)) return "Monitor request timed out";
+  return "Monitor request failed";
 }
 
 function sanitizeMessage(message: string): string {

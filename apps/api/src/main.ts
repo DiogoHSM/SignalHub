@@ -1,4 +1,4 @@
-import { createStructuredLogger, loadConfig, SecretBox } from "@sigmon/config";
+import { createStructuredLogger, loadConfig, OutboundPolicy, SecretBox } from "@sigmon/config";
 import { createDb } from "@sigmon/db";
 import { migrate } from "@sigmon/db/migrate.js";
 import type { ApiKeyScope } from "./routes/api-key-auth.js";
@@ -313,6 +313,11 @@ const googleUserInfoSchema = z.object({
 
 const logger = createStructuredLogger("api");
 const config = loadConfig();
+const outboundPolicy = new OutboundPolicy({
+  privateCidrs: config.outbound.privateCidrs,
+  allowLoopback: config.outbound.allowLoopback,
+  nodeEnv: config.nodeEnv
+});
 const secretBox = config.dataEncryption.currentKey
   ? new SecretBox({
       currentKey: config.dataEncryption.currentKey,
@@ -594,6 +599,7 @@ function runManualBackup() {
       enabled: true,
       databaseUrl: config.databaseUrl
     },
+    outboundPolicy,
     withLock: (run) => withBackupLock(db, run),
     recordBackupRun: (input) => recordBackupRun(db, input)
   }).then((result) => ({
@@ -605,6 +611,7 @@ function runManualBackup() {
 }
 
 const app = await buildApp({
+  outboundPolicy,
   readiness: async () => {
     const [postgres, redisReady] = await Promise.all([
       sql`select 1`.execute(db).then(
@@ -913,7 +920,7 @@ const app = await buildApp({
     createNotificationChannel: (input) => createNotificationChannel(db, input, secretBox),
     updateNotificationChannel: (id, input) => updateNotificationChannel(db, id, input, secretBox),
     archiveNotificationChannel: (id) => archiveNotificationChannel(db, id),
-    getNotificationChannel: (id) => getNotificationChannel(db, id),
+    getNotificationChannel: (id) => getNotificationChannel(db, id, { includeSecret: true, secretBox }),
     listAlertRules: (filters) => listAlertRules(db, filters),
     createAlertRule: (input) => createAlertRule(db, input),
     updateAlertRule: (id, input) => updateAlertRule(db, id, input),

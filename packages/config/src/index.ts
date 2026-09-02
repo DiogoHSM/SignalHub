@@ -6,6 +6,7 @@ import { parseOutboundPrivateCidrs } from "./network-security.js";
 export * from "./logger.js";
 export * from "./network-security.js";
 export * from "./safe-lookup.js";
+export * from "./safe-http-client.js";
 export * from "./secret-box.js";
 
 const emptyStringToUndefined = (value: unknown) => (value === "" ? undefined : value);
