@@ -3,26 +3,15 @@ import { sql } from "kysely";
 import type { Db } from "../client.js";
 import type { Database, RetentionRunsTable } from "../schema.js";
 import type { DataGovernanceRetentionCategory } from "./data-governance.js";
+import { retentionCategorySpecs, type RetentionTable } from "./effective-retention.js";
 
 type RetentionRunRow = Selectable<RetentionRunsTable>;
 type SystemDb = Db | Transaction<Database>;
 
 const retentionAdvisoryLockId = 927380402914;
 const defaultMaxBatchesPerTable = 25;
-const retentionTables = [
-  "events",
-  "click_events",
-  "session_replays",
-  "errors",
-  "traces",
-  "spans",
-  "llm_calls",
-  "web_vitals",
-  "profiles",
-  "breadcrumbs"
-] as const;
-type RetentionTable = (typeof retentionTables)[number];
-const retentionTableSet = new Set<string>(retentionTables);
+const retentionTableSet = new Set<string>(retentionCategorySpecs.map((spec) => spec.table));
+const retentionCategorySet = new Set<string>(retentionCategorySpecs.map((spec) => spec.category));
 
 function assertRetentionTable(tableName: string): asserts tableName is RetentionTable {
   if (!retentionTableSet.has(tableName)) {
@@ -256,13 +245,14 @@ async function deleteExpiredBatchesFromTableForScope(
   return total;
 }
 
-function normalizeGovernanceRetentionPolicy(value: unknown): Partial<Record<DataGovernanceRetentionCategory, number>> {
+export function normalizeGovernanceRetentionPolicy(value: unknown): Partial<Record<DataGovernanceRetentionCategory, number>> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
 
   const policy: Partial<Record<DataGovernanceRetentionCategory, number>> = {};
   for (const [key, rawValue] of Object.entries(value)) {
+    if (!retentionCategorySet.has(key)) continue;
     const days = typeof rawValue === "number" ? rawValue : Number(rawValue);
     if (Number.isInteger(days) && days >= 1 && days <= 3650) {
       policy[key as DataGovernanceRetentionCategory] = days;
