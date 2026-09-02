@@ -113,6 +113,12 @@ Retention deletes telemetry rows, expired dead-letter jobs, and, when source-map
 | Breadcrumbs | 30 days |
 | Dead-letter jobs | 30 days |
 
+Project Settings can store category-specific retention for one project/environment. A valid scoped value overrides the installation default for that category whether it is shorter or longer. With a 30-day default, a 90-day events value preserves a 60-day event, a 7-day value deletes an 8-day event, and an absent category in a partial policy continues to use the default. Invalid legacy values also fall back to the default. Retention uses exact elapsed 24-hour days and a strict older-than cutoff, so a row exactly at its cutoff survives.
+
+Each physical table is deleted by one category only: `events` by events, `click_events` by clicks, and `session_replays` by replays. Clicks, replays, and web vitals inherit `RETENTION_EVENTS_DAYS` only when their scoped category is absent or invalid. Existing retention-run counters aggregate click and replay deletions into the `events` count.
+
+Before upgrading from a release with the former installation-boundary behavior, review scoped policies whose values exceed the installation defaults: those rows can now live longer. Already-deleted rows are not restored. Heartbeat check-ins also require the monitor, environment, and project to remain active; any of those archive states returns the same not-found response, and persistence rechecks lifecycle state transactionally.
+
 Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
 
 Set `RETENTION_ENABLED=false` to disable scheduled deletion, including scheduled source-map cleanup. The other retention variables configure the run interval, batch size, and per-table retention windows.

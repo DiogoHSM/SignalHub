@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-09-01: Scoped retention values replace installation defaults
+
+Decision: a valid project/environment retention value replaces the installation default for that category, whether shorter or longer. An absent category, a missing policy row, or an invalid legacy value uses the installation default. This supersedes the 2026-07-02 global-first, hard-boundary model: retention now evaluates one effective cutoff for each physical table rather than deleting globally and then applying scoped passes.
+
+Examples: with a 30-day installation default, an events override of 90 days preserves an event that is 60 days old, while an override of 7 days deletes an event that is 8 days old. A partial policy such as `{ "clicks": 7 }` leaves events on the installation default. Cutoffs are exact elapsed 24-hour intervals, deletion uses a strict older-than comparison, and a row exactly at the cutoff survives.
+
+Ownership: every physical table has one retention category. `events` belongs to events, `click_events` to clicks, and `session_replays` only to replays; the remaining telemetry tables use their matching category. When clicks, replays, or web vitals have no valid scoped category value, they inherit `RETENTION_EVENTS_DAYS` because this release has no separate installation variables for those categories. Existing retention-run storage and API responses continue to aggregate click and replay deletion counts into `events`.
+
+Lifecycle consequence: a heartbeat monitor is active only while the monitor, environment, and project are all unarchived. An archive at any of those levels returns the same `404 heartbeat_monitor_not_found`; a bad secret for an otherwise active heartbeat remains `401 invalid_heartbeat_secret`. Persistence revalidates the complete active scope inside its transaction and locks the project, environment, and monitor in a consistent order so archival cannot commit between validation and mutation.
+
+Upgrade consequence: operators must review project/environment values that exceed installation defaults before deploying this change, because affected telemetry can now live longer than it did under the superseded behavior. The change does not restore rows that an earlier retention run already deleted.
+
 ## 2026-09-01: Human sessions are opaque and revocable; privileged integration secrets use a rotatable application keyring
 
 Decision: password and Google OAuth login issue a random 32-byte opaque session token. The cookie contains only that token, while Postgres stores only its SHA-256 hash in `auth_sessions`. Active-session lookup requires an unexpired, unrevoked row joined to an unarchived user, and updates `last_seen_at` no more often than every fifteen minutes. Logout revokes the presented session before clearing its cookie; password changes and user archival revoke every session for that user in the same transaction as the user change. Expiry and revocation are enforced on every lookup. The repository exposes `pruneExpiredAuthSessions`, which deletes rows whose `expires_at` is at or before the pruning time, but no production scheduler or manual command calls it yet; physical pruning is not the authentication boundary. Legacy signed `payload.signature` cookies are deliberately rejected, so this upgrade invalidates all existing human sessions and requires a fresh login.
@@ -136,11 +148,11 @@ Decision: SignalMonitor adds native message campaign definitions, campaign event
 
 Rationale: Operators need one place to correlate product messaging with delivery, engagement, conversion, and privacy outcomes. Keeping the first native slice measurement-first avoids early lock-in to a specific ESP, webhook workflow, or in-app delivery runtime while still making campaigns observable and governable inside Sigmon.
 
-## 2026-07-02: Scope data governance to project environments first
+## 2026-07-02: Scope data governance to project environments first (retention precedence superseded 2026-09-01)
 
-Decision: Data governance starts as a project/environment policy that stores per-category retention windows and JSON property mask/block rules. The worker applies property rules before persistence and retention applies scoped windows after the installation-level retention pass.
+Decision: Data governance starts as a project/environment policy that stores per-category retention windows and JSON property mask/block rules. The worker applies property rules before persistence. The original retention-precedence rule in this decision was superseded on 2026-09-01: a valid scoped category value now replaces the installation default in either direction, and an absent or invalid value falls back to that default.
 
-Rationale: SignalMonitor is self-hosted, so installation-level environment variables remain the hard maximum retention boundary. Project policies let operators shorten retention and suppress sensitive properties for individual monitored products without introducing a SaaS organization model or a full data catalog service.
+Rationale: Project policies let operators govern retention and suppress sensitive properties for individual monitored products without introducing a SaaS organization model or a full data catalog service. See the 2026-09-01 retention decision for the current cutoff and ownership semantics.
 
 ## 2026-05-25: Publish the SDK on public npm
 

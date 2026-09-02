@@ -93,6 +93,16 @@ Docker Compose defines these persistent volumes:
 
 Do not delete these volumes unless you intentionally want to wipe the install.
 
+## Telemetry Retention Precedence
+
+Installation retention environment variables are defaults. A valid project/environment category value saved through Data Governance replaces its installation default whether shorter or longer; a missing policy, an absent category in a partial policy, or an invalid legacy value uses the default. For example, with a 30-day events default, a scoped 90-day value preserves a 60-day event, a scoped 7-day value deletes an 8-day event, and a policy containing only a clicks value leaves events on 30 days. Cutoffs are exact elapsed 24-hour intervals and deletion is strict `<`, so a row exactly at the cutoff survives.
+
+Each physical table has one deletion owner. `events`, `click_events`, and `session_replays` are owned by the events, clicks, and replays categories respectively; `session_replays` is never also selected by events. Because this release has no independent installation defaults for clicks, replays, or web vitals, those categories use `RETENTION_EVENTS_DAYS` only when their scoped values are absent or invalid. Retention-run metadata and APIs continue to aggregate click and replay deletion totals into the `events` counter.
+
+Before an upgrade from the former installation-boundary behavior, inventory scoped values that exceed their installation defaults and confirm the longer lifetime is intended. A database backup protects the upgrade, but the new behavior cannot restore telemetry deleted by an earlier run. After deployment, run a manual retention action from System Health and inspect the recorded counts for the expected categories.
+
+Heartbeat ingestion now treats monitor, environment, and project archival as the same inactive scope. A check-in against any archived level returns `404 heartbeat_monitor_not_found`; a wrong secret on an otherwise active heartbeat remains `401 invalid_heartbeat_secret`. The write transaction revalidates and serializes all three lifecycle rows, so an archive cannot slip between route lookup and persistence.
+
 ## Human Sessions And Login Controls
 
 Human login creates a seven-day opaque session. The browser receives a random token; Postgres stores only its SHA-256 hash. An active lookup rejects expired or revoked sessions and sessions belonging to archived users. Logout revokes the current row before clearing the cookie. An administrator password change or user archival revokes every session for that user in the same database transaction, so a copied cookie stops working immediately. `last_seen_at` is touched at most once per fifteen minutes. Expiry and revocation are enforced on lookup. The repository exposes `pruneExpiredAuthSessions`, which deletes rows at `expires_at <= now`, but this release has no production scheduler or manual command that invokes it; expired rows can remain stored but cannot authenticate.

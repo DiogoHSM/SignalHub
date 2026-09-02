@@ -336,6 +336,17 @@ describe("ProjectSettingsSection", () => {
     );
   });
 
+  it("explains that scoped retention overrides installation defaults in either direction", async () => {
+    render(<ProjectSettingsSection ctx={makeCtx()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Data governance" }));
+
+    expect(
+      await screen.findByText(/override installation defaults.*shorter or longer/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/hard maximum|maximum retention boundary/i)).not.toBeInTheDocument();
+  });
+
   it("creates, edits, runs, and archives warehouse destinations", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const client = makeClient();

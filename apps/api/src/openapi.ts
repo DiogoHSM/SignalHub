@@ -845,7 +845,7 @@ export const openApiDocument = {
           environmentId: { type: "string" },
           retentionPolicy: {
             type: "object",
-            description: "Optional per-project retention windows in days. Scoped windows can shorten installation-level retention.",
+            description: "Optional per-category project/environment overrides in days. Scoped values replace installation defaults whether shorter or longer; omitted categories use their defaults.",
             additionalProperties: { type: "integer", minimum: 1, maximum: 3650 },
             examples: [{ events: 90, errors: 180, traces: 30 }]
           },
@@ -2842,7 +2842,7 @@ export const openApiDocument = {
       get: {
         tags: ["Session authenticated"],
         summary: "Read data governance policy",
-        description: "Read retention windows and sensitive property rules for a project/environment.",
+        description: "Read scoped retention overrides and sensitive property rules for a project/environment. Categories absent from the policy use installation defaults.",
         security: [{ sessionCookie: [] }],
         parameters: [
           { name: "project_id", in: "query", required: true, schema: { type: "string" } },
@@ -2862,7 +2862,7 @@ export const openApiDocument = {
       put: {
         tags: ["Session authenticated"],
         summary: "Update data governance policy",
-        description: "Configure project/environment retention windows and property mask/block rules.",
+        description: "Configure project/environment retention values that override installation defaults whether shorter or longer, plus property mask/block rules.",
         security: [{ sessionCookie: [] }],
         requestBody: {
           required: true,
@@ -2876,6 +2876,7 @@ export const openApiDocument = {
                   environmentId: { type: "string" },
                   retentionPolicy: {
                     type: "object",
+                    description: "Per-category scoped overrides. Omitted categories use their installation defaults.",
                     additionalProperties: { type: "integer", minimum: 1, maximum: 3650 },
                     examples: [{ events: 90, errors: 180, traces: 30 }]
                   },

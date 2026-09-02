@@ -442,6 +442,9 @@ function GovernancePanel({ model }: { model: SettingsModel }) {
         <section className="sh-settings-subpanel">
           <div className="sh-card__head"><h4 className="sh-h2">Retention windows</h4><span className="sh-faint">days</span></div>
           <div className="sh-card__body" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+            <p className="sh-muted" style={{ gridColumn: "1 / -1", margin: 0 }}>
+              Values saved here override installation defaults for this environment, whether shorter or longer.
+            </p>
             {RETENTION_CATEGORIES.map((category) => (
               <label className="sh-settings-field" key={category.key}>
                 <span>{category.label} retention days</span>
