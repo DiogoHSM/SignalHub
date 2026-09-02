@@ -1,6 +1,7 @@
 import { lookup as dnsLookup, type LookupAddress, type LookupAllOptions, type LookupOptions } from "node:dns";
 import { isIP, type LookupFunction } from "node:net";
 import { isAddressLiteral, type OutboundPolicy } from "./network-security.js";
+import { markRetryableOutboundError } from "./outbound-error.js";
 
 export function createSafeLookup(policy: OutboundPolicy, lookup: LookupFunction = dnsLookup): LookupFunction {
   return (hostname, options, callback) => {
@@ -23,7 +24,11 @@ export function createSafeLookup(policy: OutboundPolicy, lookup: LookupFunction 
 
     try {
       lookup(hostname, resolverOptions, (error, rawAddresses) => {
-        if (error || !Array.isArray(rawAddresses) || rawAddresses.length === 0) {
+        if (error) {
+          callback(lookupError(errorCode(error) === "EAI_AGAIN"), "", 0);
+          return;
+        }
+        if (!Array.isArray(rawAddresses) || rawAddresses.length === 0) {
           callback(lookupError(), "", 0);
           return;
         }
@@ -61,8 +66,8 @@ export function createSafeLookup(policy: OutboundPolicy, lookup: LookupFunction 
         }
         callback(null, first.address, first.family);
       });
-    } catch {
-      callback(lookupError(), "", 0);
+    } catch (error) {
+      callback(lookupError(errorCode(error) === "EAI_AGAIN"), "", 0);
     }
   };
 }
@@ -85,10 +90,17 @@ function isValidLookupAddress(candidate: unknown): candidate is LookupAddress {
   return (value.family === 4 || value.family === 6) && actualFamily === value.family;
 }
 
-function lookupError(): NodeJS.ErrnoException {
-  return Object.assign(new Error("outbound_lookup_failed"), { code: "EAI_FAIL" });
+function lookupError(retryable = false): NodeJS.ErrnoException {
+  const error = Object.assign(new Error("outbound_lookup_failed"), { code: "EAI_FAIL" });
+  return retryable ? markRetryableOutboundError(error) : error;
 }
 
 function addressError(): NodeJS.ErrnoException {
   return Object.assign(new Error("outbound_address_forbidden"), { code: "EACCES" });
+}
+
+function errorCode(error: unknown): string | undefined {
+  return typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : undefined;
 }

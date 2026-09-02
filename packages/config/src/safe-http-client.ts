@@ -3,6 +3,7 @@ import { request as httpsRequest } from "node:https";
 import { lookup as dnsLookup } from "node:dns";
 import type { LookupFunction } from "node:net";
 import type { OutboundPolicy } from "./network-security.js";
+import { isRetryableOutboundError, markRetryableOutboundError } from "./outbound-error.js";
 import { createSafeLookup } from "./safe-lookup.js";
 
 export type SafeHttpMethod = "GET" | "HEAD" | "POST";
@@ -215,8 +216,9 @@ function readLocation(headers: IncomingHttpHeaders): string | undefined {
   return Array.isArray(location) ? location[0] : location;
 }
 
-function safeHttpError(code: string): Error {
-  return new Error(code);
+function safeHttpError(code: string, retryable = false): Error {
+  const error = new Error(code);
+  return retryable ? markRetryableOutboundError(error) : error;
 }
 
 function normalizeSafeHttpError(error: unknown): Error {
@@ -226,9 +228,15 @@ function normalizeSafeHttpError(error: unknown): Error {
   const code = errorCode(error);
   if (code === "EACCES") return safeHttpError("outbound_http_target_forbidden");
   if (code === "EAI_FAIL" || code === "ENOTFOUND" || code === "EAI_AGAIN" || code === "ENODATA") {
-    return safeHttpError("outbound_http_lookup_failed");
+    return safeHttpError(
+      "outbound_http_lookup_failed",
+      code === "EAI_AGAIN" || isRetryableOutboundError(error)
+    );
   }
   if (code === "ABORT_ERR") return safeHttpError("outbound_http_timeout");
+  if (code === "ECONNRESET" || code === "ECONNREFUSED" || code === "ETIMEDOUT" || code === "EPIPE") {
+    return safeHttpError("outbound_http_request_failed", true);
+  }
   return safeHttpError("outbound_http_request_failed");
 }
 

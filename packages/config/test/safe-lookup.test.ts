@@ -130,6 +130,38 @@ describe("createSafeLookup", () => {
     expect(resolver).toHaveBeenCalledTimes(1);
   });
 
+  it("retains only coarse retryability for transient resolver failures", async () => {
+    const resolver = vi.fn<LookupFunction>((_hostname, _options, callback) => {
+      callback(Object.assign(new Error("temporary lookup for secret.internal"), { code: "EAI_AGAIN" }), "", 0);
+    });
+    const lookup = createSafeLookup(new OutboundPolicy(), resolver);
+
+    const error = await runLookup(lookup, "secret.internal").catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ message: "outbound_lookup_failed", code: "EAI_FAIL" });
+    expect((error as { retryable?: unknown }).retryable).toBe(true);
+    expect(JSON.stringify(error)).not.toContain("secret.internal");
+  });
+
+  it("does not mark permanent, malformed, or address-policy lookup failures retryable", async () => {
+    const permanent = createSafeLookup(new OutboundPolicy(), (_hostname, _options, callback) => {
+      callback(Object.assign(new Error("permanent secret"), { code: "ENOTFOUND" }), "", 0);
+    });
+    const malformed = createSafeLookup(new OutboundPolicy(), resolverReturning([]));
+    const forbidden = createSafeLookup(
+      new OutboundPolicy(),
+      resolverReturning([{ address: "127.0.0.1", family: 4 }])
+    );
+
+    for (const operation of [
+      runLookup(permanent, "secret.internal"),
+      runLookup(malformed, "secret.internal"),
+      runLookup(forbidden, "secret.internal")
+    ]) {
+      const error = await operation.catch((caught: unknown) => caught);
+      expect((error as { retryable?: unknown }).retryable).not.toBe(true);
+    }
+  });
+
   it.each([
     { label: "null", answers: [null] },
     { label: "undefined", answers: [undefined] },

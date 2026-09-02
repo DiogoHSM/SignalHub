@@ -1,8 +1,9 @@
 import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { LookupFunction } from "node:net";
+import type { AddressInfo, LookupFunction } from "node:net";
 import { OutboundPolicy } from "@sigmon/config";
 import type { TelemetryJobPayload } from "@sigmon/queues";
 import {
@@ -247,7 +248,137 @@ describe("Task 4 privileged HTTP transport", () => {
       expect.objectContaining({ policy, maxResponseBytes: 65_536, redirectLimit: 0 })
     );
   });
+
+  it("retries a transient resolver failure through the actual connector without exposing resolver text", async () => {
+    const server = await startTask4Server((_request, response) => response.writeHead(204).end());
+    let lookups = 0;
+    const requestLookup: LookupFunction = (_hostname, _options, callback) => {
+      lookups += 1;
+      if (lookups === 1) {
+        callback(Object.assign(new Error("resolver leaked private.retry.test"), { code: "EAI_AGAIN" }), [], 0);
+        return;
+      }
+      callback(null, [{ address: "127.0.0.1", family: 4 }], 4);
+    };
+
+    try {
+      const result = await deliverWebhook({
+        channel: webhookChannel({ url: `http://retry.example.test:${server.port}/deliver` }),
+        payload,
+        timeoutMs: 1_000,
+        nodeEnv: "test",
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "test", allowLoopback: true }),
+        requestLookup,
+        attempts: 2,
+        retryDelayMs: 0
+      } as never);
+
+      expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
+      expect(lookups).toBe(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("retries an actual reset socket and succeeds on a fresh connection", async () => {
+    let connections = 0;
+    const server = await startTask4Server((_request, response) => response.writeHead(204).end(), (socket) => {
+      connections += 1;
+      if (connections === 1) socket.destroy();
+    });
+
+    try {
+      const result = await deliverWebhook({
+        channel: webhookChannel({ url: `http://127.0.0.1:${server.port}/deliver` }),
+        payload,
+        timeoutMs: 1_000,
+        nodeEnv: "test",
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "test", allowLoopback: true }),
+        attempts: 2,
+        retryDelayMs: 0
+      } as never);
+
+      expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
+      expect(connections).toBe(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("does not retry permanent DNS or forbidden-address failures from the actual connector", async () => {
+    for (const scenario of ["permanent-dns", "forbidden-address"] as const) {
+      let lookups = 0;
+      const requestLookup: LookupFunction = (_hostname, _options, callback) => {
+        lookups += 1;
+        if (scenario === "permanent-dns") {
+          callback(Object.assign(new Error("permanent lookup secret"), { code: "ENOTFOUND" }), [], 0);
+          return;
+        }
+        callback(null, [{ address: "127.0.0.1", family: 4 }], 4);
+      };
+
+      const result = await deliverWebhook({
+        channel: webhookChannel({ url: "http://failure.example.test/deliver" }),
+        payload,
+        timeoutMs: 1_000,
+        nodeEnv: "production",
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+        requestLookup,
+        attempts: 3,
+        retryDelayMs: 0
+      } as never);
+
+      expect(result, scenario).toEqual({
+        status: "failed",
+        responseStatus: null,
+        errorMessage: scenario === "permanent-dns" ? "Webhook DNS resolution failed" : "unsafe webhook target"
+      });
+      expect(lookups, scenario).toBe(1);
+    }
+  });
+
+  it("does not retry when the actual connector exhausts the operation budget during DNS", async () => {
+    let lookups = 0;
+    const requestLookup: LookupFunction = () => {
+      lookups += 1;
+    };
+
+    const result = await deliverWebhook({
+      channel: webhookChannel({ url: "http://retry.example.test/deliver" }),
+      payload,
+      timeoutMs: 25,
+      nodeEnv: "production",
+      outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+      requestLookup,
+      attempts: 3,
+      retryDelayMs: 0
+    } as never);
+
+    expect(result).toEqual({ status: "failed", responseStatus: null, errorMessage: "Webhook delivery timed out" });
+    expect(lookups).toBe(1);
+  });
 });
+
+async function startTask4Server(
+  handler: (request: IncomingMessage, response: ServerResponse) => void,
+  onConnection?: (socket: import("node:net").Socket) => void
+): Promise<{ port: number; close: () => Promise<void> }> {
+  const server = createServer(handler);
+  if (onConnection) server.on("connection", onConnection);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const port = (server.address() as AddressInfo).port;
+  return {
+    port,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.closeAllConnections();
+        server.close((error) => (error ? reject(error) : resolve()));
+      })
+  };
+}
 
 function createDeferred() {
   let resolve!: () => void;

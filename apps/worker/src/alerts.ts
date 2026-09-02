@@ -8,6 +8,7 @@ import type {
 } from "@sigmon/db/repositories/alerts.js";
 import {
   OutboundPolicy,
+  isRetryableOutboundError,
   safeHttpRequest,
   validateOutboundHttpTransport,
   type SafeHttpRequestInput
@@ -374,13 +375,14 @@ export async function deliverWebhook(input: {
         return lastResult;
       }
     } catch (error) {
-      const errorMessage = formatWebhookDeliveryError(error);
+      const classifiedError = input.requestImpl ? markLegacyWebhookRetryability(error) : error;
+      const errorMessage = formatWebhookDeliveryError(classifiedError);
       lastResult = {
         status: "failed",
         responseStatus: null,
         errorMessage
       };
-      if (!isRetryableWebhookError(error) || attempt === attempts) {
+      if (!isRetryableWebhookError(classifiedError) || attempt === attempts) {
         return lastResult;
       }
     }
@@ -449,12 +451,31 @@ function isRetryableWebhookStatus(status: number): boolean {
 }
 
 function isRetryableWebhookError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  if (error.message === "unsafe webhook target") return false;
+  return isRetryableOutboundError(error);
+}
+
+function markLegacyWebhookRetryability(error: unknown): unknown {
+  if (!(error instanceof Error)) return error;
   const code = (error as NodeJS.ErrnoException).code;
-  if (code === "EAI_AGAIN") return true;
-  if (code === "ECONNRESET" || code === "ECONNREFUSED" || code === "ETIMEDOUT" || code === "EPIPE") return true;
-  return /timed out/i.test(error.message);
+  const retryable =
+    code === "EAI_AGAIN" ||
+    code === "ECONNRESET" ||
+    code === "ECONNREFUSED" ||
+    code === "ETIMEDOUT" ||
+    code === "EPIPE" ||
+    /timed out/i.test(error.message);
+  if (!retryable) return error;
+  const classifiedError = new Error(error.message);
+  if (code !== undefined) {
+    Object.defineProperty(classifiedError, "code", { value: code, enumerable: false });
+  }
+  Object.defineProperty(classifiedError, "retryable", {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false
+  });
+  return classifiedError;
 }
 
 async function sleep(ms: number): Promise<void> {
