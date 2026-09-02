@@ -74,11 +74,14 @@ function staticInlineStyleCount(files: string[]): number {
 
 function directColorFindingsInSource(sourceFile: ts.SourceFile, file: string): Finding[] {
   type Projection = Array<string | number>;
+  type BindingWrite = { projection: Projection; value: ts.Expression };
   type Binding = {
     initializer?: ts.Expression;
     projection: Projection;
     fallbacks: ts.Expression[];
     callable?: ts.FunctionLikeDeclaration;
+    staticMembers?: Map<string | number, ts.Expression>;
+    writes: BindingWrite[];
   };
 
   const findings: Array<Finding & { position: number }> = [];
@@ -107,13 +110,13 @@ function directColorFindingsInSource(sourceFile: ts.SourceFile, file: string): F
     return sourceFile;
   };
 
-  const register = (scope: ts.Node, name: string, binding: Binding): void => {
+  const register = (scope: ts.Node, name: string, binding: Omit<Binding, "writes">): void => {
     let scopedBindings = bindingsByScope.get(scope);
     if (!scopedBindings) {
       scopedBindings = new Map<string, Binding>();
       bindingsByScope.set(scope, scopedBindings);
     }
-    scopedBindings.set(name, binding);
+    scopedBindings.set(name, { ...binding, writes: [] });
   };
 
   const propertyKey = (name: ts.PropertyName | undefined): string | number | undefined => {
@@ -173,6 +176,23 @@ function directColorFindingsInSource(sourceFile: ts.SourceFile, file: string): F
       });
     } else if (ts.isFunctionExpression(node) && node.name) {
       register(node, node.name.text, { projection: [], fallbacks: [], callable: node });
+    } else if (ts.isClassDeclaration(node) && node.name) {
+      const staticMembers = new Map<string | number, ts.Expression>();
+      for (const member of node.members) {
+        if (
+          ts.isPropertyDeclaration(member)
+          && member.initializer
+          && (ts.getCombinedModifierFlags(member) & ts.ModifierFlags.Static) !== 0
+        ) {
+          const key = propertyKey(member.name);
+          if (key != null) staticMembers.set(key, member.initializer);
+        }
+      }
+      register(declarationScope(node, true), node.name.text, {
+        projection: [],
+        fallbacks: [],
+        staticMembers
+      });
     }
     if (ts.isFunctionLike(node)) {
       for (const parameter of node.parameters) {
@@ -209,6 +229,54 @@ function directColorFindingsInSource(sourceFile: ts.SourceFile, file: string): F
     return undefined;
   };
 
+  const memberTarget = (
+    node: ts.Expression
+  ): { base: ts.Identifier; projection: Projection; dynamic: boolean } | undefined => {
+    if (ts.isIdentifier(node)) return { base: node, projection: [], dynamic: false };
+    if (ts.isPropertyAccessExpression(node)) {
+      const target = memberTarget(node.expression);
+      if (!target) return undefined;
+      return target.dynamic
+        ? target
+        : { ...target, projection: [...target.projection, node.name.text] };
+    }
+    if (ts.isElementAccessExpression(node)) {
+      const target = memberTarget(node.expression);
+      if (!target) return undefined;
+      const key = node.argumentExpression && (
+        ts.isStringLiteralLike(node.argumentExpression)
+          ? node.argumentExpression.text
+          : ts.isNumericLiteral(node.argumentExpression)
+            ? Number(node.argumentExpression.text)
+            : undefined
+      );
+      return key == null
+        ? { ...target, projection: [], dynamic: true }
+        : { ...target, projection: [...target.projection, key] };
+    }
+    return undefined;
+  };
+
+  const collectWrites = (node: ts.Node): void => {
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const target = memberTarget(node.left);
+      if (target) {
+        const binding = findBinding(target.base.text, target.base);
+        binding?.writes.push({
+          projection: target.dynamic ? [] : target.projection,
+          value: node.right
+        });
+      }
+    }
+    ts.forEachChild(node, collectWrites);
+  };
+  collectWrites(sourceFile);
+
+  const isPrefix = (prefix: Projection, value: Projection): boolean => (
+    prefix.length <= value.length
+    && prefix.every((part, index) => String(part) === String(value[index]))
+  );
+
   const resolveFunction = (node: ts.FunctionLikeDeclaration, projection: Projection = []): void => {
     if (!node.body) return;
     if (!ts.isBlock(node.body)) {
@@ -244,6 +312,24 @@ function directColorFindingsInSource(sourceFile: ts.SourceFile, file: string): F
         if (binding.initializer) resolveExpression(binding.initializer, [...binding.projection, ...projection]);
         for (const fallback of binding.fallbacks) resolveExpression(fallback, projection);
         if (binding.callable) resolveFunction(binding.callable, projection);
+        if (binding.staticMembers) {
+          if (projection.length === 0) {
+            binding.staticMembers.forEach((initializer) => resolveExpression(initializer));
+          } else {
+            const [member, ...remaining] = projection;
+            const initializer = binding.staticMembers.get(member)
+              ?? [...binding.staticMembers.entries()]
+                .find(([key]) => String(key) === String(member))?.[1];
+            if (initializer) resolveExpression(initializer, remaining);
+          }
+        }
+        for (const write of binding.writes) {
+          if (isPrefix(write.projection, projection)) {
+            resolveExpression(write.value, projection.slice(write.projection.length));
+          } else if (isPrefix(projection, write.projection)) {
+            resolveExpression(write.value);
+          }
+        }
         return;
       }
       if (ts.isCallExpression(node)) {
@@ -506,6 +592,64 @@ describe("audited console style source contracts", () => {
     expect(directColorFindingsInSource(fixture, "parameter-shadow.tsx").map(({ value }) => value)).toEqual([
       "oklch(0.4 0.1 20)"
     ]);
+  });
+
+  it("follows writes to the resolved lexical binding without crossing shadow scopes", () => {
+    const fixture = ts.createSourceFile(
+      "binding-write.tsx",
+      `let finish = "var(--viz-safe)";
+       function unrelated() {
+         let finish = "var(--viz-safe)";
+         finish = "#def";
+         return finish;
+       }
+       finish = "#abc";
+       const untouched = "var(--viz-safe)";
+       export const Example = () => <Plot color={finish} fill={untouched} />;`,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX
+    );
+
+    expect(directColorFindingsInSource(fixture, "binding-write.tsx").map(({ value }) => value)).toEqual(["#abc"]);
+  });
+
+  it("follows property writes on the resolved local object and property", () => {
+    const fixture = ts.createSourceFile(
+      "member-write.tsx",
+      `const surface = { tone: "var(--viz-safe)", steady: "var(--viz-safe)" };
+       function unrelated() {
+         const surface = { tone: "var(--viz-safe)" };
+         surface.tone = "#def";
+       }
+       surface.tone = "hsl(1 2% 3%)";
+       surface.steady = "var(--viz-safe-next)";
+       export const Example = () => <Plot color={surface.tone} fill={surface.steady} />;`,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX
+    );
+
+    expect(directColorFindingsInSource(fixture, "member-write.tsx").map(({ value }) => value)).toEqual([
+      "hsl(1 2% 3%)"
+    ]);
+  });
+
+  it("resolves static class member initializers used by color consumers", () => {
+    const fixture = ts.createSourceFile(
+      "class-member.tsx",
+      `class Shelf {
+         static tone = "#abc";
+         static steady = "var(--viz-safe)";
+         instanceTone = "#def";
+       }
+       export const Example = () => <Plot color={Shelf.tone} fill={Shelf.steady} />;`,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX
+    );
+
+    expect(directColorFindingsInSource(fixture, "class-member.tsx").map(({ value }) => value)).toEqual(["#abc"]);
   });
 
   it("reduces the 262-style historical baseline by at least 25 percent", () => {
