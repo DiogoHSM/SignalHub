@@ -19,6 +19,7 @@ function producerConnection(redisUrl: string): RedisOptions & { url: string } {
     maxRetriesPerRequest: 1,
     enableOfflineQueue: false,
     connectTimeout: 1_000,
+    commandTimeout: 1_000,
     retryStrategy: (attempt) => Math.min(attempt * 100, 1_000)
   };
 }

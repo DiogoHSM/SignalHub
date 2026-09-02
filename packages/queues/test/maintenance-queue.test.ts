@@ -1,6 +1,7 @@
 import { GenericContainer, Wait } from "testcontainers";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer } from "node:net";
+import { Redis } from "ioredis";
 import {
   createMaintenanceQueue,
   enqueueBackupCreation,
@@ -112,6 +113,46 @@ describe("maintenance queue", () => {
       await queue.close();
       await recoveryContainer?.stop();
       consoleError.mockRestore();
+    }
+  });
+
+  it("bounds a command stalled after readiness and preserves same-id recovery", async () => {
+    const queue = createMaintenanceQueue(redisUrl);
+    const controller = new Redis(redisUrl);
+    queue.on("error", () => undefined);
+
+    try {
+      await enqueueBackupCreation(queue, {
+        kind: "backup.create",
+        requestedBy: "usr_1",
+        requestedAt: "2026-09-01T12:34:01.000Z"
+      });
+      await controller.call("CLIENT", "PAUSE", "2500", "ALL");
+
+      const startedAt = Date.now();
+      const timedPayload: MaintenanceJob = {
+        kind: "backup.create",
+        requestedBy: "usr_1",
+        requestedAt: "2026-09-01T12:35:01.000Z"
+      };
+      await expect(enqueueBackupCreation(queue, timedPayload)).rejects.toThrow("Command timed out");
+      expect(Date.now() - startedAt).toBeLessThan(1_800);
+
+      let recovered: Awaited<ReturnType<typeof enqueueBackupCreation>> | undefined;
+      const deadline = Date.now() + 5_000;
+      while (!recovered && Date.now() < deadline) {
+        try {
+          recovered = await enqueueBackupCreation(queue, timedPayload);
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      }
+      expect(recovered?.id).toBe("backup-create-20260901T1235Z");
+      expect(await queue.count()).toBe(2);
+    } finally {
+      await queue.obliterate({ force: true });
+      await queue.close();
+      await controller.quit();
     }
   });
 });

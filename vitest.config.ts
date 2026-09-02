@@ -44,7 +44,7 @@ export default defineConfig({
       "@sigmon/config": resolve(root, "packages/config/src/index.ts"),
       "@sigmon/db": resolve(root, "packages/db/src/client.ts"),
       "@sigmon/db/": resolve(root, "packages/db/src/"),
-      "@sigmon/queues": resolve(root, "packages/queues/src/telemetry-queue.ts"),
+      "@sigmon/queues": resolve(root, "packages/queues/src/index.ts"),
       "@sigmon/sdk": resolve(root, "packages/sdk/src/index.ts"),
       "@sigmon/sdk/": resolve(root, "packages/sdk/src/"),
       "@sigmon/telemetry": resolve(root, "packages/telemetry/src/types.ts"),

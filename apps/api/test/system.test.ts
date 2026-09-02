@@ -1,5 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
+import { Redis } from "ioredis";
+import { GenericContainer, Wait } from "testcontainers";
+import { createMaintenanceQueue, enqueueBackupCreation } from "@sigmon/queues";
 import { buildApp } from "../src/app.js";
 import { createSystemHealthSnapshot } from "../src/system-health.js";
 import type { SystemHealthSnapshot } from "../src/routes/system.js";
@@ -278,6 +281,67 @@ describe("system health routes", () => {
     expect(response.statusCode).toBe(503);
     expect(response.json()).toEqual({ error: "system_backup_failed" });
   });
+
+  it("returns a bounded stable 503 for a stalled Redis command and recovers on the same producer", async () => {
+    const container = await new GenericContainer("redis:7-alpine")
+      .withExposedPorts(6379)
+      .withWaitStrategy(Wait.forLogMessage("Ready to accept connections"))
+      .start();
+    const redisUrl = `redis://${container.getHost()}:${container.getMappedPort(6379)}`;
+    const queue = createMaintenanceQueue(redisUrl);
+    const controller = new Redis(redisUrl);
+    queue.on("error", () => undefined);
+
+    try {
+      await enqueueBackupCreation(queue, {
+        kind: "backup.create",
+        requestedBy: "usr_warm",
+        requestedAt: "2026-09-01T12:34:01.000Z"
+      });
+      app = await buildApp({
+        readiness: async () => ({ postgres: true, redis: true }),
+        auth,
+        system: {
+          enqueueBackup: (payload) =>
+            enqueueBackupCreation(queue, { kind: "backup.create", ...payload }).then((job) => {
+              if (!job.id) throw new Error("maintenance_queue_invalid_job");
+              return { jobId: job.id };
+            })
+        }
+      });
+      await controller.call("CLIENT", "PAUSE", "2500", "ALL");
+
+      const startedAt = Date.now();
+      const stalled = await app.inject({ method: "POST", url: "/system/actions/backup" });
+      expect(stalled.statusCode).toBe(503);
+      expect(stalled.json()).toEqual({ error: "system_backup_failed" });
+      expect(Date.now() - startedAt).toBeLessThan(1_800);
+
+      let recovered: Awaited<ReturnType<FastifyInstance["inject"]>> | undefined;
+      const deadline = Date.now() + 5_000;
+      while (!recovered && Date.now() < deadline) {
+        const response = await app.inject({ method: "POST", url: "/system/actions/backup" });
+        if (response.statusCode === 202) {
+          recovered = response;
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      }
+      expect(recovered?.statusCode).toBe(202);
+      expect(recovered?.json()).toMatchObject({
+        action: "backup",
+        status: "accepted",
+        message: "Backup queued."
+      });
+    } finally {
+      await app?.close();
+      app = undefined;
+      await queue.obliterate({ force: true });
+      await queue.close();
+      await controller.quit();
+      await container.stop();
+    }
+  }, 30_000);
 
   it("returns unavailable when system actions fail", async () => {
     app = await buildApp({
