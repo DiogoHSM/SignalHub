@@ -403,6 +403,11 @@ export type DataGovernanceAdministrationDependencies = {
 
 export type WarehouseExportAdministrationDependencies = {
   listDestinations: (input: { projectId: string; environmentId: string }) => Promise<WarehouseDestinationRecord[]>;
+  getDestination: (input: {
+    id: string;
+    projectId: string;
+    environmentId: string;
+  }) => Promise<WarehouseDestinationRecord | null | undefined>;
   createDestination: (input: CreateWarehouseDestinationInput) => Promise<WarehouseDestinationRecord>;
   updateDestination: (input: UpdateWarehouseDestinationInput) => Promise<WarehouseDestinationRecord | null | undefined>;
   archiveDestination: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
@@ -3665,6 +3670,22 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
 
     try {
       const input = parsed.data as WarehouseDestinationPatchBody;
+      if (input.connectionUrl === undefined) {
+        const currentDestination = await options.adminResources.warehouseExports.getDestination({
+          id: params.data.id,
+          projectId: input.projectId,
+          environmentId: input.environmentId
+        });
+        if (!currentDestination) {
+          return reply.status(404).send({ error: "warehouse_destination_not_found" });
+        }
+        if (
+          typeof currentDestination.connectionUrl !== "string" ||
+          !validateWarehousePostgresConnectionUrl(currentDestination.connectionUrl, options)
+        ) {
+          return reply.status(400).send({ error: "invalid_warehouse_export_request" });
+        }
+      }
       const destination = await options.adminResources.warehouseExports.updateDestination({
         id: params.data.id,
         projectId: input.projectId,

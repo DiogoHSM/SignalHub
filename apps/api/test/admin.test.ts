@@ -39,7 +39,10 @@ import {
   type OpaqueSessionServiceDependencies
 } from "../src/auth/session-service.js";
 import { getSessionCookieOptions, type AuthDependencies } from "../src/routes/auth.js";
-import type { UserAdministrationDependencies } from "../src/routes/admin.js";
+import type {
+  UserAdministrationDependencies,
+  WarehouseExportAdministrationDependencies
+} from "../src/routes/admin.js";
 import { OutboundPolicy } from "@sigmon/config";
 
 let app: FastifyInstance | undefined;
@@ -422,6 +425,23 @@ function warehouseDestination(overrides: Partial<WarehouseDestinationRecord> = {
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     archivedAt: null,
+    ...overrides
+  };
+}
+
+function warehouseExportAdministration(
+  overrides: Partial<WarehouseExportAdministrationDependencies> = {}
+): WarehouseExportAdministrationDependencies {
+  return {
+    listDestinations: async () => [],
+    getDestination: async () =>
+      warehouseDestination({ connectionUrl: "postgres://writer:stored-secret@warehouse.internal/analytics" }),
+    createDestination: async () => {
+      throw new Error("not used");
+    },
+    updateDestination: async (input) => warehouseDestination({ id: input.id }),
+    archiveDestination: async () => undefined,
+    listRuns: async () => [],
     ...overrides
   };
 }
@@ -2797,6 +2817,11 @@ describe("admin routes", () => {
       connection_url_encrypted: "v1.synthetic-legacy-envelope"
     });
     const listDestinations = vi.fn(async () => [repositoryDestination()]);
+    const getDestination = vi.fn(async () =>
+      warehouseDestination({
+        connectionUrl: "postgres://writer:stored-secret@warehouse.internal:5432/analytics"
+      })
+    );
     const createDestination = vi.fn(async (input) =>
       ({
         ...repositoryDestination(),
@@ -2823,6 +2848,7 @@ describe("admin routes", () => {
       adminResources: {
         warehouseExports: {
           listDestinations,
+          getDestination,
           createDestination,
           updateDestination,
           archiveDestination,
@@ -2925,6 +2951,7 @@ describe("admin routes", () => {
     expect(unsafePatchResponse.statusCode).toBe(400);
     expect(unsafePatchResponse.json()).toEqual({ error: "invalid_warehouse_export_request" });
     expect(unsafePatchResponse.body).not.toContain("patch-secret");
+    expect(getDestination).not.toHaveBeenCalled();
     expect(updateDestination).not.toHaveBeenCalled();
 
     const patchResponse = await app.inject({
@@ -2951,6 +2978,11 @@ describe("admin routes", () => {
       datasets: undefined,
       batchSize: undefined,
       enabled: false
+    });
+    expect(getDestination).toHaveBeenCalledWith({
+      id: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1"
     });
 
     const runsResponse = await app.inject({
@@ -2981,6 +3013,188 @@ describe("admin routes", () => {
     });
     expect(deleteResponse.statusCode).toBe(204);
     expect(archiveDestination).toHaveBeenCalledWith({ id: "whdst_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("rejects an unrelated warehouse patch when the scoped persisted URL is invalid", async () => {
+    const persistedSecret = "legacy-private-secret";
+    const getDestination = vi.fn(async () =>
+      warehouseDestination({ connectionUrl: `postgres://writer:${persistedSecret}@10.0.0.8/analytics` })
+    );
+    const updateDestination = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        warehouseExports: warehouseExportAdministration({ getDestination, updateDestination })
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_1",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Re-enabled legacy warehouse",
+        enabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_warehouse_export_request" });
+    expect(response.body).not.toContain(persistedSecret);
+    expect(getDestination).toHaveBeenCalledWith({
+      id: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+    expect(updateDestination).not.toHaveBeenCalled();
+  });
+
+  it("allows an unrelated warehouse patch when the scoped persisted URL is valid", async () => {
+    const persistedSecret = "stored-valid-secret";
+    const getDestination = vi.fn(async () =>
+      warehouseDestination({
+        connectionUrl: `postgres://writer:${persistedSecret}@warehouse.internal/analytics`
+      })
+    );
+    const updateDestination = vi.fn(async (input) =>
+      warehouseDestination({ id: input.id, name: input.name ?? "Warehouse" })
+    );
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        warehouseExports: warehouseExportAdministration({ getDestination, updateDestination })
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_1",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Validated warehouse"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().destination.name).toBe("Validated warehouse");
+    expect(response.body).not.toContain(persistedSecret);
+    expect(getDestination).toHaveBeenCalledWith({
+      id: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+    expect(updateDestination).toHaveBeenCalledOnce();
+  });
+
+  it("returns 404 before mutation when an omitted-URL warehouse patch has no scoped destination", async () => {
+    const getDestination = vi.fn(async () => undefined);
+    const updateDestination = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        warehouseExports: warehouseExportAdministration({ getDestination, updateDestination })
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_missing",
+      payload: {
+        projectId: "prj_other",
+        environmentId: "env_other",
+        enabled: false
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "warehouse_destination_not_found" });
+    expect(getDestination).toHaveBeenCalledWith({
+      id: "whdst_missing",
+      projectId: "prj_other",
+      environmentId: "env_other"
+    });
+    expect(updateDestination).not.toHaveBeenCalled();
+  });
+
+  it("redacts persisted warehouse decryption failures and does not mutate", async () => {
+    const decryptionSecret = "legacy-ciphertext-secret";
+    const getDestination = vi.fn(async () => {
+      throw new Error(`unable to decrypt ${decryptionSecret}`);
+    });
+    const updateDestination = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        warehouseExports: warehouseExportAdministration({ getDestination, updateDestination })
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_1",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        enabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "warehouse_exports_unavailable" });
+    expect(response.body).not.toContain(decryptionSecret);
+    expect(updateDestination).not.toHaveBeenCalled();
+  });
+
+  it("repairs an invalid legacy warehouse URL when PATCH supplies a valid replacement", async () => {
+    const replacementSecret = "replacement-secret";
+    const getDestination = vi.fn(async () =>
+      warehouseDestination({ connectionUrl: "postgres://legacy-secret@10.0.0.8/analytics" })
+    );
+    const updateDestination = vi.fn(async (input) =>
+      warehouseDestination({ id: input.id, connectionUrl: input.connectionUrl })
+    );
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        warehouseExports: warehouseExportAdministration({ getDestination, updateDestination })
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_1",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        connectionUrl: `postgres://writer:${replacementSecret}@warehouse.internal/analytics`
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).not.toContain(replacementSecret);
+    expect(getDestination).not.toHaveBeenCalled();
+    expect(updateDestination).toHaveBeenCalledWith({
+      id: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: undefined,
+      connectionUrl: `postgres://writer:${replacementSecret}@warehouse.internal/analytics`,
+      datasets: undefined,
+      batchSize: undefined,
+      enabled: undefined
+    });
   });
 
   it("rejects invalid browser origins", async () => {

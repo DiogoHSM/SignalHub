@@ -771,6 +771,11 @@ const app = await buildApp({
         ...input,
         includeDisabled: true
       }),
+      getDestination: (input) => getWarehouseDestination(db, {
+        ...input,
+        includeSecret: true,
+        secretBox
+      }),
       createDestination: (input) => createWarehouseDestination(db, input, secretBox!),
       updateDestination: (input) => updateWarehouseDestination(db, input, secretBox),
       archiveDestination: (input) => archiveWarehouseDestination(db, input),
