@@ -39,6 +39,20 @@ function createSuccessfulChildProcess(): EventEmitter & { stderr: EventEmitter }
   return child;
 }
 
+function createFailingChildProcess(input: {
+  event: "error" | "close";
+  stderr?: string;
+}): EventEmitter & { stderr: EventEmitter } {
+  const child = new EventEmitter() as EventEmitter & { stderr: EventEmitter };
+  child.stderr = new EventEmitter();
+  queueMicrotask(() => {
+    if (input.stderr) child.stderr.emit("data", Buffer.from(input.stderr));
+    if (input.event === "error") child.emit("error", new Error(input.stderr ?? "spawn failed"));
+    else child.emit("close", 1);
+  });
+  return child;
+}
+
 describe("createBackupFilename", () => {
   it("uses a UTC timestamp and no secrets", () => {
     expect(createBackupFilename(new Date("2026-05-06T12:34:56.000Z"))).toBe("sigmon-20260506T123456Z.dump");
@@ -99,14 +113,9 @@ describe("restoreBackup", () => {
       "--if-exists",
       "--no-owner",
       "--no-privileges",
+      "--no-password",
       "--dbname",
-      "sigmon",
-      "--host",
-      "localhost",
-      "--port",
-      "5433",
-      "--username",
-      "user",
+      "dbname='sigmon'",
       "--",
       "/tmp/sigmon.dump"
     ]);
@@ -115,7 +124,12 @@ describe("restoreBackup", () => {
     expect(args?.join(" ")).not.toContain("pa$$");
     expect(options).toEqual(
       expect.objectContaining({
-        env: expect.objectContaining({ PGPASSWORD: "pa$$" }),
+        env: expect.objectContaining({
+          PGHOST: "localhost",
+          PGPORT: "5433",
+          PGUSER: "user",
+          PGPASSWORD: "pa$$"
+        }),
         stdio: ["ignore", "inherit", "pipe"]
       })
     );
@@ -134,10 +148,64 @@ describe("restoreBackup", () => {
     const [, args, options] = childProcessMock.spawn.mock.calls[0] ?? [];
     expect(args).not.toContain(databaseUrl);
     expect(args?.join(" ")).not.toContain("secret");
-    expect(args).toContain("postgres://user@db.example.com:5432/sigmon?sslmode=require&application_name=sigmon");
+    expect(args).toContain("dbname='sigmon'");
+    expect(args).toContain("--no-password");
     expect(args).toContain("--");
     expect(args?.slice(-2)).toEqual(["--", "/tmp/sigmon.dump"]);
-    expect(options).toEqual(expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "secret" }) }));
+    expect(options).toEqual(
+      expect.objectContaining({
+        env: expect.objectContaining({
+          PGHOST: "db.example.com",
+          PGPORT: "5432",
+          PGUSER: "user",
+          PGPASSWORD: "secret",
+          PGSSLMODE: "require",
+          PGAPPNAME: "sigmon"
+        })
+      })
+    );
+  });
+
+  it.each([
+    {
+      name: "synchronous spawn throw",
+      spawnFn: () => {
+        throw new Error("postgres://user:secret@db.test/sigmon");
+      }
+    },
+    {
+      name: "child error",
+      spawnFn: () =>
+        createFailingChildProcess({ event: "error", stderr: "password=secret postgres://user:secret@db.test/sigmon" })
+    },
+    {
+      name: "nonzero close with unbounded stderr",
+      spawnFn: () =>
+        createFailingChildProcess({
+          event: "close",
+          stderr: `password=secret postgres://user:secret@db.test/sigmon ${"x".repeat(100_000)}`
+        })
+    }
+  ])("sanitizes $name failures", async ({ spawnFn }) => {
+    const databaseUrl = "postgres://user:secret@db.test/sigmon";
+
+    await expect(
+      restoreBackup({
+        databaseUrl,
+        filePath: "/tmp/sigmon.dump",
+        spawnFn: spawnFn as never
+      })
+    ).rejects.toThrow("pg_restore failed");
+
+    try {
+      await restoreBackup({ databaseUrl, filePath: "/tmp/sigmon.dump", spawnFn: spawnFn as never });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toBe("pg_restore failed");
+      expect(message).not.toContain(databaseUrl);
+      expect(message).not.toContain("secret");
+      expect(message.length).toBeLessThan(100);
+    }
   });
 
   it("refuses restore when a checksum sidecar does not match before spawning pg_restore", async () => {
@@ -235,20 +303,23 @@ describe("dumpPostgresDatabase", () => {
       "--format=custom",
       "--no-owner",
       "--no-privileges",
+      "--no-password",
       "--file",
       "/tmp/sigmon.dump",
       "--dbname",
-      "sigmon",
-      "--host",
-      "localhost",
-      "--port",
-      "5433",
-      "--username",
-      "user"
+      "dbname='sigmon'"
     ]);
     expect(args).not.toContain("postgres://user:pa%24%24@localhost:5433/sigmon");
     expect(options).toEqual(
-      expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "pa$$" }), timeout: 300_000 })
+      expect.objectContaining({
+        env: expect.objectContaining({
+          PGHOST: "localhost",
+          PGPORT: "5433",
+          PGUSER: "user",
+          PGPASSWORD: "pa$$"
+        }),
+        timeout: 300_000
+      })
     );
   });
 
@@ -268,11 +339,22 @@ describe("dumpPostgresDatabase", () => {
     const [, args, options] = execFileFn.mock.calls[0] ?? [];
     expect(args).not.toContain(databaseUrl);
     expect(args?.join(" ")).not.toContain("secret");
-    expect(args).toContain("postgres://user@db.example.com:5432/sigmon?sslmode=require&application_name=sigmon");
-    expect(args?.join(" ")).toContain("sslmode=require");
-    expect(args?.join(" ")).toContain("application_name=sigmon");
+    expect(args).toContain("dbname='sigmon'");
+    expect(args).toContain("--no-password");
+    expect(args?.join(" ")).not.toContain("sslmode=require");
+    expect(args?.join(" ")).not.toContain("application_name=sigmon");
     expect(options).toEqual(
-      expect.objectContaining({ env: expect.objectContaining({ PGPASSWORD: "secret" }), timeout: 300_000 })
+      expect.objectContaining({
+        env: expect.objectContaining({
+          PGHOST: "db.example.com",
+          PGPORT: "5432",
+          PGUSER: "user",
+          PGPASSWORD: "secret",
+          PGSSLMODE: "require",
+          PGAPPNAME: "sigmon"
+        }),
+        timeout: 300_000
+      })
     );
   });
 
@@ -314,6 +396,27 @@ describe("dumpPostgresDatabase", () => {
           execFileFn
         })
       ).rejects.toThrow("pg_dump failed");
+      await expect(stat(dumpPath)).rejects.toThrow();
+    } finally {
+      await rm(localDir, { recursive: true, force: true });
+    }
+  });
+
+  it("removes a partial dump file when the database URL is rejected before spawn", async () => {
+    const localDir = await mkdtemp(join(tmpdir(), "sigmon-dump-"));
+    const dumpPath = join(localDir, "sigmon-partial.dump");
+    await writeFile(dumpPath, "partial backup content");
+    const execFileFn = vi.fn(async () => undefined);
+
+    try {
+      await expect(
+        dumpPostgresDatabase({
+          databaseUrl: "postgres://user:secret@localhost/sigmon?password=override",
+          outputPath: dumpPath,
+          execFileFn
+        })
+      ).rejects.toThrow("database_url_invalid");
+      expect(execFileFn).not.toHaveBeenCalled();
       await expect(stat(dumpPath)).rejects.toThrow();
     } finally {
       await rm(localDir, { recursive: true, force: true });

@@ -11,7 +11,7 @@
     "dev": "tsx watch src/main.ts",
     "lint": "tsc -p tsconfig.json --noEmit",
     "start": "tsx src/main.ts",
-    "test": "vitest run --root ../.. apps/worker/test/telemetry-worker.test.ts apps/worker/test/backups.test.ts apps/worker/test/system-health-samples.test.ts apps/worker/test/warehouse-exports.test.ts apps/worker/test/event-rollups.test.ts"
+    "test": "vitest run --root ../.. apps/worker/test/telemetry-worker.test.ts apps/worker/test/backups.test.ts apps/worker/test/libpq-subprocess.test.ts apps/worker/test/system-health-samples.test.ts apps/worker/test/warehouse-exports.test.ts apps/worker/test/event-rollups.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1044.0",

@@ -16,6 +16,7 @@ import {
   validateOutboundHttpTransport
 } from "@sigmon/config";
 import { sanitizePreviewText } from "@sigmon/telemetry/sanitization";
+import { buildLibpqSubprocess } from "./libpq-subprocess.js";
 
 const execFileAsync = promisify(execFile);
 const backupFilenamePattern = /^sigmon-\d{8}T\d{6}Z\.dump$/;
@@ -139,38 +140,27 @@ export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<vo
       await execFileAsync(file, args, options);
     });
   const timeoutMs = input.timeoutMs ?? 300_000;
-  const databaseUrl = new URL(input.databaseUrl);
-  const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\//, ""));
-  const username = decodeURIComponent(databaseUrl.username);
-  const password = decodeURIComponent(databaseUrl.password);
-  const sanitizedConnectionUrl = new URL(databaseUrl);
-  sanitizedConnectionUrl.password = "";
+  let connection;
+  try {
+    connection = buildLibpqSubprocess(input.databaseUrl);
+  } catch {
+    await unlinkIfExists(input.outputPath);
+    throw new Error("database_url_invalid");
+  }
   const args = [
     "--format=custom",
     "--no-owner",
     "--no-privileges",
+    "--no-password",
     "--file",
     input.outputPath,
-    "--dbname"
+    "--dbname",
+    connection.argsConnection
   ];
-
-  if (databaseUrl.search !== "") {
-    args.push(sanitizedConnectionUrl.toString());
-  } else {
-    args.push(databaseName, "--host", databaseUrl.hostname);
-
-    if (databaseUrl.port !== "") {
-      args.push("--port", databaseUrl.port);
-    }
-
-    if (username !== "") {
-      args.push("--username", username);
-    }
-  }
 
   const options = {
     timeout: timeoutMs,
-    ...(password === "" ? {} : { env: { ...process.env, PGPASSWORD: password } })
+    env: connection.env
   };
 
   try {
