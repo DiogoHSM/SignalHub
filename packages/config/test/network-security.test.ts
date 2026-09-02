@@ -41,6 +41,24 @@ describe("outbound address policy", () => {
     }
   );
 
+  it.each([
+    "100:0:0:1::",
+    "100:0:0:1::1",
+    "0100:0000:0000:0001:0000:0000:0000:0001",
+    "100:0:0:1:ffff:ffff:ffff:ffff"
+  ])("rejects RFC 9780 IPv6 Dummy Prefix address %s", (address) => {
+    expect(classifyAddress(address)).toBe("forbidden");
+    expect(() => publicOnly.assertAddress(address)).toThrow("outbound_address_forbidden");
+  });
+
+  it.each(["100:0:0:2::", "100:0:0:ffff::1"])(
+    "does not broaden the IPv6 Dummy Prefix exclusion to adjacent address %s",
+    (address) => {
+      expect(classifyAddress(address)).toBe("public");
+      expect(publicOnly.assertAddress(address)).toBe(address);
+    }
+  );
+
   it.each(["127.0.0.1", "127.255.255.254", "::1"])("requires loopback opt-in for %s", (address) => {
     expect(classifyAddress(address)).toBe("loopback");
     expect(() => publicOnly.assertAddress(address)).toThrow("outbound_address_forbidden");
@@ -147,6 +165,13 @@ describe("outbound URL policy", () => {
     "http://[64:ff9b::127.0.0.1]/internal"
   ])("normalizes and rejects an alternative private or loopback literal: %s", (rawUrl) => {
     expect(() => policy.validateOutboundUrl(rawUrl)).toThrow("outbound_address_forbidden");
+  });
+
+  it.each([
+    "https://[100:0:0:1::1]/secret?token=x",
+    "https://[0100:0000:0000:0001:0000:0000:0000:0001]/secret?token=x"
+  ])("rejects an RFC 9780 Dummy Prefix URL literal without disclosing it: %s", (rawUrl) => {
+    expect(captureMessage(() => policy.validateOutboundUrl(rawUrl))).toBe("outbound_address_forbidden");
   });
 
   it("allows a public hostname and public IPv4/IPv6 literals", () => {

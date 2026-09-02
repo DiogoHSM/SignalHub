@@ -73,6 +73,20 @@ describe("createSafeLookup", () => {
     await expect(runLookup(lookup, "127.0.0.1")).rejects.toThrow("outbound_address_forbidden");
   });
 
+  it.each(["100:0:0:1::1", "0100:0000:0000:0001:0000:0000:0000:0001"])(
+    "rejects an RFC 9780 Dummy Prefix resolver answer %s",
+    async (address) => {
+      const lookup = createSafeLookup(
+        new OutboundPolicy(),
+        resolverReturning([{ address, family: 6 }])
+      );
+
+      await expect(runLookup(lookup, "dummy-prefix.example")).rejects.toThrow(
+        "outbound_address_forbidden"
+      );
+    }
+  );
+
   it("returns all validated answers for the all-address overload", async () => {
     const answers = [
       { address: "8.8.8.8", family: 4 as const },

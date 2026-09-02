@@ -18,7 +18,10 @@ const RFC1918_AND_ULA_CIDRS: ParsedCidr[] = [
   ipaddr.parseCIDR("192.168.0.0/16"),
   ipaddr.parseCIDR("fc00::/7")
 ];
-const ALWAYS_FORBIDDEN_IPV6_CIDRS: ParsedCidr[] = [ipaddr.parseCIDR("3ffe::/16")];
+const ALWAYS_FORBIDDEN_IPV6_CIDRS: ParsedCidr[] = [
+  ipaddr.parseCIDR("100:0:0:1::/64"),
+  ipaddr.parseCIDR("3ffe::/16")
+];
 
 export class OutboundPolicy {
   private readonly privateCidrs: ParsedCidr[];
