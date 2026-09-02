@@ -1,9 +1,10 @@
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { SecretBox } from "@sigmon/config";
-import { sql } from "kysely";
+import { sql, type Transaction } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
 import type { Db } from "../src/client.js";
+import type { Database } from "../src/schema.js";
 import { migrate } from "../src/migrate.js";
 import { createTestDb } from "./test-db.js";
 
@@ -297,6 +298,55 @@ describe("repositories", () => {
     } finally {
       await db.destroy();
     }
+  }
+
+  async function withIsolatedRetentionFixtures(
+    db: Db,
+    run: (trx: Transaction<Database>) => Promise<void>
+  ): Promise<void> {
+    const rollback = new Error("rollback_isolated_retention_fixtures");
+
+    try {
+      await db.transaction().execute(async (trx) => {
+        await sql`
+          truncate table
+            events,
+            click_events,
+            session_replays,
+            errors,
+            traces,
+            spans,
+            llm_calls,
+            web_vitals,
+            profiles,
+            breadcrumbs,
+            data_governance_policies
+          cascade
+        `.execute(trx);
+        await run(trx);
+        throw rollback;
+      });
+    } catch (error) {
+      if (error !== rollback) throw error;
+    }
+  }
+
+  function retentionOptions(now: Date) {
+    return {
+      now,
+      batchSize: 100,
+      eventsDays: 30,
+      errorsDays: 30,
+      tracesDays: 30,
+      spansDays: 30,
+      llmCallsDays: 30,
+      profilesDays: 30,
+      breadcrumbsDays: 30,
+      deadLetterJobsDays: 30,
+      sourceMapsEnabled: false,
+      sourceMapsDays: 30,
+      sourceMapsBatchSize: 100
+    };
   }
 
   function decodeEntityCursorForTest(cursor: string): EntityCursor {
@@ -2170,6 +2220,336 @@ describe("repositories", () => {
           .where("environment_id", "=", environment.id)
           .execute();
       }
+    });
+  });
+
+  it("honors effective retention boundaries for longer shorter absent and partial scoped policies", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await withIsolatedRetentionFixtures(db, async (trx) => {
+        const now = new Date("2026-09-01T00:00:00.000Z");
+        const at = (days: number, olderByMs = 0) => new Date(now.getTime() - days * 86_400_000 - olderByMs);
+
+        await sql`
+          insert into projects (id, name) values
+            ('prj_ret_effective_long', 'Effective long'),
+            ('prj_ret_effective_short', 'Effective short'),
+            ('prj_ret_effective_default', 'Effective default'),
+            ('prj_ret_effective_missing', 'Effective missing category')
+        `.execute(trx);
+        await sql`
+          insert into environments (id, project_id, name) values
+            ('env_ret_effective_long', 'prj_ret_effective_long', 'long'),
+            ('env_ret_effective_long_other', 'prj_ret_effective_long', 'other'),
+            ('env_ret_effective_short', 'prj_ret_effective_short', 'short'),
+            ('env_ret_effective_default', 'prj_ret_effective_default', 'default'),
+            ('env_ret_effective_missing', 'prj_ret_effective_missing', 'missing')
+        `.execute(trx);
+        await sql`
+          insert into data_governance_policies (project_id, environment_id, retention_policy) values
+            ('prj_ret_effective_long', 'env_ret_effective_long', '{"events":90,"errors":7}'::jsonb),
+            ('prj_ret_effective_short', 'env_ret_effective_short', '{"events":7}'::jsonb),
+            ('prj_ret_effective_missing', 'env_ret_effective_missing', '{"errors":90}'::jsonb)
+        `.execute(trx);
+        await sql`
+          insert into events (id, project_id, environment_id, timestamp, received_at, name) values
+            ('evt_ret_long_60d_survives', 'prj_ret_effective_long', 'env_ret_effective_long', ${at(60)}, ${now}, 'long.60'),
+            ('evt_ret_long_90d_boundary_survives', 'prj_ret_effective_long', 'env_ret_effective_long', ${at(90)}, ${now}, 'long.boundary'),
+            ('evt_ret_long_90d_plus_1ms_deletes', 'prj_ret_effective_long', 'env_ret_effective_long', ${at(90, 1)}, ${now}, 'long.older'),
+            ('evt_ret_short_7d_boundary_survives', 'prj_ret_effective_short', 'env_ret_effective_short', ${at(7)}, ${now}, 'short.boundary'),
+            ('evt_ret_short_7d_plus_1ms_deletes', 'prj_ret_effective_short', 'env_ret_effective_short', ${at(7, 1)}, ${now}, 'short.older'),
+            ('evt_ret_short_8d_deletes', 'prj_ret_effective_short', 'env_ret_effective_short', ${at(8)}, ${now}, 'short.8'),
+            ('evt_ret_default_30d_boundary_survives', 'prj_ret_effective_default', 'env_ret_effective_default', ${at(30)}, ${now}, 'default.boundary'),
+            ('evt_ret_default_30d_plus_1ms_deletes', 'prj_ret_effective_default', 'env_ret_effective_default', ${at(30, 1)}, ${now}, 'default.older'),
+            ('evt_ret_default_31d_deletes', 'prj_ret_effective_default', 'env_ret_effective_default', ${at(31)}, ${now}, 'default.31'),
+            ('evt_ret_missing_category_30d_boundary_survives', 'prj_ret_effective_missing', 'env_ret_effective_missing', ${at(30)}, ${now}, 'missing.boundary'),
+            ('evt_ret_missing_category_30d_plus_1ms_deletes', 'prj_ret_effective_missing', 'env_ret_effective_missing', ${at(30, 1)}, ${now}, 'missing.older'),
+            ('evt_ret_other_environment_60d_deletes', 'prj_ret_effective_long', 'env_ret_effective_long_other', ${at(60)}, ${now}, 'other.environment')
+        `.execute(trx);
+        await sql`
+          insert into errors (id, project_id, environment_id, timestamp, received_at, message, severity) values
+            ('err_ret_partial_8d_deletes', 'prj_ret_effective_long', 'env_ret_effective_long', ${at(8)}, ${now}, 'partial category', 'error')
+        `.execute(trx);
+
+        const deleted = await deleteExpiredTelemetry(trx, retentionOptions(now));
+
+        expect(deleted).toEqual({
+          events: 7,
+          errors: 1,
+          traces: 0,
+          spans: 0,
+          llmCalls: 0,
+          webVitals: 0,
+          profiles: 0,
+          breadcrumbs: 0,
+          deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
+          sourceMapFiles: 0
+        });
+        await expect(
+          trx
+            .selectFrom("events")
+            .select("id")
+            .orderBy("id")
+            .execute()
+        ).resolves.toEqual([
+          { id: "evt_ret_default_30d_boundary_survives" },
+          { id: "evt_ret_long_60d_survives" },
+          { id: "evt_ret_long_90d_boundary_survives" },
+          { id: "evt_ret_missing_category_30d_boundary_survives" },
+          { id: "evt_ret_short_7d_boundary_survives" }
+        ]);
+        await expect(trx.selectFrom("errors").select("id").execute()).resolves.toEqual([]);
+      });
+    });
+  });
+
+  it("executes every retention table owner once and aggregates physical category counters", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await withIsolatedRetentionFixtures(db, async (trx) => {
+        const now = new Date("2026-09-01T00:00:00.000Z");
+        const old = new Date("2026-08-23T00:00:00.000Z");
+        const eventOld = new Date("2026-05-31T00:00:00.000Z");
+
+        await sql`insert into projects (id, name) values ('prj_ret_owners', 'Retention owners')`.execute(trx);
+        await sql`
+          insert into environments (id, project_id, name)
+          values ('env_ret_owners', 'prj_ret_owners', 'owners')
+        `.execute(trx);
+        await sql`
+          insert into data_governance_policies (project_id, environment_id, retention_policy)
+          values (
+            'prj_ret_owners',
+            'env_ret_owners',
+            '{"events":90,"clicks":7,"replays":7,"errors":7,"traces":7,"spans":7,"llmCalls":7,"webVitals":7,"profiles":7,"breadcrumbs":7}'::jsonb
+          )
+        `.execute(trx);
+        await sql`
+          insert into events (id, project_id, environment_id, timestamp, received_at, name) values
+            ('evt_ret_owner_deletes', 'prj_ret_owners', 'env_ret_owners', ${eventOld}, ${now}, 'owner.delete'),
+            ('evt_ret_owner_8d_survives', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'owner.survive')
+        `.execute(trx);
+        await sql`
+          insert into click_events (id, project_id, environment_id, timestamp, received_at, route, selector, x, y, viewport_width, viewport_height)
+          values ('clk_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, '/', '#owner', 0.5, 0.5, 100, 100)
+        `.execute(trx);
+        await sql`
+          insert into session_replays (id, replay_id, project_id, environment_id, timestamp, received_at, started_at)
+          values ('rpl_ret_owner', 'replay-ret-owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, ${old})
+        `.execute(trx);
+        await sql`
+          insert into errors (id, project_id, environment_id, timestamp, received_at, message, severity)
+          values ('err_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'owner', 'error')
+        `.execute(trx);
+        await sql`
+          insert into traces (id, project_id, environment_id, timestamp, received_at, name, status, started_at)
+          values ('trc_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'owner', 'ok', ${old})
+        `.execute(trx);
+        await sql`
+          insert into spans (id, project_id, environment_id, trace_id, timestamp, received_at, name, status, started_at)
+          values ('spn_ret_owner', 'prj_ret_owners', 'env_ret_owners', 'trace-ret-owner', ${old}, ${now}, 'owner', 'ok', ${old})
+        `.execute(trx);
+        await sql`
+          insert into llm_calls (id, project_id, environment_id, timestamp, received_at, provider, model, status)
+          values ('llm_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'openai', 'gpt-5', 'success')
+        `.execute(trx);
+        await sql`
+          insert into web_vitals (id, project_id, environment_id, timestamp, received_at, name, value, rating)
+          values ('wvt_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'LCP', 1000, 'good')
+        `.execute(trx);
+        await sql`
+          insert into profiles (id, project_id, environment_id, timestamp, received_at, name, kind, runtime, started_at)
+          values ('prf_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'owner', 'cpu', 'node', ${old})
+        `.execute(trx);
+        await sql`
+          insert into breadcrumbs (id, project_id, environment_id, timestamp, received_at, type, message, level)
+          values ('brd_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'custom', 'owner', 'info')
+        `.execute(trx);
+
+        await sql`create temporary table task2_retention_delete_statements (table_name text not null) on commit drop`.execute(trx);
+        await sql`
+          create function pg_temp.audit_task2_retention_delete() returns trigger
+          language plpgsql as $$
+          begin
+            insert into task2_retention_delete_statements (table_name) values (tg_table_name);
+            return null;
+          end
+          $$
+        `.execute(trx);
+        for (const table of [
+          "events",
+          "click_events",
+          "session_replays",
+          "errors",
+          "traces",
+          "spans",
+          "llm_calls",
+          "web_vitals",
+          "profiles",
+          "breadcrumbs"
+        ] as const) {
+          await sql`
+            create trigger task2_retention_delete_statement
+            after delete on ${sql.table(table)}
+            for each statement execute function pg_temp.audit_task2_retention_delete()
+          `.execute(trx);
+        }
+
+        const deleted = await deleteExpiredTelemetry(trx, retentionOptions(now));
+
+        expect(deleted).toEqual({
+          events: 3,
+          errors: 1,
+          traces: 1,
+          spans: 1,
+          llmCalls: 1,
+          webVitals: 1,
+          profiles: 1,
+          breadcrumbs: 1,
+          deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
+          sourceMapFiles: 0
+        });
+        await expect(
+          trx.selectFrom("events").select("id").execute()
+        ).resolves.toEqual([{ id: "evt_ret_owner_8d_survives" }]);
+        await expect(
+          sql<{ table_name: string }>`
+            select table_name from task2_retention_delete_statements order by table_name
+          `.execute(trx)
+        ).resolves.toMatchObject({
+          rows: [
+            { table_name: "breadcrumbs" },
+            { table_name: "click_events" },
+            { table_name: "errors" },
+            { table_name: "events" },
+            { table_name: "llm_calls" },
+            { table_name: "profiles" },
+            { table_name: "session_replays" },
+            { table_name: "spans" },
+            { table_name: "traces" },
+            { table_name: "web_vitals" }
+          ]
+        });
+      });
+    });
+  });
+
+  it("falls back safely for malformed legacy effective retention values", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await withIsolatedRetentionFixtures(db, async (trx) => {
+        const now = new Date("2026-09-01T00:00:00.000Z");
+        const malformedValues: unknown[] = [0, "bad", 1.5, -2, 3651, [], {}, null];
+
+        await sql`insert into projects (id, name) values ('prj_ret_malformed', 'Malformed retention')`.execute(trx);
+        for (const [index, value] of malformedValues.entries()) {
+          const environmentId = `env_ret_malformed_${index}`;
+          await sql`
+            insert into environments (id, project_id, name)
+            values (${environmentId}, 'prj_ret_malformed', ${`malformed-${index}`})
+          `.execute(trx);
+          await sql`
+            insert into data_governance_policies (project_id, environment_id, retention_policy)
+            values ('prj_ret_malformed', ${environmentId}, ${JSON.stringify({ events: value })}::jsonb)
+          `.execute(trx);
+          await sql`
+            insert into events (id, project_id, environment_id, timestamp, received_at, name)
+            values (
+              ${`evt_ret_malformed_${index}`},
+              'prj_ret_malformed',
+              ${environmentId},
+              '2026-07-31T23:59:59.999Z',
+              ${now},
+              'malformed.default'
+            )
+          `.execute(trx);
+        }
+        await sql`
+          insert into environments (id, project_id, name)
+          values ('env_ret_numeric_string', 'prj_ret_malformed', 'numeric-string')
+        `.execute(trx);
+        await sql`
+          insert into data_governance_policies (project_id, environment_id, retention_policy)
+          values ('prj_ret_malformed', 'env_ret_numeric_string', '{"events":"90"}'::jsonb)
+        `.execute(trx);
+        await sql`
+          insert into events (id, project_id, environment_id, timestamp, received_at, name) values
+            ('evt_ret_numeric_string_60d_survives', 'prj_ret_malformed', 'env_ret_numeric_string', '2026-07-03T00:00:00.000Z', ${now}, 'numeric.survive'),
+            ('evt_ret_numeric_string_91d_deletes', 'prj_ret_malformed', 'env_ret_numeric_string', '2026-06-01T00:00:00.000Z', ${now}, 'numeric.delete')
+        `.execute(trx);
+
+        const deleted = await deleteExpiredTelemetry(trx, retentionOptions(now));
+
+        expect(deleted.events).toBe(9);
+        await expect(trx.selectFrom("events").select("id").execute()).resolves.toEqual([
+          { id: "evt_ret_numeric_string_60d_survives" }
+        ]);
+      });
+    });
+  });
+
+  it("reports exact diagnostic counts and ownership when a later retention category fails", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await withIsolatedRetentionFixtures(db, async (trx) => {
+        const now = new Date("2026-09-01T00:00:00.000Z");
+        const old = new Date("2026-07-01T00:00:00.000Z");
+
+        await sql`insert into projects (id, name) values ('prj_ret_failure', 'Retention failure')`.execute(trx);
+        await sql`
+          insert into environments (id, project_id, name)
+          values ('env_ret_failure', 'prj_ret_failure', 'failure')
+        `.execute(trx);
+        await sql`
+          insert into events (id, project_id, environment_id, timestamp, received_at, name)
+          values ('evt_ret_failure_deleted_first', 'prj_ret_failure', 'env_ret_failure', ${old}, ${now}, 'failure.first')
+        `.execute(trx);
+        await sql`
+          insert into errors (id, project_id, environment_id, timestamp, received_at, message, severity)
+          values ('err_ret_failure', 'prj_ret_failure', 'env_ret_failure', ${old}, ${now}, 'failure later', 'error')
+        `.execute(trx);
+        await sql`
+          create function pg_temp.fail_task2_error_retention() returns trigger
+          language plpgsql as $$
+          begin
+            raise exception 'forced_task2_error_retention_failure';
+          end
+          $$
+        `.execute(trx);
+        await sql`
+          create trigger task2_error_retention_failure
+          before delete on errors
+          for each statement execute function pg_temp.fail_task2_error_retention()
+        `.execute(trx);
+
+        let caught: unknown;
+        try {
+          await deleteExpiredTelemetry(trx, retentionOptions(now));
+        } catch (error) {
+          caught = error;
+        }
+
+        expect(caught).toMatchObject({
+          name: "RetentionDeleteError",
+          category: "errors",
+          table: "errors",
+          deleted: {
+            events: 1,
+            errors: 0,
+            traces: 0,
+            spans: 0,
+            llmCalls: 0,
+            webVitals: 0,
+            profiles: 0,
+            breadcrumbs: 0,
+            deadLetterJobs: 0,
+            sourceMapArtifacts: 0,
+            sourceMapFiles: 0
+          }
+        });
+      });
     });
   });
 
