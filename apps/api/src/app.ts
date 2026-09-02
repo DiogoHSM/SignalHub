@@ -61,6 +61,7 @@ export type BuildAppOptions = {
   corsOrigin?: string | string[];
   browserCorsOrigins?: string[];
   isBrowserCorsOriginAllowed?: (origin: string) => Promise<boolean>;
+  rateLimitRedis?: unknown;
   trustProxy?: string[];
   rateLimit?: {
     max: number;
@@ -90,6 +91,105 @@ const browserIngestionCorsPaths = new Set([
 ]);
 const browserIngestionCorsMethods = "POST, OPTIONS";
 const browserIngestionCorsHeaders = "Authorization, Content-Type";
+const browserOriginCacheTtlMs = 60_000;
+const browserOriginCacheMaxEntries = 1_000;
+
+type BrowserOriginCacheOptions = {
+  ttlMs?: number;
+  maxEntries?: number;
+  now?: () => number;
+};
+
+type BrowserOriginCacheEntry = {
+  allowed: boolean;
+  expiresAt: number;
+};
+
+function normalizeBrowserOrigin(origin: string): string | undefined {
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return undefined;
+    }
+    return parsed.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+export class BrowserOriginCache {
+  private readonly entries = new Map<string, BrowserOriginCacheEntry>();
+  private readonly ttlMs: number;
+  private readonly maxEntries: number;
+  private readonly now: () => number;
+  private mutationRevision = 0;
+
+  constructor(
+    private readonly lookup: (origin: string) => Promise<boolean>,
+    options: BrowserOriginCacheOptions = {}
+  ) {
+    this.ttlMs = options.ttlMs ?? browserOriginCacheTtlMs;
+    this.maxEntries = options.maxEntries ?? browserOriginCacheMaxEntries;
+    this.now = options.now ?? Date.now;
+  }
+
+  async isAllowed(origin: string): Promise<boolean> {
+    const normalizedOrigin = normalizeBrowserOrigin(origin);
+    if (!normalizedOrigin) {
+      return false;
+    }
+
+    const cached = this.entries.get(normalizedOrigin);
+    if (cached && cached.expiresAt > this.now()) {
+      return cached.allowed;
+    }
+    if (cached) {
+      this.entries.delete(normalizedOrigin);
+    }
+
+    const lookupRevision = this.mutationRevision;
+    const allowed = await this.lookup(normalizedOrigin);
+    if (lookupRevision !== this.mutationRevision) {
+      const updated = this.entries.get(normalizedOrigin);
+      return updated !== undefined && updated.expiresAt > this.now() ? updated.allowed : false;
+    }
+    this.set(normalizedOrigin, allowed);
+    return allowed;
+  }
+
+  allow(origin: string): void {
+    const normalizedOrigin = normalizeBrowserOrigin(origin);
+    if (normalizedOrigin) {
+      this.mutationRevision += 1;
+      this.set(normalizedOrigin, true);
+    }
+  }
+
+  invalidate(origin: string): void {
+    const normalizedOrigin = normalizeBrowserOrigin(origin);
+    if (normalizedOrigin) {
+      this.mutationRevision += 1;
+      this.entries.delete(normalizedOrigin);
+    }
+  }
+
+  clear(): void {
+    this.mutationRevision += 1;
+    this.entries.clear();
+  }
+
+  private set(origin: string, allowed: boolean): void {
+    this.entries.delete(origin);
+    while (this.entries.size >= this.maxEntries) {
+      const oldestOrigin = this.entries.keys().next().value as string | undefined;
+      if (!oldestOrigin) {
+        break;
+      }
+      this.entries.delete(oldestOrigin);
+    }
+    this.entries.set(origin, { allowed, expiresAt: this.now() + this.ttlMs });
+  }
+}
 
 function requestPath(url: string): string {
   return url.split("?")[0] ?? url;
@@ -130,7 +230,14 @@ function getErrorStatusCode(error: unknown): number {
 
 export async function buildApp(options: BuildAppOptions) {
   const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV;
-  const browserCorsOrigins = new Set(options.browserCorsOrigins ?? []);
+  const browserCorsOrigins = new Set(
+    (options.browserCorsOrigins ?? [])
+      .map(normalizeBrowserOrigin)
+      .filter((origin): origin is string => origin !== undefined)
+  );
+  const browserOriginCache = new BrowserOriginCache(
+    options.isBrowserCorsOriginAllowed ?? (async () => false)
+  );
   const fastifyOptions: FastifyHttpOptions<Server> = {
     logger: {
       level: nodeEnv === "test" ? "silent" : "info",
@@ -167,17 +274,36 @@ export async function buildApp(options: BuildAppOptions) {
     }
   });
 
-  app.addHook("onRequest", async (request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
+    request.log.error({ err: error }, "Unhandled API error");
+    return reply.status(getErrorStatusCode(error)).send({
+      error: "internal_server_error"
+    });
+  });
+
+  await app.register(rateLimit, {
+    ...(options.rateLimit ?? { max: 1000, timeWindow: "1 minute" }),
+    hook: "onRequest",
+    skipOnError: false,
+    ipv6Subnet: 64,
+    ...(options.rateLimitRedis ? { redis: options.rateLimitRedis } : {})
+  });
+
+  app.addHook("preParsing", async (request, reply) => {
     const origin = request.headers.origin;
     if (typeof origin !== "string" || !isBrowserIngestionCorsPath(request.url)) {
       return;
     }
-    const allowed = browserCorsOrigins.has(origin) || (await options.isBrowserCorsOriginAllowed?.(origin));
+    const normalizedOrigin = normalizeBrowserOrigin(origin);
+    if (!normalizedOrigin) {
+      return;
+    }
+    const allowed = browserCorsOrigins.has(normalizedOrigin) || (await browserOriginCache.isAllowed(normalizedOrigin));
     if (!allowed) {
       return;
     }
 
-    reply.header("Access-Control-Allow-Origin", origin);
+    reply.header("Access-Control-Allow-Origin", normalizedOrigin);
     reply.header("Access-Control-Allow-Methods", browserIngestionCorsMethods);
     reply.header("Access-Control-Allow-Headers", browserIngestionCorsHeaders);
     reply.header("Access-Control-Max-Age", "600");
@@ -186,13 +312,6 @@ export async function buildApp(options: BuildAppOptions) {
     if (request.method === "OPTIONS") {
       return reply.status(204).send();
     }
-  });
-
-  app.setErrorHandler((error, request, reply) => {
-    request.log.error({ err: error }, "Unhandled API error");
-    return reply.status(getErrorStatusCode(error)).send({
-      error: "internal_server_error"
-    });
   });
 
   await app.register(cors, {
@@ -208,11 +327,6 @@ export async function buildApp(options: BuildAppOptions) {
       parts: 6
     }
   });
-  await app.register(rateLimit, {
-    ...(options.rateLimit ?? { max: 1000, timeWindow: "1 minute" }),
-    ipv6Subnet: 64
-  });
-
   registerRequestContext(app);
   await registerDocsRoutes(app);
   await registerSdkDocsRoutes(app);
@@ -251,6 +365,7 @@ export async function buildApp(options: BuildAppOptions) {
     apiKeyPepper: options.apiKeyPepper,
     hashApiKeySecret: options.hashApiKeySecret,
     hashHeartbeatSecret: options.hashHeartbeatSecret,
+    browserOriginCache,
     nodeEnv: options.nodeEnv
   });
   registerAlertRoutes(app, {

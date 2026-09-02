@@ -211,13 +211,16 @@ export async function listProjectBrowserOrigins(db: Db, projectId: string): Prom
   return rows.map(toProjectBrowserOrigin);
 }
 
-export async function archiveProjectBrowserOrigin(db: Db, id: string): Promise<void> {
-  await db
+export async function archiveProjectBrowserOrigin(db: Db, id: string): Promise<ProjectBrowserOrigin | undefined> {
+  const row = await db
     .updateTable("project_browser_origins")
     .set({ archived_at: new Date() })
     .where("id", "=", id)
     .where("archived_at", "is", null)
-    .execute();
+    .returningAll()
+    .executeTakeFirst();
+
+  return row ? toProjectBrowserOrigin(row) : undefined;
 }
 
 export async function isBrowserOriginAllowed(db: Db, origin: string): Promise<boolean> {

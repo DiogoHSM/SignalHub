@@ -187,7 +187,13 @@ export type ApiKeyAdministrationDependencies = {
 export type BrowserOriginAdministrationDependencies = {
   list: (projectId: string) => Promise<AdminProjectBrowserOrigin[]>;
   create: (input: CreateBrowserOriginInput) => Promise<AdminProjectBrowserOrigin>;
-  archive: (id: string) => Promise<void>;
+  archive: (id: string) => Promise<AdminProjectBrowserOrigin | undefined>;
+};
+
+export type BrowserOriginCacheControl = {
+  allow: (origin: string) => void;
+  invalidate: (origin: string) => void;
+  clear: () => void;
 };
 
 export type CodeIntegrationAdministrationDependencies = {
@@ -574,6 +580,7 @@ export type AdminRouteOptions = {
   apiKeyPepper?: string;
   hashApiKeySecret?: (secret: string) => Promise<string>;
   hashHeartbeatSecret?: (secret: string) => Promise<string>;
+  browserOriginCache?: BrowserOriginCacheControl;
   nodeEnv?: string;
 };
 
@@ -2154,6 +2161,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     await options.adminResources.projects.archive(params.data.id);
+    options.browserOriginCache?.clear();
     return reply.status(204).send();
   });
 
@@ -2212,6 +2220,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       throw error;
     }
 
+    options.browserOriginCache?.allow(origin.origin);
     return reply.status(201).send({ origin });
   });
 
@@ -2230,7 +2239,10 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_browser_origin_request" });
     }
 
-    await options.adminResources.browserOrigins.archive(params.data.id);
+    const archivedOrigin = await options.adminResources.browserOrigins.archive(params.data.id);
+    if (archivedOrigin) {
+      options.browserOriginCache?.invalidate(archivedOrigin.origin);
+    }
     return reply.status(204).send();
   });
 

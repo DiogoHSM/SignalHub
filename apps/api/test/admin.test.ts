@@ -1229,6 +1229,13 @@ describe("admin routes", () => {
           },
           archive: async (id) => {
             archivedOriginIds.push(id);
+            return {
+              id,
+              projectId: "prj_1",
+              origin: "https://app.example.com",
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              archivedAt: new Date("2026-01-02T00:00:00.000Z")
+            };
           }
         }
       }
@@ -1252,6 +1259,95 @@ describe("admin routes", () => {
     const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/browser-origins/borg_1" });
     expect(deleteResponse.statusCode).toBe(204);
     expect(archivedOriginIds).toEqual(["borg_1"]);
+  });
+
+  it("updates browser-origin cache state only after successful admin mutations", async () => {
+    const allowedOrigins = new Set([
+      "https://archived.example.com",
+      "https://project.example.com",
+      "https://failed.example.com"
+    ]);
+    const lookup = vi.fn(async (origin: string) => allowedOrigins.has(origin));
+    const originRecord = (id: string, origin: string) => ({
+      id,
+      projectId: "prj_1",
+      origin,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      archivedAt: null
+    });
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      isBrowserCorsOriginAllowed: lookup,
+      adminResources: {
+        projects: {
+          list: async () => [],
+          get: async () => null,
+          create: async () => {
+            throw new Error("not used");
+          },
+          update: async () => null,
+          archive: async () => {
+            allowedOrigins.delete("https://project.example.com");
+          }
+        },
+        browserOrigins: {
+          list: async () => [],
+          create: async (input) => {
+            const origin = new URL(input.origin).origin;
+            if (origin === "https://failed-create.example.com") throw new Error("create failed");
+            allowedOrigins.add(origin);
+            return originRecord("borg_created", origin);
+          },
+          archive: async (id) => {
+            if (id === "borg_failed") throw new Error("archive failed");
+            allowedOrigins.delete("https://archived.example.com");
+            return {
+              ...originRecord(id, "https://archived.example.com"),
+              archivedAt: new Date("2026-01-02T00:00:00.000Z")
+            };
+          }
+        }
+      }
+    });
+
+    const preflight = (origin: string) => app!.inject({ method: "OPTIONS", url: "/v1/events", headers: { origin } });
+
+    expect((await preflight("https://new.example.com")).statusCode).not.toBe(204);
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/browser-origins",
+      payload: { origin: "https://new.example.com/path" }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect((await preflight("https://new.example.com")).statusCode).toBe(204);
+
+    expect((await preflight("https://archived.example.com")).statusCode).toBe(204);
+    expect((await app.inject({ method: "DELETE", url: "/admin/browser-origins/borg_archived" })).statusCode).toBe(204);
+    expect((await preflight("https://archived.example.com")).statusCode).not.toBe(204);
+
+    expect((await preflight("https://project.example.com")).statusCode).toBe(204);
+    expect((await app.inject({ method: "DELETE", url: "/admin/projects/prj_1" })).statusCode).toBe(204);
+    expect((await preflight("https://project.example.com")).statusCode).not.toBe(204);
+
+    expect((await preflight("https://failed.example.com")).statusCode).toBe(204);
+    expect((await app.inject({ method: "DELETE", url: "/admin/browser-origins/borg_failed" })).statusCode).toBe(500);
+    allowedOrigins.delete("https://failed.example.com");
+    expect((await preflight("https://failed.example.com")).statusCode).toBe(204);
+
+    expect((await preflight("https://failed-create.example.com")).statusCode).not.toBe(204);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/admin/projects/prj_1/browser-origins",
+          payload: { origin: "https://failed-create.example.com" }
+        })
+      ).statusCode
+    ).toBe(500);
+    allowedOrigins.add("https://failed-create.example.com");
+    expect((await preflight("https://failed-create.example.com")).statusCode).not.toBe(204);
   });
 
   it("manages project code integrations and release metadata", async () => {

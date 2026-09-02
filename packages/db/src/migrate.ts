@@ -62,6 +62,10 @@ const migrations = [
   {
     name: "0050_encrypted_integration_secrets.sql",
     url: new URL("../migrations/0050_encrypted_integration_secrets.sql", import.meta.url)
+  },
+  {
+    name: "0051_browser_origin_lookup_index.sql",
+    url: new URL("../migrations/0051_browser_origin_lookup_index.sql", import.meta.url)
   }
 ];
 

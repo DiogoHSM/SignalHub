@@ -8165,7 +8165,11 @@ describe("repositories", () => {
           origin: "https://app.example.com"
         })
       ]);
-      await archiveProjectBrowserOrigin(db, browserOrigin.id);
+      await expect(archiveProjectBrowserOrigin(db, browserOrigin.id)).resolves.toMatchObject({
+        id: browserOrigin.id,
+        origin: "https://app.example.com",
+        archivedAt: expect.any(Date)
+      });
       await expect(listProjectBrowserOrigins(db, project.id)).resolves.toEqual([]);
 
       const archivedProject = await createProject(db, { name: "Archived Key Project" });
@@ -8208,6 +8212,27 @@ describe("repositories", () => {
       await expect(listEnvironments(db, project.id)).resolves.toEqual([]);
       await archiveProject(db, project.id);
       await expect(getProject(db, project.id)).resolves.toBeUndefined();
+    });
+  });
+
+  it("creates an origin-leading partial index for active browser-origin lookups", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const index = await sql<{ definition: string }>`
+        select indexdef as definition
+        from pg_indexes
+        where schemaname = 'public'
+          and tablename = 'project_browser_origins'
+          and indexname = 'project_browser_origins_origin_active_idx'
+      `.execute(db);
+
+      expect(index.rows).toEqual([
+        {
+          definition:
+            "CREATE INDEX project_browser_origins_origin_active_idx ON public.project_browser_origins USING btree (origin) WHERE (archived_at IS NULL)"
+        }
+      ]);
     });
   });
 

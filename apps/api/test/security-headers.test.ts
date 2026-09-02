@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { buildApp } from "../src/app.js";
+import { BrowserOriginCache, buildApp } from "../src/app.js";
 
 let app: FastifyInstance | undefined;
 
@@ -127,5 +127,131 @@ describe("API hardening", () => {
 
     expect(first.statusCode).toBe(200);
     expect(second.statusCode).toBe(429);
+  });
+
+  it("limits OPTIONS probes before another asynchronous browser-origin lookup", async () => {
+    const isBrowserCorsOriginAllowed = vi.fn(async (origin: string) => origin === "https://allowed.example.com");
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      isBrowserCorsOriginAllowed,
+      rateLimit: { max: 2, timeWindow: 60_000 }
+    });
+
+    const allowed = await app.inject({
+      method: "OPTIONS",
+      url: "/v1/events",
+      headers: { origin: "https://allowed.example.com" }
+    });
+    const denied = await app.inject({
+      method: "OPTIONS",
+      url: "/v1/events",
+      headers: { origin: "https://denied.example.com" }
+    });
+    const blocked = await app.inject({
+      method: "OPTIONS",
+      url: "/v1/events",
+      headers: { origin: "https://third.example.com" }
+    });
+
+    expect(allowed.statusCode).toBe(204);
+    expect(allowed.headers["access-control-allow-origin"]).toBe("https://allowed.example.com");
+    expect(denied.statusCode).not.toBe(429);
+    expect(denied.headers["access-control-allow-origin"]).toBeUndefined();
+    expect(blocked.statusCode).toBe(429);
+    expect(isBrowserCorsOriginAllowed).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses a bounded, normalized positive-and-negative browser-origin cache with deterministic expiry and eviction", async () => {
+    let now = 1_000;
+    const lookup = vi.fn(async (origin: string) => origin !== "https://denied.example.com");
+    const cache = new BrowserOriginCache(lookup, {
+      ttlMs: 60_000,
+      maxEntries: 2,
+      now: () => now
+    });
+
+    await expect(cache.isAllowed("https://ALLOWED.example.com:443/path")).resolves.toBe(true);
+    await expect(cache.isAllowed("https://allowed.example.com/other")).resolves.toBe(true);
+    await expect(cache.isAllowed("https://denied.example.com/path")).resolves.toBe(false);
+    await expect(cache.isAllowed("https://denied.example.com/other")).resolves.toBe(false);
+    expect(lookup.mock.calls.map(([origin]) => origin)).toEqual([
+      "https://allowed.example.com",
+      "https://denied.example.com"
+    ]);
+
+    await expect(cache.isAllowed("not an origin")).resolves.toBe(false);
+    expect(lookup).toHaveBeenCalledTimes(2);
+
+    await expect(cache.isAllowed("https://third.example.com")).resolves.toBe(true);
+    await expect(cache.isAllowed("https://allowed.example.com")).resolves.toBe(true);
+    expect(lookup.mock.calls.map(([origin]) => origin)).toEqual([
+      "https://allowed.example.com",
+      "https://denied.example.com",
+      "https://third.example.com",
+      "https://allowed.example.com"
+    ]);
+
+    now += 60_001;
+    await expect(cache.isAllowed("https://allowed.example.com")).resolves.toBe(true);
+    expect(lookup).toHaveBeenCalledTimes(5);
+  });
+
+  it("does not cache failed browser-origin lookups or poison a later healthy result", async () => {
+    const lookup = vi.fn()
+      .mockRejectedValueOnce(new Error("database unavailable"))
+      .mockResolvedValueOnce(true);
+    const cache = new BrowserOriginCache(lookup);
+
+    await expect(cache.isAllowed("https://recovered.example.com")).rejects.toThrow("database unavailable");
+    await expect(cache.isAllowed("https://recovered.example.com")).resolves.toBe(true);
+    expect(lookup).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let an in-flight lookup restore an origin after invalidation", async () => {
+    let resolveLookup: ((allowed: boolean) => void) | undefined;
+    const lookup = vi.fn()
+      .mockImplementationOnce(
+        () => new Promise<boolean>((resolve) => {
+          resolveLookup = resolve;
+        })
+      )
+      .mockResolvedValueOnce(false);
+    const cache = new BrowserOriginCache(lookup);
+
+    const pendingLookup = cache.isAllowed("https://archived.example.com");
+    cache.invalidate("https://archived.example.com");
+    resolveLookup?.(true);
+
+    await expect(pendingLookup).resolves.toBe(false);
+    await expect(cache.isAllowed("https://archived.example.com")).resolves.toBe(false);
+    expect(lookup).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses an injected Redis client for the global rate-limit store", async () => {
+    const redisCommands: Record<string, (...args: unknown[]) => void> = {};
+    const defineCommand = vi.fn((name: string) => {
+      redisCommands[name] = (...args: unknown[]) => {
+        const callback = args.at(-1) as (error: Error | null, result: [number, number]) => void;
+        callback(null, name === "rateLimit" ? [1, 60_000] : [0, 0]);
+      };
+    });
+    const redis = {
+      defineCommand,
+      get rateLimit() {
+        return redisCommands.rateLimit;
+      },
+      get rateLimitRead() {
+        return redisCommands.rateLimitRead;
+      }
+    };
+
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      rateLimitRedis: redis
+    });
+    const response = await app.inject({ method: "GET", url: "/health" });
+
+    expect(response.statusCode).toBe(200);
+    expect(defineCommand.mock.calls.map(([name]) => name)).toEqual(["rateLimit", "rateLimitRead"]);
   });
 });
