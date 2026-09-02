@@ -603,19 +603,21 @@ function WaterfallRow({ span, totalMs, treeMode, isCollapsed, isActive, onSelect
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 5, paddingLeft: span.level * 16, minWidth: 0 }}>
-        {showToggle ? (
-          <button
-            className="span-toggle sh-hit-target"
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onToggle(); }}
-            onKeyDown={(e) => e.stopPropagation()}
-            aria-label={isCollapsed ? "Expand" : "Collapse"}
-          >
-            <Icon name="chevd" size={12} style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform .2s" }} />
-          </button>
-        ) : (
-          <span style={{ width: 16, display: "inline-block", textAlign: "center", color: "var(--fg-faint)" }}>·</span>
-        )}
+        <span className="span-toggle-slot">
+          {showToggle ? (
+            <button
+              className="span-toggle sh-hit-target"
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggle(); }}
+              onKeyDown={(e) => e.stopPropagation()}
+              aria-label={isCollapsed ? "Expand" : "Collapse"}
+            >
+              <Icon name="chevd" size={12} style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform .2s" }} />
+            </button>
+          ) : (
+            <span className="span-toggle-placeholder" aria-hidden="true">·</span>
+          )}
+        </span>
         <span style={{ width: 8, height: 8, borderRadius: 2, background: SPAN_KIND_COLOR[span.kind], flex: "0 0 auto" }} />
         <span className="sh-mono" style={{ fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {span.name}

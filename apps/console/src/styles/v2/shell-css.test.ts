@@ -84,4 +84,17 @@ describe("v2 shell css is scoped", () => {
     const allCss = `${css}\n${componentsCss}\n${mobileCss}`;
     expect(allCss).toMatch(/:where\([^)]*button[^)]*\[role=["']button["'][^)]*\):focus-visible\s*\{[^}]*outline:\s*2px solid var\(--focus-ring\)[^}]*outline-offset:\s*2px/s);
   });
+
+  it.each([".hr-card__main", ".span-row"])("keeps the %s focus ring inside clipped row bounds", (selector) => {
+    expect(css).toMatch(
+      new RegExp(`${escapeRegExp(selector)}:focus-visible[^{}]*\\{[^}]*box-shadow:\\s*inset 0 0 0 2px var\\(--focus-ring\\)`, "s")
+    );
+  });
+
+  it("keeps the span toggle compact inside a non-overlapping 44px hit slot", () => {
+    expect(css).toMatch(/\.span-toggle-slot\s*\{[^}]*width:\s*44px[^}]*height:\s*16px[^}]*flex:\s*0 0 44px/s);
+    expect(css).toMatch(/\.span-toggle\.sh-hit-target\s*\{[^}]*width:\s*16px[^}]*height:\s*16px[^}]*min-width:\s*16px[^}]*min-height:\s*16px[^}]*position:\s*relative/s);
+    expect(css).toMatch(/\.span-toggle::before\s*\{[^}]*width:\s*44px[^}]*height:\s*44px/s);
+    expect(css).toMatch(/\.span-toggle-placeholder\s*\{[^}]*width:\s*16px[^}]*height:\s*16px/s);
+  });
 });

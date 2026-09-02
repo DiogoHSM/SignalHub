@@ -321,6 +321,18 @@ describe("TracesScreen — detail", () => {
     expect(within(panel).getByText("llm.gpt-5 explain")).toBeInTheDocument();
   });
 
+  it("aligns child and leaf spans through the same non-overlapping toggle slot", async () => {
+    mockList(traces);
+    mockSpans(detail);
+    render(<TracesScreen ctx={makeCtx()} />);
+    await openDashboardTrace();
+
+    const parentRow = screen.getByRole("button", { name: /POST \/api\/dashboards/i });
+    const leafRow = screen.getByRole("button", { name: /postgres\.query/i });
+    expect(parentRow.querySelector(".span-toggle-slot > .span-toggle")).toBeInTheDocument();
+    expect(leafRow.querySelector(".span-toggle-slot > .span-toggle-placeholder")).toBeInTheDocument();
+  });
+
   it("Open incident is a stub toast; Copy ID toasts", async () => {
     mockList(traces);
     mockSpans(detail);
