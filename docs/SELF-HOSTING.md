@@ -76,9 +76,16 @@ Terminate TLS in your platform or proxy, forward HTTP to the API container, and 
 NODE_ENV=production
 SIGMON_PUBLIC_ENDPOINT=https://sigmon.example.com
 CONSOLE_ENABLED=true
+TRUSTED_PROXY_CIDRS=
 ```
 
-Browser SDK telemetry from another origin also needs that app origin in `Project Settings > Browser origins` or the bootstrap `BROWSER_CORS_ORIGINS` environment variable.
+`TRUSTED_PROXY_CIDRS` is empty by default. With that conservative setting, forwarded headers do not create a client identity: the direct TCP peer is authoritative. If a reverse proxy is present, set a comma-separated list containing only the exact IP or CIDR of each immediate proxy peer that can connect to the API. Fastify evaluates a forwarded chain right-to-left from that trusted peer and stops at the first untrusted address. The direct peer remains authoritative when it is not trusted.
+
+Determine the address from the deployment rather than guessing. Before enabling proxy trust, send a staging request through the proxy and inspect the API request log or network telemetry for the direct peer. For a proxy container on the same Docker network, inspect that container's attachment (for example, `docker inspect --format '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{end}}' <proxy-container>`) and use a `/32` for its IPv4 address or `/128` for its IPv6 address. If the address can change, reserve a stable address or use the platform's exact documented proxy range. A host proxy connected through Docker NAT may appear as the bridge gateway rather than `127.0.0.1`; verify what the API actually sees. For a managed load balancer, use only the provider's documented source CIDRs that are immediate peers.
+
+Do not use a whole Docker, VPC, or cloud-provider subnet merely because the proxy is somewhere inside it. Boolean trust, hop counts, `0.0.0.0/0`, `::/0`, mapped-IPv4 trust-all ranges such as `::ffff:0:0/96`, and other overly broad ranges let an unintended peer spoof client identity. The production parser rejects the trust-all forms and rejects non-IP values such as booleans or hop counts; operators must still keep every accepted CIDR as narrow as the actual proxy layout permits.
+
+Browser SDK telemetry from another origin also needs that app origin in `Project Settings > Browser origins` or the bootstrap `BROWSER_CORS_ORIGINS` environment variable. The global request limiter runs before the database-backed browser-origin lookup, including for preflight requests. Production counters are Redis-backed; the stricter login source/account quotas remain separate controls. Positive and negative database-origin results are cached in each API process for 60 seconds, with at most 1,000 entries. Admin changes invalidate the current replica immediately, but other replicas may take up to 60 seconds to converge unless requests are routed consistently.
 
 ## Persistent Data
 
@@ -131,6 +138,50 @@ Production API, worker, scheduler, and migration processes require `DATA_ENCRYPT
 Warehouse connection URLs, all generic/Slack/Discord notification delivery URLs, and notification secret-header values use AES-256-GCM envelopes with a random 12-byte nonce and 16-byte authentication tag. Associated data binds the ciphertext to its table, row id, and field name, so copying an envelope to another row or field fails authentication. New writes always use the current key. Ordinary admin list responses expose only persisted redacted URL previews and metadata; plaintext is decrypted only at the privileged execution boundary.
 
 Migration `0050_encrypted_integration_secrets.sql` is intentionally additive. It adds encrypted columns and non-secret URL previews for warehouse and notification destinations, makes the old warehouse plaintext column nullable, and retains the old plaintext columns for this staged release. `pnpm secrets:migrate` processes bounded, stable ID batches. Each row is locked and freshly classified in its own transaction, then encrypted or rewrapped, decrypt-verified, persisted, and cleared of plaintext atomically. A notification URL and its optional secret header are handled in the same row transaction. The command reports only `migrated` and `rotated` row counts; a notification row with two changed fields counts once, and a legacy migration takes precedence over a simultaneous previous-key rotation.
+
+## Outbound Integration Policy
+
+Privileged outbound consumers share one destination policy. With the defaults below, only public destinations are allowed:
+
+```dotenv
+OUTBOUND_PRIVATE_CIDRS=
+ALLOW_LOOPBACK_OUTBOUND=false
+```
+
+`OUTBOUND_PRIVATE_CIDRS` accepts only exact RFC 1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) or IPv6 ULA (`fc00::/7`) subnets, and a destination is allowed only when its resolved address falls inside an explicitly configured CIDR. Prefer a single host route such as `/32` or `/128`; this is not a broad private-network switch. `ALLOW_LOOPBACK_OUTBOUND=true` is accepted only in `development` or `test` and production refuses to start with it enabled.
+
+Loopback, unspecified, link-local and cloud-metadata, CGNAT, documentation, benchmark, multicast, reserved, malformed numeric, and other non-routable addresses remain forbidden. IPv4-mapped, IPv4-compatible, SIIT, NAT64 well-known-prefix, and 6to4 encodings are classified by their embedded IPv4 address, so transition encoding cannot hide a private or forbidden target. These rules apply even when a hostname is initially public: every DNS answer is checked by the lookup used at actual socket creation. A separate DNS preflight is not a security boundary.
+
+Transport and redirect behavior is consumer-specific:
+
+| Consumer | Transport and redirects | Deadline |
+| --- | --- | --- |
+| Generic webhook | Public HTTP is allowed only when no secret header is configured. A secret-bearing webhook requires verified HTTPS, except an explicitly enabled non-production loopback target. Redirects are not followed. | `ALERTS_WEBHOOK_TIMEOUT_MS`; one budget covers the bounded retry series and its backoff. |
+| Slack / Discord webhook | Verified HTTPS is required, with the same non-production loopback exception. Redirects are not followed. | `ALERTS_WEBHOOK_TIMEOUT_MS`. |
+| HTTP monitor | Public HTTP or HTTPS is allowed. Destination and socket-DNS policy still apply, and redirects are not followed. | The monitor's own timeout when set, otherwise `MONITORS_HTTP_TIMEOUT_MS`. |
+| S3-compatible backup | The configured endpoint requires verified HTTPS, except explicit non-production loopback. The SDK uses the policy-enforcing socket lookup and no application redirect allowance. | A fixed 30,000 ms application deadline covers sidecar validation, both uploads, and retries; expiry aborts the operation and triggers client/handler cleanup. It is not an environment variable. |
+| PostgreSQL warehouse | Only `postgres://` and `postgresql://` URLs are accepted. Missing `sslmode` is upgraded to verified TLS; if supplied, it must be `sslmode=verify-full`. Plaintext is allowed only for an explicit non-production literal-loopback destination. The original hostname is retained for certificate verification/SNI. | Connection, statement, lock, query, transaction-idle, and total destination bounds described below. |
+
+The configured integration deadlines are positive milliseconds:
+
+| Variable | Default | Effect |
+| --- | ---: | --- |
+| `ALERTS_WEBHOOK_TIMEOUT_MS` | `5000` | Total generic/Slack/Discord webhook delivery budget, including bounded retries and backoff. |
+| `MONITORS_HTTP_TIMEOUT_MS` | `5000` | Default HTTP monitor request budget; a saved monitor timeout can replace it. |
+| `WAREHOUSE_CONNECTION_TIMEOUT_MS` | `5000` | Bounds PostgreSQL connection establishment. |
+| `WAREHOUSE_STATEMENT_TIMEOUT_MS` | `30000` | Server-side PostgreSQL statement limit. |
+| `WAREHOUSE_LOCK_TIMEOUT_MS` | `5000` | Server-side PostgreSQL lock wait limit. |
+| `WAREHOUSE_QUERY_TIMEOUT_MS` | `35000` | Client-side limit for each PostgreSQL query. |
+| `WAREHOUSE_TOTAL_TIMEOUT_MS` | `60000` | One destination budget beginning before DNS/connect and covering table setup, transaction writes, and commit; expiry forces socket/client teardown. |
+
+Warehouse timeout values are limited to 900,000 ms. The total must be strictly greater than every component, and the query timeout must be at least the statement timeout; incoherent configuration fails startup with `warehouse_export_timeouts_incoherent`. A total timeout destroys the socket, ends the client, records a sanitized `warehouse_destination_timeout`, and allows the scheduler to continue with the next destination. Other safe operator-visible examples include `outbound_address_forbidden`, `Webhook delivery timed out`, and `backup_s3_upload_failed`. Real credentials, secret headers, and credential-bearing URLs must never appear in an error example or log.
+
+## Network Audit Evidence
+
+- **PER-507:** config and API tests cover empty and exact trusted-proxy lists, spoofed versus trusted forwarding, right-to-left identity derivation, IPv6 normalization, global limiting before database-backed CORS work, Redis-backed production counters, and the bounded 60-second/1,000-entry origin cache.
+- **PER-508:** config and worker/API tests cover public and exact-private CIDR policy, forbidden special and transition-encoded addresses, all-answer validation in the actual socket lookup, redirect rejection, verified transport rules, warehouse URL/TLS handling, and connection/query/total deadline teardown while later destinations continue.
+
+These controls are application-layer verification evidence. SignalMonitor does not provision a deployment firewall, egress ACL, reverse proxy, WAF, or managed rate-limiting edge. Operators still own those controls and should use them as independent defense in depth.
 
 ## Backups
 

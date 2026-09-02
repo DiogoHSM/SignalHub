@@ -29,6 +29,9 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `SIGMON_PUBLIC_ENDPOINT` | No | `https://sigmon.example.com` | Public API origin used in console snippets and, when set, in the alert email's "View in Sigmon" deep link. Defaults to the browser origin when blank; the alert email link is omitted when unset. |
 | `LANDING_HOSTS` | No | `sigmon.app,www.sigmon.app` | Non-secret. Comma-separated bare hostnames (no scheme or port) that receive the public landing page at `GET /`. Every other host is redirected from `/` to `/console` when the console is enabled. Defaults to `sigmon.app,www.sigmon.app`. |
 | `BROWSER_CORS_ORIGINS` | No | `https://app.example.com` | Optional non-secret global browser origin allowlist for public ingestion endpoints. Prefer project-scoped origins in Project Settings for normal setup. |
+| `TRUSTED_PROXY_CIDRS` | No | `(empty)` | Non-secret. Exact comma-separated immediate reverse-proxy IP/CIDRs. Empty means forwarded identity is not trusted. Never use booleans, hop counts, trust-all/mapped trust-all ranges, or a guessed broad Docker/cloud range. |
+| `OUTBOUND_PRIVATE_CIDRS` | No | `(empty)` | Non-secret. Exact comma-separated RFC 1918 or IPv6 ULA CIDRs that privileged outbound integrations may reach. Public destinations remain the default; prefer `/32` or `/128` for one host. |
+| `ALLOW_LOOPBACK_OUTBOUND` | No | `false` | Non-secret. Development/test-only loopback opt-in for local integrations. Production startup rejects `true`. |
 | `SIGMON_SOURCE_MAP_TOKEN` | CI only | `shsmap_example` | Source-map upload token created from the Artifacts console. Store only in CI secret storage. |
 | `SIGMON_URL` | `@sigmon/mcp` only | `https://my.sigmon.app` | Not a secret itself. Sigmon instance base URL the `sigmon-mcp` stdio server calls. Set in the coding agent's MCP client config, not on the Sigmon instance. |
 | `SIGMON_READ_TOKEN` | `@sigmon/mcp` only | `shread_example` | Read token created from Project Settings → Read tokens, scoped to one project/environment and revocable. `sigmon-mcp` fails fast at startup if unset. Store only in the coding agent's local MCP client config, never committed. |
@@ -68,9 +71,15 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `EVENT_ROLLUPS_LOOKBACK_DAYS` | No | `400` | Non-secret operational config. First-run actor-rollup backfill window. Set it to cover the longest effective scoped events window or cohort range operators rely on; it is not derived from `RETENTION_EVENTS_DAYS`. |
 | `ALERTS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled alert evaluation in the worker. |
 | `ALERTS_INTERVAL_MINUTES` | No | `1` | Non-secret operational config. Minutes between scheduled alert evaluation runs. |
-| `ALERTS_WEBHOOK_TIMEOUT_MS` | No | `5000` | Non-secret operational config. Timeout for generic webhook alert deliveries. |
+| `ALERTS_WEBHOOK_TIMEOUT_MS` | No | `5000` | Non-secret operational config. Total generic/Slack/Discord webhook delivery budget in milliseconds, including bounded retries and backoff. |
+| `MONITORS_HTTP_TIMEOUT_MS` | No | `5000` | Non-secret operational config. Default HTTP monitor request budget in milliseconds; a saved per-monitor timeout replaces it. |
 | `WAREHOUSE_EXPORTS_ENABLED` | No | `true` | Non-secret scheduler config. Enables scheduled warehouse exports; set it on the scheduler service in split deployments. |
 | `WAREHOUSE_EXPORTS_INTERVAL_MINUTES` | No | `15` | Non-secret scheduler config. Minutes between scheduled warehouse export passes; set it on the scheduler service in split deployments. |
+| `WAREHOUSE_CONNECTION_TIMEOUT_MS` | No | `5000` | Non-secret scheduler config. PostgreSQL connection-establishment deadline in milliseconds. |
+| `WAREHOUSE_STATEMENT_TIMEOUT_MS` | No | `30000` | Non-secret scheduler config. Server-side PostgreSQL statement timeout in milliseconds. |
+| `WAREHOUSE_LOCK_TIMEOUT_MS` | No | `5000` | Non-secret scheduler config. Server-side PostgreSQL lock-wait timeout in milliseconds. |
+| `WAREHOUSE_QUERY_TIMEOUT_MS` | No | `35000` | Non-secret scheduler config. Client-side timeout for each PostgreSQL query in milliseconds. Must be at least the statement timeout. |
+| `WAREHOUSE_TOTAL_TIMEOUT_MS` | No | `60000` | Non-secret scheduler config. Total per-destination budget from before DNS/connect through transaction commit; expiry forces socket/client teardown. Must be greater than every component timeout. |
 | `BACKUPS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled Postgres logical backups in the worker. |
 | `BACKUPS_INTERVAL_HOURS` | No | `24` | Non-secret operational config. Hours between scheduled backup runs. |
 | `BACKUPS_LOCAL_DIR` | No | `/var/lib/sigmon/backups` | Non-secret operational config. Local directory for backup dump files. |
@@ -95,6 +104,9 @@ Operational rules:
 - SDK publishing uses npm Trusted Publishing through GitHub Actions OIDC. Do not create or store a long-lived npm publish token for the SDK workflow.
 - Source-map upload tokens are separate from ingestion API keys. They should be stored only in CI secret storage and never shipped to browser clients.
 - Generic, Slack, and Discord notification delivery URLs are write-only credentials, as are optional webhook secret-header values. The API and console expose only configured flags and persisted redacted URL previews; saved values and ciphertext are never returned.
+- Secret-bearing generic webhooks, Slack/Discord, S3-compatible endpoints, and non-loopback warehouse connections require verified TLS. Public HTTP is allowed only for non-secret generic webhooks and HTTP monitors; webhook and monitor redirects are not followed. Every actual socket lookup validates every DNS answer against the public-by-default policy and exact `OUTBOUND_PRIVATE_CIDRS` allowlist.
+- S3 backup upload has a fixed 30,000 ms application deadline (not an environment variable) covering sidecar validation, both uploads, and bounded retries; expiry aborts the operation and triggers cleanup. Warehouse timeout values are positive, capped at 900,000 ms, and must satisfy total greater than every component plus query greater than or equal to statement.
+- Safe error examples are `outbound_address_forbidden`, `Webhook delivery timed out`, `backup_s3_upload_failed`, and `warehouse_destination_timeout`. Never place a real secret, secret header, or credential-bearing URL in an error example, issue, or log.
 - Source-map settings are not secrets. Uploaded source maps may contain sensitive source paths or embedded `sourcesContent`; SignalMonitor stores them locally and the console displays resolved frame metadata only, not source content.
 - Source-map retention deletes local source-map files, artifact metadata, and cached stack resolutions. It does not configure object-storage lifecycle policies.
 - `RETENTION_BREADCRUMBS_DAYS` is not a secret. Breadcrumb payloads can still contain sensitive application data if callers misuse the API, so SDK/browser helpers sanitize aggressively and documentation forbids secrets, form values, bodies, cookies, and headers.

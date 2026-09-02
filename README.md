@@ -83,7 +83,11 @@ Retention, alert scheduler, backup scheduler, source-map storage, source-map ret
 
 ## Runtime Hardening
 
-Webhook notification URLs are rejected in every environment when they target local, private, link-local, multicast, loopback, or cloud metadata networks. In production, webhook delivery uses the resolved safe address to avoid DNS rebinding between validation and fetch.
+`TRUSTED_PROXY_CIDRS` defaults empty, so forwarded headers are ignored and the direct peer remains authoritative. Configure only exact immediate proxy IP/CIDRs. Trusted forwarding is evaluated right-to-left; booleans, hop counts, trust-all/mapped trust-all ranges, and guessed broad Docker or cloud ranges are unsafe. The global Redis-backed limiter runs before database-backed browser CORS lookup, while stricter login controls remain separate. Each API replica caches at most 1,000 positive and negative origin results for 60 seconds, so admin changes can take up to 60 seconds to converge across replicas.
+
+Outbound integrations allow public destinations by default. `OUTBOUND_PRIVATE_CIDRS` can admit only explicitly listed RFC 1918 or IPv6 ULA CIDRs, and `ALLOW_LOOPBACK_OUTBOUND=true` is limited to development/test. Link-local and metadata, CGNAT, documentation, benchmark, multicast, reserved, malformed numeric, and transition-encoded private targets remain forbidden. The lookup used by the actual socket validates every DNS answer; a preflight resolution is not trusted.
+
+Secret-bearing generic webhooks, Slack/Discord delivery, S3-compatible backups, and every non-loopback warehouse connection require verified TLS. HTTP monitors may check public HTTP but keep the same destination and deadline enforcement. Webhook and monitor redirects are not followed. Defaults are `ALERTS_WEBHOOK_TIMEOUT_MS=5000`, `MONITORS_HTTP_TIMEOUT_MS=5000`, and `WAREHOUSE_CONNECTION_TIMEOUT_MS=5000`, `WAREHOUSE_STATEMENT_TIMEOUT_MS=30000`, `WAREHOUSE_LOCK_TIMEOUT_MS=5000`, `WAREHOUSE_QUERY_TIMEOUT_MS=35000`, `WAREHOUSE_TOTAL_TIMEOUT_MS=60000`. The full proxy discovery, CIDR, timeout-coherence, sanitized-error, and PER-507/PER-508 verification contract is in [`docs/SELF-HOSTING.md`](docs/SELF-HOSTING.md#reverse-proxy).
 
 Telemetry queue retries are idempotent. Queue jobs use deterministic IDs derived from telemetry payload IDs, and database writes ignore duplicate telemetry IDs.
 
