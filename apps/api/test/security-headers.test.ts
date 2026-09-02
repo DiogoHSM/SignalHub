@@ -185,7 +185,7 @@ describe("API hardening", () => {
     });
 
     await expect(cache.isAllowed("https://allowed.example.com")).resolves.toBe(true);
-    await expect(cache.isAllowed("https://ALLOWED.example.com:443")).resolves.toBe(true);
+    await expect(cache.isAllowed("https://allowed.example.com")).resolves.toBe(true);
     await expect(cache.isAllowed("https://denied.example.com")).resolves.toBe(false);
     await expect(cache.isAllowed("https://denied.example.com")).resolves.toBe(false);
     expect(lookup.mock.calls.map(([origin]) => origin)).toEqual([
@@ -217,13 +217,35 @@ describe("API hardening", () => {
     "https://example.com?query=value",
     "https://example.com#fragment",
     "https://example.com/",
-    "ftp://example.com"
+    "ftp://example.com",
+    "https://%65xample.com",
+    "https://example%2ecom",
+    "https://example.com:",
+    "https://example.com:0443",
+    "https://EXAMPLE.com",
+    "https://example.com:443",
+    "https://example.com.",
+    "http://0177.0.0.1",
+    "http://2130706433",
+    "https://[2001:0db8:0000::1]"
   ])("rejects non-serialized browser Origin %s before cache lookup", async (origin) => {
     const lookup = vi.fn().mockResolvedValue(true);
     const cache = new BrowserOriginCache(lookup);
 
     await expect(cache.isAllowed(origin)).resolves.toBe(false);
     expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "https://public.example.com",
+    "https://public.example.com:8443",
+    "https://[2001:db8::1]:8443"
+  ])("accepts exact serialized browser Origin %s", async (origin) => {
+    const lookup = vi.fn().mockResolvedValue(true);
+    const cache = new BrowserOriginCache(lookup);
+
+    await expect(cache.isAllowed(origin)).resolves.toBe(true);
+    expect(lookup).toHaveBeenCalledWith(origin);
   });
 
   it("rejects malformed browser Origin headers before lookup or CORS authorization", async () => {
@@ -239,7 +261,17 @@ describe("API hardening", () => {
       "https://example.com/path",
       "https://example.com?query=value",
       "https://example.com#fragment",
-      "https://example.com/"
+      "https://example.com/",
+      "https://%65xample.com",
+      "https://example%2ecom",
+      "https://example.com:",
+      "https://example.com:0443",
+      "https://EXAMPLE.com",
+      "https://example.com:443",
+      "https://example.com.",
+      "http://0177.0.0.1",
+      "http://2130706433",
+      "https://[2001:0db8:0000::1]"
     ]) {
       const response = await app.inject({ method: "OPTIONS", url: "/v1/events", headers: { origin } });
       expect(response.statusCode).not.toBe(204);

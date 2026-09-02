@@ -124,7 +124,7 @@ function parseSerializedBrowserOrigin(origin: string): string | undefined {
 
   try {
     const parsed = new URL(origin);
-    if (parsed.username || parsed.password) {
+    if (parsed.username || parsed.password || parsed.hostname.endsWith(".") || parsed.origin !== origin) {
       return undefined;
     }
     return parsed.origin;
