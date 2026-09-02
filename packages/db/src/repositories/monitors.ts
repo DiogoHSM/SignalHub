@@ -400,6 +400,26 @@ export async function getMonitor(db: Db, id: string): Promise<MonitorRecord | un
   return row ? toMonitor(row) : undefined;
 }
 
+export async function findActiveHeartbeatMonitor(db: Db, id: string): Promise<MonitorRecord | undefined> {
+  const row = await db
+    .selectFrom("monitors")
+    .innerJoin("environments", (join) =>
+      join
+        .onRef("environments.id", "=", "monitors.environment_id")
+        .onRef("environments.project_id", "=", "monitors.project_id")
+    )
+    .innerJoin("projects", "projects.id", "monitors.project_id")
+    .selectAll("monitors")
+    .where("monitors.id", "=", id)
+    .where("monitors.kind", "=", "heartbeat")
+    .where("monitors.archived_at", "is", null)
+    .where("environments.archived_at", "is", null)
+    .where("projects.archived_at", "is", null)
+    .executeTakeFirst();
+
+  return row ? toMonitor(row) : undefined;
+}
+
 export async function updateMonitor(
   db: Db,
   id: string,
@@ -540,13 +560,57 @@ export async function recordHeartbeatCheckIn(
   input: { monitorId: string; checkedInAt: Date }
 ): Promise<MonitorRecord | null> {
   return db.transaction().execute(async (trx) => {
-    const monitor = await trx
+    const scope = await trx
       .selectFrom("monitors")
-      .select(["id", "status"])
+      .select(["project_id", "environment_id"])
       .where("id", "=", input.monitorId)
       .where("kind", "=", "heartbeat")
       .where("archived_at", "is", null)
-      .forUpdate()
+      .executeTakeFirst();
+    if (!scope) {
+      return null;
+    }
+
+    const project = await trx
+      .selectFrom("projects")
+      .select("id")
+      .where("id", "=", scope.project_id)
+      .where("archived_at", "is", null)
+      .forShare()
+      .executeTakeFirst();
+    if (!project) {
+      return null;
+    }
+
+    const environment = await trx
+      .selectFrom("environments")
+      .select("id")
+      .where("id", "=", scope.environment_id)
+      .where("project_id", "=", scope.project_id)
+      .where("archived_at", "is", null)
+      .forShare()
+      .executeTakeFirst();
+    if (!environment) {
+      return null;
+    }
+
+    const monitor = await trx
+      .selectFrom("monitors")
+      .innerJoin("environments", (join) =>
+        join
+          .onRef("environments.id", "=", "monitors.environment_id")
+          .onRef("environments.project_id", "=", "monitors.project_id")
+      )
+      .innerJoin("projects", "projects.id", "monitors.project_id")
+      .select(["monitors.id", "monitors.status"])
+      .where("monitors.id", "=", input.monitorId)
+      .where("monitors.project_id", "=", scope.project_id)
+      .where("monitors.environment_id", "=", scope.environment_id)
+      .where("monitors.kind", "=", "heartbeat")
+      .where("monitors.archived_at", "is", null)
+      .where("environments.archived_at", "is", null)
+      .where("projects.archived_at", "is", null)
+      .forUpdate("monitors")
       .executeTakeFirst();
     if (!monitor) {
       return null;

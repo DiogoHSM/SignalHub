@@ -129,8 +129,10 @@ import {
   withAlertEvaluationLock
 } from "../src/repositories/alerts.js";
 import {
+  archiveMonitor,
   createHeartbeatMonitor,
   createHttpMonitor,
+  findActiveHeartbeatMonitor,
   listDueHttpMonitors,
   listMonitorChecks,
   listMonitors,
@@ -298,6 +300,63 @@ describe("repositories", () => {
       return await run(db);
     } finally {
       await db.destroy();
+    }
+  }
+
+  function createNamedRaceDb(applicationName: string): Db {
+    const connectionUrl = new URL(container.getConnectionUri());
+    connectionUrl.searchParams.set("application_name", applicationName);
+    return createTestDb(connectionUrl.toString());
+  }
+
+  function createBarrier(): { promise: Promise<void>; release: () => void } {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { promise, release };
+  }
+
+  async function observeSessionUntilSettled(
+    db: Db,
+    applicationName: string,
+    work: Promise<unknown>,
+    timeoutMs = 10_000
+  ): Promise<"blocked" | "completed" | "rejected" | "timeout"> {
+    let polling = true;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const blocked = (async () => {
+      while (polling) {
+        const result = await sql<{ blocked: boolean }>`
+          select exists (
+            select 1
+            from pg_stat_activity
+            where application_name = ${applicationName}
+              and wait_event_type = 'Lock'
+          ) as blocked
+        `.execute(db);
+        if (result.rows[0]?.blocked === true) {
+          return "blocked" as const;
+        }
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      return "timeout" as const;
+    })();
+    const completed = work.then(
+      () => "completed" as const,
+      () => "rejected" as const
+    );
+    const timedOut = new Promise<"timeout">((resolve) => {
+      timeout = setTimeout(() => resolve("timeout"), timeoutMs);
+    });
+
+    try {
+      return await Promise.race([blocked, completed, timedOut]);
+    } finally {
+      polling = false;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
     }
   }
 
@@ -4499,6 +4558,382 @@ describe("repositories", () => {
         now: new Date("2026-05-24T12:07:00.000Z")
       });
       expect(stale.map((item) => item.id)).toContain(monitor.id);
+    });
+  });
+
+  it.each(["monitor", "environment", "project"] as const)(
+    "rejects heartbeat lookup and persistence after %s archival without mutating check-in state",
+    async (archivedScope) => {
+      await withDb(async (db) => {
+        await migrate(db);
+        const projectId = `prj_heartbeat_archived_${archivedScope}`;
+        const environmentId = `env_heartbeat_archived_${archivedScope}`;
+        await insertProjectAndEnvironment(db, projectId, environmentId);
+        const monitor = await createHeartbeatMonitor(db, {
+          projectId,
+          environmentId,
+          name: `Archived ${archivedScope} heartbeat`,
+          expectedIntervalMinutes: 5,
+          graceMinutes: 1,
+          secretHash: `hash_archived_${archivedScope}`,
+          enabled: true
+        });
+
+        await expect(findActiveHeartbeatMonitor(db, monitor.id)).resolves.toMatchObject({
+          id: monitor.id,
+          projectId,
+          environmentId,
+          kind: "heartbeat"
+        });
+
+        if (archivedScope === "monitor") {
+          await archiveMonitor(db, monitor.id);
+        } else if (archivedScope === "environment") {
+          await archiveEnvironment(db, environmentId);
+        } else {
+          await archiveProject(db, projectId);
+        }
+
+        await expect(findActiveHeartbeatMonitor(db, monitor.id)).resolves.toBeUndefined();
+        await expect(
+          recordHeartbeatCheckIn(db, {
+            monitorId: monitor.id,
+            checkedInAt: new Date("2026-05-24T12:00:00.000Z")
+          })
+        ).resolves.toBeNull();
+
+        const state = await db
+          .selectFrom("monitors")
+          .select([
+            "status",
+            "consecutive_failures",
+            "consecutive_successes",
+            "last_checked_at",
+            "last_heartbeat_at"
+          ])
+          .where("id", "=", monitor.id)
+          .executeTakeFirstOrThrow();
+        const checkCount = await db
+          .selectFrom("monitor_checks")
+          .select(({ fn }) => fn.countAll<number>().as("count"))
+          .where("monitor_id", "=", monitor.id)
+          .executeTakeFirstOrThrow();
+
+        expect(state).toEqual({
+          status: "unknown",
+          consecutive_failures: 0,
+          consecutive_successes: 0,
+          last_checked_at: null,
+          last_heartbeat_at: null
+        });
+        expect(Number(checkCount.count)).toBe(0);
+      });
+    }
+  );
+
+  it("rejects a heartbeat whose environment does not belong to its project", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const monitorId = "mon_heartbeat_mismatched_scope";
+      const projectId = "prj_heartbeat_mismatched_scope";
+      const environmentProjectId = "prj_heartbeat_mismatched_environment";
+      const environmentId = "env_heartbeat_mismatched_scope";
+
+      await insertProjectAndEnvironment(db, environmentProjectId, environmentId);
+      await sql`insert into projects (id, name) values (${projectId}, ${projectId})`.execute(db);
+      try {
+        await db.connection().execute(async (connectionDb) => {
+          await sql`set session_replication_role = replica`.execute(connectionDb);
+          try {
+            await sql`
+              insert into monitors (
+                id, project_id, environment_id, kind, name, enabled, status,
+                failure_threshold, recovery_threshold, consecutive_failures,
+                consecutive_successes, expected_interval_minutes, grace_minutes, secret_hash
+              ) values (
+                ${monitorId}, ${projectId}, ${environmentId}, 'heartbeat', 'Mismatched scope', true, 'unknown',
+                1, 1, 0, 0, 5, 1, 'hash_mismatched_scope'
+              )
+            `.execute(connectionDb);
+          } finally {
+            await sql`set session_replication_role = origin`.execute(connectionDb);
+          }
+        });
+
+        await expect(findActiveHeartbeatMonitor(db, monitorId)).resolves.toBeUndefined();
+      } finally {
+        await sql`delete from monitors where id = ${monitorId}`.execute(db);
+        await sql`delete from environments where id = ${environmentId}`.execute(db);
+        await sql`delete from projects where id in (${projectId}, ${environmentProjectId})`.execute(db);
+      }
+    });
+  });
+
+  it("waits for an in-flight environment archive and performs no heartbeat mutation after it commits", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const projectId = "prj_heartbeat_archive_wins";
+      const environmentId = "env_heartbeat_archive_wins";
+      await insertProjectAndEnvironment(db, projectId, environmentId);
+      const monitor = await createHeartbeatMonitor(db, {
+        projectId,
+        environmentId,
+        name: "Archive wins heartbeat race",
+        expectedIntervalMinutes: 5,
+        graceMinutes: 1,
+        secretHash: "hash_archive_wins",
+        enabled: true
+      });
+
+      const archiveDb = createNamedRaceDb("heartbeat_archive_wins_archive");
+      const heartbeatDb = createNamedRaceDb("heartbeat_archive_wins_checkin");
+      const observerDb = createNamedRaceDb("heartbeat_archive_wins_observer");
+      const archiveUpdated = createBarrier();
+      const releaseArchive = createBarrier();
+      const archiveWork = archiveDb.transaction().execute(async (trx) => {
+        await trx
+          .updateTable("environments")
+          .set({ archived_at: new Date("2026-05-24T11:59:00.000Z") })
+          .where("id", "=", environmentId)
+          .execute();
+        archiveUpdated.release();
+        await releaseArchive.promise;
+      });
+
+      try {
+        await archiveUpdated.promise;
+        const heartbeatWork = recordHeartbeatCheckIn(heartbeatDb, {
+          monitorId: monitor.id,
+          checkedInAt: new Date("2026-05-24T12:00:00.000Z")
+        });
+        const observedState = await observeSessionUntilSettled(
+          observerDb,
+          "heartbeat_archive_wins_checkin",
+          heartbeatWork
+        );
+
+        releaseArchive.release();
+        await archiveWork;
+        const result = await heartbeatWork;
+
+        expect(observedState).toBe("blocked");
+        expect(result).toBeNull();
+        const state = await db
+          .selectFrom("monitors")
+          .select([
+            "status",
+            "consecutive_failures",
+            "consecutive_successes",
+            "last_checked_at",
+            "last_heartbeat_at"
+          ])
+          .where("id", "=", monitor.id)
+          .executeTakeFirstOrThrow();
+        const checkCount = await db
+          .selectFrom("monitor_checks")
+          .select(({ fn }) => fn.countAll<number>().as("count"))
+          .where("monitor_id", "=", monitor.id)
+          .executeTakeFirstOrThrow();
+        expect(state).toEqual({
+          status: "unknown",
+          consecutive_failures: 0,
+          consecutive_successes: 0,
+          last_checked_at: null,
+          last_heartbeat_at: null
+        });
+        expect(Number(checkCount.count)).toBe(0);
+      } finally {
+        releaseArchive.release();
+        await Promise.allSettled([archiveWork]);
+        await Promise.all([archiveDb.destroy(), heartbeatDb.destroy(), observerDb.destroy()]);
+      }
+    });
+  });
+
+  it("serializes parent archival behind a heartbeat that locked the complete active scope", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const projectId = "prj_heartbeat_checkin_wins";
+      const environmentId = "env_heartbeat_checkin_wins";
+      await insertProjectAndEnvironment(db, projectId, environmentId);
+      const monitor = await createHeartbeatMonitor(db, {
+        projectId,
+        environmentId,
+        name: "Check-in wins heartbeat race",
+        expectedIntervalMinutes: 5,
+        graceMinutes: 1,
+        secretHash: "hash_checkin_wins",
+        enabled: true
+      });
+
+      const advisoryLockId = 7_315_503;
+      await sql`
+        create or replace function test_block_heartbeat_check_insert()
+        returns trigger
+        language plpgsql
+        as $function$
+        begin
+          perform pg_advisory_xact_lock(7315503);
+          return new;
+        end;
+        $function$
+      `.execute(db);
+      await sql`
+        create trigger test_block_heartbeat_check_insert
+        before insert on monitor_checks
+        for each row execute function test_block_heartbeat_check_insert()
+      `.execute(db);
+
+      const gateDb = createNamedRaceDb("heartbeat_checkin_wins_gate");
+      const heartbeatDb = createNamedRaceDb("heartbeat_checkin_wins_checkin");
+      const environmentArchiveDb = createNamedRaceDb("heartbeat_checkin_wins_environment_archive");
+      const projectArchiveDb = createNamedRaceDb("heartbeat_checkin_wins_project_archive");
+      const observerDb = createNamedRaceDb("heartbeat_checkin_wins_observer");
+      const gateHeld = createBarrier();
+      const releaseGate = createBarrier();
+      const gateWork = gateDb.connection().execute(async (connectionDb) => {
+        await sql`select pg_advisory_lock(${advisoryLockId})`.execute(connectionDb);
+        gateHeld.release();
+        await releaseGate.promise;
+        await sql`select pg_advisory_unlock(${advisoryLockId})`.execute(connectionDb);
+      });
+
+      try {
+        await gateHeld.promise;
+        const heartbeatWork = recordHeartbeatCheckIn(heartbeatDb, {
+          monitorId: monitor.id,
+          checkedInAt: new Date("2026-05-24T12:00:00.000Z")
+        });
+        const heartbeatBarrierState = await observeSessionUntilSettled(
+          observerDb,
+          "heartbeat_checkin_wins_checkin",
+          heartbeatWork
+        );
+
+        const environmentArchiveWork = archiveEnvironment(environmentArchiveDb, environmentId);
+        const projectArchiveWork = archiveProject(projectArchiveDb, projectId);
+        const [environmentArchiveState, projectArchiveState] = await Promise.all([
+          observeSessionUntilSettled(
+            observerDb,
+            "heartbeat_checkin_wins_environment_archive",
+            environmentArchiveWork
+          ),
+          observeSessionUntilSettled(
+            observerDb,
+            "heartbeat_checkin_wins_project_archive",
+            projectArchiveWork
+          )
+        ]);
+
+        releaseGate.release();
+        const heartbeatResult = await heartbeatWork;
+        await Promise.all([environmentArchiveWork, projectArchiveWork]);
+        const laterResult = await recordHeartbeatCheckIn(db, {
+          monitorId: monitor.id,
+          checkedInAt: new Date("2026-05-24T12:01:00.000Z")
+        });
+
+        expect(heartbeatBarrierState).toBe("blocked");
+        expect(environmentArchiveState).toBe("blocked");
+        expect(projectArchiveState).toBe("blocked");
+        expect(heartbeatResult).toMatchObject({
+          id: monitor.id,
+          status: "up",
+          lastHeartbeatAt: new Date("2026-05-24T12:00:00.000Z")
+        });
+        expect(laterResult).toBeNull();
+        const checks = await db
+          .selectFrom("monitor_checks")
+          .select(["checked_at", "status"])
+          .where("monitor_id", "=", monitor.id)
+          .execute();
+        expect(checks).toEqual([
+          { checked_at: new Date("2026-05-24T12:00:00.000Z"), status: "success" }
+        ]);
+      } finally {
+        releaseGate.release();
+        await Promise.allSettled([gateWork]);
+        await sql`drop trigger if exists test_block_heartbeat_check_insert on monitor_checks`.execute(db);
+        await sql`drop function if exists test_block_heartbeat_check_insert()`.execute(db);
+        await Promise.all([
+          gateDb.destroy(),
+          heartbeatDb.destroy(),
+          environmentArchiveDb.destroy(),
+          projectArchiveDb.destroy(),
+          observerDb.destroy()
+        ]);
+      }
+    });
+  });
+
+  it("rolls back the heartbeat check row when the monitor update fails", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const projectId = "prj_heartbeat_rollback";
+      const environmentId = "env_heartbeat_rollback";
+      await insertProjectAndEnvironment(db, projectId, environmentId);
+      const monitor = await createHeartbeatMonitor(db, {
+        projectId,
+        environmentId,
+        name: "Rollback heartbeat",
+        expectedIntervalMinutes: 5,
+        graceMinutes: 1,
+        secretHash: "hash_rollback",
+        enabled: true
+      });
+
+      await sql`
+        create or replace function test_reject_heartbeat_monitor_update()
+        returns trigger
+        language plpgsql
+        as $function$
+        begin
+          raise exception 'test heartbeat monitor update failure';
+        end;
+        $function$
+      `.execute(db);
+      await sql`
+        create trigger test_reject_heartbeat_monitor_update
+        before update on monitors
+        for each row execute function test_reject_heartbeat_monitor_update()
+      `.execute(db);
+
+      try {
+        await expect(
+          recordHeartbeatCheckIn(db, {
+            monitorId: monitor.id,
+            checkedInAt: new Date("2026-05-24T12:00:00.000Z")
+          })
+        ).rejects.toThrow(/test heartbeat monitor update failure/);
+
+        const unchanged = await db
+          .selectFrom("monitors")
+          .select([
+            "status",
+            "consecutive_failures",
+            "consecutive_successes",
+            "last_checked_at",
+            "last_heartbeat_at"
+          ])
+          .where("id", "=", monitor.id)
+          .executeTakeFirstOrThrow();
+        const checks = await db
+          .selectFrom("monitor_checks")
+          .select("id")
+          .where("monitor_id", "=", monitor.id)
+          .execute();
+        expect(unchanged).toEqual({
+          status: "unknown",
+          consecutive_failures: 0,
+          consecutive_successes: 0,
+          last_checked_at: null,
+          last_heartbeat_at: null
+        });
+        expect(checks).toEqual([]);
+      } finally {
+        await sql`drop trigger if exists test_reject_heartbeat_monitor_update on monitors`.execute(db);
+        await sql`drop function if exists test_reject_heartbeat_monitor_update()`.execute(db);
+      }
     });
   });
 

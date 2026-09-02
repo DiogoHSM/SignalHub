@@ -109,7 +109,7 @@ import {
   archiveMonitor,
   createHeartbeatMonitor,
   createHttpMonitor,
-  getMonitor,
+  findActiveHeartbeatMonitor,
   listMonitorChecks,
   listMonitors,
   recordHeartbeatCheckIn,
@@ -922,7 +922,7 @@ const app = await buildApp({
   },
   monitors: {
     listMonitors: (filters) => listMonitors(db, filters),
-    getMonitor: (id) => getMonitor(db, id),
+    getActiveHeartbeatMonitor: (id) => findActiveHeartbeatMonitor(db, id),
     createHttpMonitor: (input) => createHttpMonitor(db, input),
     createHeartbeatMonitor: (input) => createHeartbeatMonitor(db, input),
     updateMonitor: (id, input) => updateMonitor(db, id, input),
