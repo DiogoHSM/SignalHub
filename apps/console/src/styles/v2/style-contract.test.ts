@@ -1,9 +1,17 @@
 import { readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-const consoleRoot = process.cwd().endsWith("apps/console") ? process.cwd() : join(process.cwd(), "apps", "console");
+function moduleFilename(url: string): string {
+  const parsed = new URL(url);
+  if (parsed.protocol === "file:") return fileURLToPath(parsed);
+  const pathname = decodeURIComponent(parsed.pathname);
+  return process.platform === "win32" && /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
+}
+
+const consoleRoot = resolve(dirname(moduleFilename(import.meta.url)), "../../..");
 const sourceRoot = join(consoleRoot, "src");
 const auditedFiles = [
   "v2/screens/OverviewScreen.tsx",
@@ -66,38 +74,127 @@ function staticInlineStyleCount(files: string[]): number {
 
 function directColorFindingsInSource(sourceFile: ts.SourceFile, file: string): Finding[] {
   const findings: Finding[] = [];
-  const isStyleValue = (node: ts.StringLiteralLike): boolean => {
-    const styleName = (name: ts.PropertyName | ts.JsxAttributeName | undefined): boolean => (
-      name != null
-      && ts.isIdentifier(name)
-      && /(COLOR|GRADIENT|BACKGROUND|FILL|STROKE)/i.test(name.text)
-    );
-    let parent: ts.Node | undefined = node.parent;
-    while (parent) {
-      if (ts.isJsxAttribute(parent)) {
-        if ((ts.isIdentifier(parent.name) && parent.name.text === "style") || styleName(parent.name)) return true;
+  const variables = new Map<string, ts.Expression>();
+  const functions = new Map<string, ts.FunctionLikeDeclaration>();
+  const findingPositions = new Set<number>();
+
+  const collectDeclarations = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      variables.set(node.name.text, node.initializer);
+      if (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) {
+        functions.set(node.name.text, node.initializer);
       }
-      if (ts.isVariableDeclaration(parent)) {
-        if (ts.isIdentifier(parent.name) && /(COLOR|GRADIENT)/.test(parent.name.text)) return true;
-      }
-      if (ts.isPropertyAssignment(parent) && styleName(parent.name)) return true;
-      if (ts.isFunctionDeclaration(parent) && styleName(parent.name)) return true;
-      parent = parent.parent;
+    } else if (ts.isFunctionDeclaration(node) && node.name) {
+      functions.set(node.name.text, node);
     }
-    return false;
+    ts.forEachChild(node, collectDeclarations);
   };
-  const visit = (node: ts.Node): void => {
-    if (ts.isStringLiteralLike(node) && isStyleValue(node) && directColor.test(node.text)) {
-      findings.push({
-        file,
-        line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1,
-        value: node.text
+  collectDeclarations(sourceFile);
+
+  const recordLiteral = (node: ts.StringLiteralLike): void => {
+    if (/^var\(\s*--[\w-]+(?:\s*,[^)]*)?\s*\)$/i.test(node.text.trim())) return;
+    if (!directColor.test(node.text)) return;
+    const position = node.getStart(sourceFile);
+    if (findingPositions.has(position)) return;
+    findingPositions.add(position);
+    findings.push({
+      file,
+      line: sourceFile.getLineAndCharacterOfPosition(position).line + 1,
+      value: node.text
+    });
+  };
+
+  const active = new Set<ts.Node>();
+  const resolveFunction = (node: ts.FunctionLikeDeclaration): void => {
+    if (!node.body) return;
+    if (!ts.isBlock(node.body)) {
+      resolveExpression(node.body);
+      return;
+    }
+    const visitReturns = (child: ts.Node): void => {
+      if (child !== node.body && ts.isFunctionLike(child)) return;
+      if (ts.isReturnStatement(child) && child.expression) resolveExpression(child.expression);
+      ts.forEachChild(child, visitReturns);
+    };
+    visitReturns(node.body);
+  };
+
+  const resolveExpression = (node: ts.Expression): void => {
+    if (active.has(node)) return;
+    active.add(node);
+    try {
+      if (ts.isStringLiteralLike(node)) {
+        recordLiteral(node);
+        return;
+      }
+      if (ts.isIdentifier(node)) {
+        const initializer = variables.get(node.text);
+        const fn = functions.get(node.text);
+        if (initializer) resolveExpression(initializer);
+        if (fn && fn !== initializer) resolveFunction(fn);
+        return;
+      }
+      if (ts.isCallExpression(node)) {
+        if (ts.isIdentifier(node.expression)) {
+          const fn = functions.get(node.expression.text);
+          if (fn) resolveFunction(fn);
+          else resolveExpression(node.expression);
+        } else {
+          resolveExpression(node.expression);
+        }
+        node.arguments.forEach(resolveExpression);
+        return;
+      }
+      if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+        resolveExpression(node.expression);
+        return;
+      }
+      if (ts.isObjectLiteralExpression(node)) {
+        for (const property of node.properties) {
+          if (ts.isPropertyAssignment(property)) resolveExpression(property.initializer);
+          else if (ts.isShorthandPropertyAssignment(property)) resolveExpression(property.name);
+          else if (ts.isSpreadAssignment(property)) resolveExpression(property.expression);
+          else if (ts.isMethodDeclaration(property)) resolveFunction(property);
+        }
+        return;
+      }
+      if (ts.isArrayLiteralExpression(node)) {
+        for (const element of node.elements) {
+          if (!ts.isOmittedExpression(element)) resolveExpression(element);
+        }
+        return;
+      }
+      if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+        resolveFunction(node);
+        return;
+      }
+
+      // Fail closed for any other statically reachable expression shape by
+      // following every expression child, while leaving copy outside a color
+      // consumer untouched.
+      ts.forEachChild(node, (child) => {
+        if (ts.isExpression(child)) resolveExpression(child);
       });
+    } finally {
+      active.delete(node);
+    }
+  };
+
+  const isColorConsumer = (name: ts.JsxAttributeName): boolean => (
+    ts.isIdentifier(name)
+    && (name.text === "style" || /(color|fill|stroke|background|gradient|palette)/i.test(name.text))
+  );
+  const visit = (node: ts.Node): void => {
+    if (ts.isJsxAttribute(node) && isColorConsumer(node.name) && node.initializer) {
+      if (ts.isStringLiteral(node.initializer)) recordLiteral(node.initializer);
+      else if (ts.isJsxExpression(node.initializer) && node.initializer.expression) {
+        resolveExpression(node.initializer.expression);
+      }
     }
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  return findings;
+  return findings.sort((left, right) => left.line - right.line);
 }
 
 function directColorFindings(files: string[]): Finding[] {
@@ -117,9 +214,9 @@ describe("audited console style source contracts", () => {
       "fixture.tsx",
       `// #fff is explanatory copy
        const copy = "white";
-       const SERIES_COLORS = ["currentColor", "#58a6ff"];
+       const SERIES_COLORS = ["currentColor", "var(--chart-white)", "#58a6ff"];
        function severityColor() { return "hsl(12 80% 50%)"; }
-       export const Example = () => <div aria-label="white" style={{ color: "rgb(1, 2, 3)", background: "transparent" }} />;`,
+       export const Example = () => <><Chart colors={SERIES_COLORS} color={severityColor()} /><div aria-label="white" style={{ color: "rgb(1, 2, 3)", background: "transparent" }} /></>;`,
       ts.ScriptTarget.Latest,
       true,
       ts.ScriptKind.TSX
@@ -129,6 +226,55 @@ describe("audited console style source contracts", () => {
       "#58a6ff",
       "hsl(12 80% 50%)",
       "rgb(1, 2, 3)"
+    ]);
+  });
+
+  it("follows arrays through neutral identifiers from color consumers", () => {
+    const fixture = ts.createSourceFile(
+      "array-alias.tsx",
+      `const SERIES = ["#fff"];
+       export const Example = () => <Chart colors={SERIES} />;`,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX
+    );
+
+    expect(directColorFindingsInSource(fixture, "array-alias.tsx").map(({ value }) => value)).toEqual(["#fff"]);
+  });
+
+  it("follows neutral identifiers from inline style values", () => {
+    const fixture = ts.createSourceFile(
+      "style-alias.tsx",
+      `const BAD = "#fff";
+       export const Example = () => <div style={{ color: BAD }} />;`,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX
+    );
+
+    expect(directColorFindingsInSource(fixture, "style-alias.tsx").map(({ value }) => value)).toEqual(["#fff"]);
+  });
+
+  it("follows neutral function returns and object members with cycle protection", () => {
+    const fixture = ts.createSourceFile(
+      "function-alias.tsx",
+      `const VALUES = { primary: "oklch(0.4 0.1 20)" };
+       const cycleA = cycleB;
+       const cycleB = cycleA;
+       function getValue() { return "hsl(12 80% 50%)"; }
+       function getOther() { return VALUES.primary; }
+       export const Example = () => <>
+         <Chart color={getValue()} fill={getOther()} />
+         <div style={{ background: cycleA }} />
+       </>;`,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX
+    );
+
+    expect(directColorFindingsInSource(fixture, "function-alias.tsx").map(({ value }) => value)).toEqual([
+      "oklch(0.4 0.1 20)",
+      "hsl(12 80% 50%)"
     ]);
   });
 

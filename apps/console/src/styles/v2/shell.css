@@ -113,7 +113,7 @@
 .sh-v2 .tb-icon { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--border-subtle); background: var(--bg-surface); color: var(--fg-secondary); display: grid; place-items: center; position: relative; transition: background .14s, color .14s; }
 .sh-v2 .tb-icon:hover { background: var(--bg-hover); color: var(--fg); }
 .sh-v2 .tb-icon__dot { position: absolute; top: 7px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--sev-critical); box-shadow: 0 0 0 2px var(--bg-surface); }
-.sh-v2 .tb-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--tenant-avatar-bg); display: grid; place-items: center; color: var(--tenant-avatar-fg); font-weight: 600; font-size: 12px; flex-shrink: 0; }
+.sh-v2 .tb-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--account-avatar-bg); display: grid; place-items: center; color: var(--account-avatar-fg); font-weight: 600; font-size: 12px; flex-shrink: 0; }
 
 @media (min-width: 900px) and (max-width: 1279px) {
   .sh-v2 .app { grid-template-columns: 64px minmax(0, 1fr) minmax(220px, 250px); }

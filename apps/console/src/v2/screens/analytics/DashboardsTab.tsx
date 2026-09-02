@@ -109,7 +109,7 @@ export function DashboardsTab({ ctx }: { ctx: ScreenCtx }) {
 
   return <div className="dashboards-layout dashboard-layout sh-investigation-grid">
     <section className="sh-card" aria-label="Dashboard library">
-      <div className="sh-card__head"><div><h2 className="sh-h2">Dashboards</h2><div className="sh-faint sh-copy-11">{state.dashboards.length} saved views</div></div><button aria-label="Create dashboard" className="sh-btn ghost icon sh-icon-target sh-hit-target" type="button" onClick={startNew}><Icon name="plus" size={14} /></button></div>
+      <div className="sh-card__head"><div><h2 className="sh-h2">Dashboards</h2><div className="sh-faint sh-copy-11">{state.dashboards.length} saved views</div></div><button aria-label="Create dashboard" className="sh-btn ghost icon sh-hit-target" type="button" onClick={startNew}><Icon name="plus" size={14} /></button></div>
       <div className="sh-card__body flush">
         {state.status === "loading" ? <p role="status" className="sh-muted sh-inset-14">Loading dashboards…</p> : null}
         {state.status === "error" ? <EmptyHint icon="alert" title="Could not load dashboards" sub="Retry after checking the API connection." /> : null}
@@ -132,7 +132,7 @@ export function DashboardsTab({ ctx }: { ctx: ScreenCtx }) {
     </section>
 
     <section className="sh-card" aria-label="Dashboard preview">
-      <div className="sh-card__head"><div><h2 className="sh-h2">Preview</h2><div className="sh-faint sh-copy-11">{selectedId ? `${form.window} report` : "Save before previewing"}</div></div>{selectedId ? <button aria-label="Refresh dashboard preview" className="sh-btn ghost icon sh-icon-target sh-hit-target" type="button" onClick={() => void state.previewDashboard(selectedId, form.window)}><Icon name="refresh" size={14} /></button> : null}</div>
+      <div className="sh-card__head"><div><h2 className="sh-h2">Preview</h2><div className="sh-faint sh-copy-11">{selectedId ? `${form.window} report` : "Save before previewing"}</div></div>{selectedId ? <button aria-label="Refresh dashboard preview" className="sh-btn ghost icon sh-hit-target" type="button" onClick={() => void state.previewDashboard(selectedId, form.window)}><Icon name="refresh" size={14} /></button> : null}</div>
       <div className="sh-card__body dashboard-preview">
         {state.previewStatus === "idle" ? <div className="sh-full-span"><EmptyHint icon="pulse" title="No preview loaded" sub={selectedId ? "Refresh to calculate every widget." : "Save the dashboard to generate a report."} /></div> : null}
         {state.previewStatus === "loading" ? <p role="status" className="sh-muted sh-full-span">Calculating dashboard…</p> : null}

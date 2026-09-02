@@ -1,9 +1,28 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const consoleRoot = process.cwd().endsWith("apps/console") ? process.cwd() : join(process.cwd(), "apps", "console");
+function moduleFilename(url: string): string {
+  const parsed = new URL(url);
+  if (parsed.protocol === "file:") return fileURLToPath(parsed);
+  const pathname = decodeURIComponent(parsed.pathname);
+  return process.platform === "win32" && /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
+}
+
+const consoleRoot = resolve(dirname(moduleFilename(import.meta.url)), "../../..");
 const read = (f: string) => readFileSync(join(consoleRoot, "src", "styles", "v2", f), "utf8");
+
+function customProperty(css: string, name: string): string {
+  const value = css.match(new RegExp(`${name}:\\s*([^;]+);`))?.[1]?.trim();
+  if (!value) throw new Error(`Missing ${name}`);
+  return value;
+}
+
+function oklchColors(value: string): Oklch[] {
+  return [...value.matchAll(/oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\)/g)]
+    .map((match) => ({ l: Number(match[1]), c: Number(match[2]), h: Number(match[3]) }));
+}
 
 type Oklch = { l: number; c: number; h: number };
 
@@ -111,6 +130,27 @@ describe("v2 design tokens are scoped to .sh-v2", () => {
       const background = tokens.get(backgroundName)!;
       const ratio = contrast(focusRing!, background);
       expect(ratio, `--focus-ring on ${backgroundName} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("keeps normal-size top-bar avatar initials at 4.5:1 on both gradient endpoints", () => {
+    const tokensCss = read("tokens.css");
+    const shellCss = read("shell.css");
+    const avatarRule = shellCss.match(/\.sh-v2 \.tb-avatar\s*\{([^}]+)\}/)?.[1] ?? "";
+    const backgroundToken = avatarRule.match(/background:\s*var\((--[\w-]+)\)/)?.[1];
+    const foregroundToken = avatarRule.match(/color:\s*var\((--[\w-]+)\)/)?.[1];
+
+    expect(backgroundToken, "top-bar avatar background must use a semantic token").toBeDefined();
+    expect(foregroundToken, "top-bar avatar foreground must use a semantic token").toBeDefined();
+    const endpoints = oklchColors(customProperty(tokensCss, backgroundToken!));
+    const foregroundValue = customProperty(tokensCss, foregroundToken!);
+    const foreground = foregroundValue === "white" ? { l: 1, c: 0, h: 0 } : oklchColors(foregroundValue)[0];
+
+    expect(endpoints).toHaveLength(2);
+    expect(foreground, `${foregroundToken} must resolve to white or OKLCH`).toBeDefined();
+    for (const endpoint of endpoints) {
+      const ratio = contrast(foreground!, endpoint);
+      expect(ratio, `${foregroundToken} on ${JSON.stringify(endpoint)} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
     }
   });
 });
