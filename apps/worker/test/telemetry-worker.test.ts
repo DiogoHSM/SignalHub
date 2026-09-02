@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import path, { join } from "node:path";
@@ -28,6 +28,13 @@ import {
   processTelemetryJob,
   type TelemetryWriter
 } from "../src/telemetry-worker.js";
+
+const SOURCE_MAP_STORAGE_MARKER_NAME = ".sigmon-source-map-storage";
+const SOURCE_MAP_STORAGE_MARKER_CONTENT = "sigmon-source-map-storage-v1\n";
+
+async function markSourceMapStorageRoot(root: string): Promise<void> {
+  await writeFile(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME), SOURCE_MAP_STORAGE_MARKER_CONTENT);
+}
 
 function createWriter(): TelemetryWriter {
   return {
@@ -1152,10 +1159,96 @@ describe("backup scheduler integration helpers", () => {
 });
 
 describe("deleteExpiredSourceMapArtifacts", () => {
+  it("fails closed before listing metadata for every unavailable storage authority state", async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-unavailable-"));
+    const outsideMarker = path.join(parent, "outside-marker");
+    const cases: Array<{ name: string; localDir: string; prepare: () => Promise<void> }> = [
+      { name: "absent root", localDir: path.join(parent, "absent"), prepare: async () => undefined },
+      {
+        name: "file root",
+        localDir: path.join(parent, "file-root"),
+        prepare: async () => writeFile(path.join(parent, "file-root"), "not-a-directory")
+      },
+      {
+        name: "missing marker",
+        localDir: path.join(parent, "missing-marker"),
+        prepare: async () => mkdir(path.join(parent, "missing-marker"))
+      },
+      {
+        name: "wrong marker",
+        localDir: path.join(parent, "wrong-marker"),
+        prepare: async () => {
+          const root = path.join(parent, "wrong-marker");
+          await mkdir(root);
+          await writeFile(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME), "wrong\n");
+        }
+      },
+      {
+        name: "partial marker",
+        localDir: path.join(parent, "partial-marker"),
+        prepare: async () => {
+          const root = path.join(parent, "partial-marker");
+          await mkdir(root);
+          await writeFile(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME), "sigmon-source-map-storage-v1");
+        }
+      },
+      {
+        name: "special marker",
+        localDir: path.join(parent, "special-marker"),
+        prepare: async () => {
+          const root = path.join(parent, "special-marker");
+          await mkdir(root);
+          await mkdir(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME));
+        }
+      },
+      {
+        name: "symlink marker",
+        localDir: path.join(parent, "symlink-marker"),
+        prepare: async () => {
+          const root = path.join(parent, "symlink-marker");
+          await mkdir(root);
+          await writeFile(outsideMarker, SOURCE_MAP_STORAGE_MARKER_CONTENT);
+          await symlink(outsideMarker, path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME));
+        }
+      }
+    ];
+
+    try {
+      for (const testCase of cases) {
+        await testCase.prepare();
+        const listExpiredArtifacts = vi.fn(async () => []);
+        const softDeleteArtifact = vi.fn(async () => null);
+        const removeFile = vi.fn(async () => undefined);
+
+        const error = await deleteExpiredSourceMapArtifacts({
+          localDir: testCase.localDir,
+          now: new Date("2026-05-13T00:00:00.000Z"),
+          retentionDays: 30,
+          batchSize: 10,
+          listExpiredArtifacts,
+          softDeleteArtifact,
+          removeFile
+        }).catch((caught: unknown) => caught);
+
+        expect(error, testCase.name).toBeInstanceOf(SourceMapRetentionError);
+        expect(error, testCase.name).toMatchObject({
+          message: "source_map_storage_unavailable",
+          deleted: { sourceMapArtifacts: 0, sourceMapFiles: 0 }
+        });
+        expect(listExpiredArtifacts, testCase.name).not.toHaveBeenCalled();
+        expect(removeFile, testCase.name).not.toHaveBeenCalled();
+        expect(softDeleteArtifact, testCase.name).not.toHaveBeenCalled();
+      }
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
   it("deletes expired source-map files before metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const filePath = path.join(root, "artifact.map");
     try {
+      await markSourceMapStorageRoot(root);
       await writeFile(filePath, "{}");
       const calls: string[] = [];
 
@@ -1215,6 +1308,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const filePath = path.join(root, "missing.map");
     try {
+      await markSourceMapStorageRoot(root);
       const deletedIds: string[] = [];
 
       const result = await deleteExpiredSourceMapArtifacts({
@@ -1272,6 +1366,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const filePath = path.join(root, "missing-parent", "missing.map");
     try {
+      await markSourceMapStorageRoot(root);
       const deletedIds: string[] = [];
 
       const result = await deleteExpiredSourceMapArtifacts({
@@ -1329,6 +1424,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const filePath = path.join(root, "raced.map");
     try {
+      await markSourceMapStorageRoot(root);
       await writeFile(filePath, "{}");
       const deletedIds: string[] = [];
 
@@ -1391,10 +1487,62 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     }
   });
 
+  it("keeps metadata active when an individual source-map removal fails", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
+    const filePath = path.join(root, "blocked.map");
+    try {
+      await markSourceMapStorageRoot(root);
+      await writeFile(filePath, "{}");
+      const softDeleteArtifact = vi.fn(async () => null);
+
+      const error = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        listExpiredArtifacts: async () => [
+          {
+            id: "smap_blocked",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1",
+            minifiedFile: "app.js",
+            originalFilename: "app.js.map",
+            contentType: "application/json",
+            byteSize: 2,
+            sha256: "sha",
+            storagePath: filePath,
+            uploadedByUserId: "usr_1",
+            uploadedByTokenId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            deletedAt: null
+          }
+        ],
+        softDeleteArtifact,
+        removeFile: async () => {
+          const failure = new Error("permission denied") as Error & { code: string };
+          failure.code = "EACCES";
+          throw failure;
+        }
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(SourceMapRetentionError);
+      expect(error).toMatchObject({
+        message: "permission denied",
+        deleted: { sourceMapArtifacts: 0, sourceMapFiles: 0 }
+      });
+      expect(softDeleteArtifact).not.toHaveBeenCalled();
+      await expect(readFile(filePath, "utf8")).resolves.toBe("{}");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects source-map paths outside the local directory", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const outside = path.join(tmpdir(), "outside-source-map.map");
     try {
+      await markSourceMapStorageRoot(root);
       await writeFile(outside, "{}");
 
       await expect(
@@ -1437,6 +1585,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     const linkPath = path.join(tmpdir(), `sigmon-sourcemaps-link-${process.pid}-${Date.now()}`);
     try {
       const realRoot = await realpath(root);
+      await markSourceMapStorageRoot(realRoot);
       await symlink(realRoot, linkPath, "dir");
       const filePath = path.join(realRoot, "artifact.map");
       await writeFile(filePath, "{}");
@@ -1498,6 +1647,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
   it("rejects symlink source-map artifact paths without deleting target files or metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     try {
+      await markSourceMapStorageRoot(root);
       const targetPath = path.join(root, "target.map");
       const linkPath = path.join(root, "artifact.map");
       await writeFile(targetPath, "{}");
@@ -1542,10 +1692,87 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     }
   });
 
+  it("rejects symlink and special intermediate artifact entries even when they remain inside the root", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
+    try {
+      await markSourceMapStorageRoot(root);
+      const realParent = path.join(root, "real-parent");
+      const linkedParent = path.join(root, "linked-parent");
+      await mkdir(realParent);
+      await symlink(realParent, linkedParent, "dir");
+      const linkedFile = path.join(linkedParent, "artifact.map");
+      await writeFile(path.join(realParent, "artifact.map"), "{}");
+      const softDeleteArtifact = vi.fn(async () => null);
+
+      await expect(
+        deleteExpiredSourceMapArtifacts({
+          localDir: root,
+          now: new Date("2026-05-13T00:00:00.000Z"),
+          retentionDays: 30,
+          batchSize: 10,
+          listExpiredArtifacts: async () => [
+            {
+              id: "smap_intermediate_symlink",
+              projectId: "prj_1",
+              environmentId: "env_1",
+              release: "web@1",
+              minifiedFile: "app.js",
+              originalFilename: "app.js.map",
+              contentType: "application/json",
+              byteSize: 2,
+              sha256: "sha",
+              storagePath: linkedFile,
+              uploadedByUserId: "usr_1",
+              uploadedByTokenId: null,
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              deletedAt: null
+            }
+          ],
+          softDeleteArtifact
+        })
+      ).rejects.toThrow("source_map_storage_path_invalid");
+      expect(softDeleteArtifact).not.toHaveBeenCalled();
+
+      const specialParent = path.join(root, "special-parent");
+      await writeFile(specialParent, "not-a-directory");
+      await expect(
+        deleteExpiredSourceMapArtifacts({
+          localDir: root,
+          now: new Date("2026-05-13T00:00:00.000Z"),
+          retentionDays: 30,
+          batchSize: 10,
+          listExpiredArtifacts: async () => [
+            {
+              id: "smap_intermediate_special",
+              projectId: "prj_1",
+              environmentId: "env_1",
+              release: "web@1",
+              minifiedFile: "app.js",
+              originalFilename: "app.js.map",
+              contentType: "application/json",
+              byteSize: 2,
+              sha256: "sha",
+              storagePath: path.join(specialParent, "artifact.map"),
+              uploadedByUserId: "usr_1",
+              uploadedByTokenId: null,
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              deletedAt: null
+            }
+          ],
+          softDeleteArtifact
+        })
+      ).rejects.toThrow("source_map_storage_path_invalid");
+      expect(softDeleteArtifact).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects missing source-map files under symlink parents outside the local directory", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const outsideRoot = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-outside-"));
     try {
+      await markSourceMapStorageRoot(root);
       const linkPath = path.join(root, "linked-parent");
       const filePath = path.join(linkPath, "missing.map");
       await symlink(outsideRoot, linkPath, "dir");

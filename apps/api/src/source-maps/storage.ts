@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Db } from "@sigmon/db";
 import {
@@ -14,6 +14,11 @@ import type {
   SourceMapUploadInput
 } from "../routes/admin.js";
 import { extractSourceMapsFromZip, inferMinifiedFileFromMap, normalizeMinifiedFile, parseSourceMapJson } from "./parser.js";
+import {
+  assertSourceMapStorageRoot,
+  ensureSourceMapArtifactDirectory,
+  resolveSourceMapArtifactPath
+} from "./storage-root.js";
 
 export type StoredArtifact = {
   storagePath: string;
@@ -31,28 +36,11 @@ function safeSegment(value: string): string {
   return segment && !/^\.+$/.test(segment) ? segment : "unknown";
 }
 
-function assertInsideLocalDir(localDir: string, storagePath: string): void {
-  const relativePath = path.relative(localDir, storagePath);
-
-  if (relativePath === "" || relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
-    throw new Error("source_map_storage_path_invalid");
-  }
-}
-
 async function validateStoragePath({ localDir, storagePath }: StoredArtifactPathInput): Promise<string> {
-  const resolvedLocalDir = await realpath(localDir);
-  const resolvedStoragePath = path.resolve(storagePath);
-  assertInsideLocalDir(resolvedLocalDir, resolvedStoragePath);
-
-  const targetStats = await lstat(resolvedStoragePath);
-  if (targetStats.isSymbolicLink()) {
-    throw new Error("source_map_storage_path_invalid");
-  }
-
-  const realStoragePath = await realpath(resolvedStoragePath);
-  assertInsideLocalDir(resolvedLocalDir, realStoragePath);
-
-  return realStoragePath;
+  const canonicalRoot = await assertSourceMapStorageRoot(localDir, "require");
+  const resolvedStoragePath = await resolveSourceMapArtifactPath(canonicalRoot, storagePath, { allowMissing: false });
+  if (!resolvedStoragePath) throw new Error("source_map_storage_path_invalid");
+  return resolvedStoragePath;
 }
 
 export async function storeSourceMapFile(input: {
@@ -63,15 +51,11 @@ export async function storeSourceMapFile(input: {
   artifactId: string;
   content: Buffer;
 }): Promise<StoredArtifact> {
-  await mkdir(input.localDir, { recursive: true });
-  const resolvedLocalDir = await realpath(input.localDir);
-  const directory = path.join(
-    resolvedLocalDir,
-    safeSegment(input.projectId),
-    safeSegment(input.environmentId),
-    safeSegment(input.release)
+  const canonicalRoot = await assertSourceMapStorageRoot(input.localDir, "require");
+  const directory = await ensureSourceMapArtifactDirectory(
+    canonicalRoot,
+    [safeSegment(input.projectId), safeSegment(input.environmentId), safeSegment(input.release)]
   );
-  await mkdir(directory, { recursive: true });
 
   const storagePath = path.join(directory, `${safeSegment(input.artifactId)}.map`);
   await writeFile(storagePath, input.content, { flag: "wx" });

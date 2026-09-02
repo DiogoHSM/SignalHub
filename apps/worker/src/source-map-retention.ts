@@ -1,6 +1,9 @@
-import { lstat, realpath, rm } from "node:fs/promises";
-import path from "node:path";
+import { rm } from "node:fs/promises";
 import type { SourceMapArtifactRecord } from "@sigmon/db/repositories/source-maps.js";
+import {
+  assertSourceMapStorageRoot,
+  resolveSourceMapArtifactPath
+} from "../../api/src/source-maps/storage-root.js";
 
 export type SourceMapRetentionDeletedCounts = {
   sourceMapArtifacts: number;
@@ -34,68 +37,12 @@ function isEnoent(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
 }
 
-function assertInsideLocalDir(localDir: string, storagePath: string): void {
-  const relativePath = path.relative(localDir, storagePath);
-  if (
-    relativePath === "" ||
-    relativePath === ".." ||
-    relativePath.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relativePath)
-  ) {
-    throw new Error("source_map_storage_path_invalid");
-  }
-}
-
-async function assertMissingStoragePathInsideLocalDir(localDir: string, storagePath: string): Promise<void> {
-  const missingSegments: string[] = [];
-  let currentPath = storagePath;
-
-  for (;;) {
-    try {
-      const realExistingPath = await realpath(currentPath);
-      assertInsideLocalDir(localDir, path.join(realExistingPath, ...missingSegments.reverse()));
-      return;
-    } catch (error) {
-      if (!isEnoent(error)) {
-        throw error;
-      }
-      const parentPath = path.dirname(currentPath);
-      if (parentPath === currentPath) {
-        throw error;
-      }
-      missingSegments.push(path.basename(currentPath));
-      currentPath = parentPath;
-    }
-  }
-}
-
-async function resolveStoragePath(localDir: string, storagePath: string): Promise<string | null> {
-  const resolvedLocalDir = await realpath(localDir);
-  const resolvedStoragePath = path.resolve(storagePath);
-
-  try {
-    const targetStats = await lstat(resolvedStoragePath);
-    if (targetStats.isSymbolicLink()) {
-      throw new Error("source_map_storage_path_invalid");
-    }
-    const realStoragePath = await realpath(resolvedStoragePath);
-    assertInsideLocalDir(resolvedLocalDir, realStoragePath);
-    return realStoragePath;
-  } catch (error) {
-    if (isEnoent(error)) {
-      await assertMissingStoragePathInsideLocalDir(resolvedLocalDir, resolvedStoragePath);
-      return null;
-    }
-    throw error;
-  }
-}
-
 async function deleteSourceMapFileIfPresent(
-  localDir: string,
+  canonicalRoot: string,
   storagePath: string,
   removeFile: (resolvedPath: string) => Promise<void>
 ): Promise<boolean> {
-  const resolvedStoragePath = await resolveStoragePath(localDir, storagePath);
+  const resolvedStoragePath = await resolveSourceMapArtifactPath(canonicalRoot, storagePath, { allowMissing: true });
   if (!resolvedStoragePath) return false;
   try {
     await removeFile(resolvedStoragePath);
@@ -111,6 +58,17 @@ async function deleteSourceMapFileIfPresent(
 export async function deleteExpiredSourceMapArtifacts(
   runtime: SourceMapRetentionRuntime
 ): Promise<SourceMapRetentionDeletedCounts> {
+  let canonicalRoot: string;
+  try {
+    canonicalRoot = await assertSourceMapStorageRoot(runtime.localDir, "require");
+  } catch (error) {
+    throw new SourceMapRetentionError(
+      "source_map_storage_unavailable",
+      { sourceMapArtifacts: 0, sourceMapFiles: 0 },
+      error
+    );
+  }
+
   const cutoff = new Date(runtime.now.getTime() - runtime.retentionDays * 24 * 60 * 60 * 1000);
   const artifacts = await runtime.listExpiredArtifacts({ cutoff, batchSize: runtime.batchSize });
   let sourceMapArtifacts = 0;
@@ -119,7 +77,7 @@ export async function deleteExpiredSourceMapArtifacts(
 
   for (const artifact of artifacts) {
     try {
-      if (await deleteSourceMapFileIfPresent(runtime.localDir, artifact.storagePath, removeFile)) {
+      if (await deleteSourceMapFileIfPresent(canonicalRoot, artifact.storagePath, removeFile)) {
         sourceMapFiles += 1;
       }
       const deleted = await runtime.softDeleteArtifact(artifact.id);

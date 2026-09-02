@@ -1,8 +1,10 @@
 import { EventEmitter } from "node:events";
+import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { promisify } from "node:util";
 import { spanPayloadSchema, tracePayloadSchema } from "@sigmon/telemetry/ingestion-schemas";
 import { describe, expect, it, vi } from "vitest";
 import { parseSmokeArgs } from "./smoke-compose/args.js";
@@ -22,6 +24,8 @@ import { createRedactor } from "./smoke-compose/redaction.js";
 import { isSmokeErrorGroup, pollForAssertion, runSmokeCompose } from "./smoke-compose/runner.js";
 import { createStepRecorder, renderSummary } from "./smoke-compose/steps.js";
 import { createSmokeEnvContent, defaultSmokeSecrets, writeSmokeResources } from "./smoke-compose/temp-env.js";
+
+const execFileAsync = promisify(execFile);
 
 describe("smoke compose primitives", () => {
   it("uses default smoke options", () => {
@@ -282,6 +286,33 @@ describe("smoke compose temp env", () => {
     const compose = await readFile("docker-compose.yml", "utf8");
 
     expect(compose.match(/path: \$\{SIGMON_ENV_FILE:-\.env\}/g)).toHaveLength(2);
+  });
+
+  it("mounts one exact read-write source-map volume into API and worker", async () => {
+    const { stdout } = await execFileAsync(
+      "docker",
+      ["compose", "--project-name", "sigmon_contract", "config", "--no-normalize", "--format", "json"],
+      { cwd: process.cwd(), encoding: "utf8" }
+    );
+    const compose = JSON.parse(stdout) as {
+      services: Record<string, { volumes?: Array<{ type: string; source: string; target: string; read_only?: boolean }> }>;
+      volumes: Record<string, unknown>;
+    };
+    const expected = {
+      type: "volume",
+      source: "source_map_data",
+      target: "/var/lib/sigmon/source-maps"
+    };
+
+    expect(compose.volumes).toHaveProperty("source_map_data");
+    for (const serviceName of ["api", "worker"]) {
+      const matches = (compose.services[serviceName]?.volumes ?? []).filter(
+        (volume) => volume.source === expected.source || volume.target === expected.target
+      );
+      expect(matches, serviceName).toHaveLength(1);
+      expect(matches[0]).toMatchObject(expected);
+      expect(matches[0].read_only ?? false).toBe(false);
+    }
   });
 });
 

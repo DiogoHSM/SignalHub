@@ -14,6 +14,7 @@ import {
 } from "../src/source-maps/parser.js";
 import { resolveErrorStackWithSourceMaps, resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
 import { readSourceMapFile, storeSourceMapFile } from "../src/source-maps/storage.js";
+import { assertSourceMapStorageRoot } from "../src/source-maps/storage-root.js";
 import { FunnelScopeTooLargeError } from "@sigmon/db/repositories/telemetry-query.js";
 import { EventPropertyNotPromotedError } from "../../../packages/db/src/repositories/analytics-insights.js";
 
@@ -163,6 +164,7 @@ describe("source map helpers", () => {
     const escapedDirectory = path.join(path.dirname(localDir), ".._x");
 
     try {
+      await assertSourceMapStorageRoot(localDir, "create");
       const artifact = await storeSourceMapFile({
         localDir,
         projectId: "..",
@@ -187,6 +189,7 @@ describe("source map helpers", () => {
     const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
 
     try {
+      await assertSourceMapStorageRoot(localDir, "create");
       await expect(readSourceMapFile({ localDir, storagePath: path.join(path.dirname(localDir), "outside.map") })).rejects.toThrow(
         "source_map_storage_path_invalid"
       );
@@ -201,6 +204,7 @@ describe("source map helpers", () => {
     const symlinkPath = path.join(localDir, "linked.map");
 
     try {
+      await assertSourceMapStorageRoot(localDir, "create");
       await writeFile(outsideFile, "{}");
       await symlink(outsideFile, symlinkPath);
 

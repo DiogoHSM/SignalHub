@@ -281,6 +281,7 @@ import {
   uploadSourceMapBundle
 } from "./source-maps/storage.js";
 import { resolveErrorStackWithSourceMaps } from "./source-maps/resolver.js";
+import { listenAfterSourceMapStorage } from "./source-maps/storage-root.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
 import { listenWithCleanup, runShutdownSteps, runSignalShutdown } from "./runtime.js";
 import { fetchWithTimeoutAndRetry } from "./fetch-retry.js";
@@ -1094,7 +1095,11 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 
 logger.info({ port: config.port }, "API starting");
 await listenWithCleanup({
-  listen: () => app.listen({ port: config.port, host: "0.0.0.0" }),
+  listen: () =>
+    listenAfterSourceMapStorage({
+      localDir: config.sourceMaps.localDir,
+      listen: () => app.listen({ port: config.port, host: "0.0.0.0" })
+    }),
   cleanup: () => shutdown("SIGTERM"),
   logger
 });

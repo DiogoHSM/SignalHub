@@ -4,6 +4,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { zipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { assertSourceMapStorageRoot } from "../src/source-maps/storage-root.js";
 import type { AnalyticsSegmentPreview, AnalyticsSegmentRecord } from "../../../packages/db/src/repositories/analytics-segments.js";
 import type { AnalyticsDashboardRecord } from "../../../packages/db/src/repositories/analytics-dashboards.js";
 import { EventPropertyNotPromotedError } from "../../../packages/db/src/repositories/analytics-insights.js";
@@ -4125,6 +4126,7 @@ describe("admin routes", () => {
     );
 
     try {
+      await assertSourceMapStorageRoot(localDir, "create");
       await expect(
         uploadSourceMapBundle({
           db: db as never,
@@ -4180,6 +4182,7 @@ describe("admin routes", () => {
     };
 
     try {
+      await assertSourceMapStorageRoot(localDir, "create");
       await uploadSingleSourceMap({
         db: db as never,
         localDir,
@@ -4240,6 +4243,7 @@ describe("admin routes", () => {
     );
 
     try {
+      await assertSourceMapStorageRoot(localDir, "create");
       await uploadSingleSourceMap({
         db: db as never,
         localDir,
