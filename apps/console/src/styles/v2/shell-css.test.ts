@@ -1,8 +1,17 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-const root = process.cwd().endsWith("apps/console") ? process.cwd() : join(process.cwd(), "apps", "console");
+
+function moduleFilename(url: string): string {
+  const parsed = new URL(url);
+  if (parsed.protocol === "file:") return fileURLToPath(parsed);
+  const pathname = decodeURIComponent(parsed.pathname);
+  return process.platform === "win32" && /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
+}
+
+const root = resolve(dirname(moduleFilename(import.meta.url)), "../../..");
 const css = readFileSync(join(root, "src", "styles", "v2", "shell.css"), "utf8");
 const primitivesCss = readFileSync(join(root, "src", "styles", "v2", "primitives.css"), "utf8");
 const componentsCss = readFileSync(join(root, "src", "styles", "v2", "components.css"), "utf8");

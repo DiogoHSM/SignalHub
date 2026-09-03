@@ -1,7 +1,8 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient, FleetProject, FleetResponse } from "../api/client";
 import type { User } from "../api/types";
@@ -68,10 +69,16 @@ afterEach(() => {
   cleanup();
 });
 
+function moduleFilename(url: string): string {
+  const parsed = new URL(url);
+  if (parsed.protocol === "file:") return fileURLToPath(parsed);
+  const pathname = decodeURIComponent(parsed.pathname);
+  return process.platform === "win32" && /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
+}
+
 describe("MobileStatusView", () => {
   it("settles the project chevron immediately at its open or closed state for reduced motion", () => {
-    const root = process.cwd().endsWith("apps/console") ? process.cwd() : join(process.cwd(), "apps", "console");
-    const css = readFileSync(join(root, "src", "v2", "mobile-status.css"), "utf8");
+    const css = readFileSync(join(dirname(moduleFilename(import.meta.url)), "mobile-status.css"), "utf8");
     const reduced = css.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*)\}\s*$/)?.[1] ?? "";
     expect(reduced).toMatch(/\.ms-card__chevron\s*\{[^}]*transition-duration:\s*0\.01ms/s);
     expect(reduced).toMatch(/\.ms-card\[data-open="true"\]\s+\.ms-card__chevron\s*\{[^}]*transform:\s*rotate\(90deg\)/s);

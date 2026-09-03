@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -23,41 +23,40 @@ type CommandResult = {
   stderr: string;
 };
 
-function runNpm(args: string[], cwd: string, extraEnv: NodeJS.ProcessEnv = {}): CommandResult {
+function run(command: string, args: string[], cwd: string, extraEnv: NodeJS.ProcessEnv = {}): Promise<CommandResult> {
+  return new Promise((resolveResult, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: { ...process.env, ...extraEnv },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    const timeout = setTimeout(() => child.kill(), 120_000);
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (status) => {
+      clearTimeout(timeout);
+      resolveResult({ status, stdout, stderr });
+    });
+  });
+}
+
+function runNpm(args: string[], cwd: string, extraEnv: NodeJS.ProcessEnv = {}): Promise<CommandResult> {
   const command = process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm";
   const commandArgs = process.platform === "win32" ? ["/d", "/c", "npm", ...args] : args;
-  const result = spawnSync(command, commandArgs, {
-    cwd,
-    encoding: "utf8",
-    env: {
+  return run(command, commandArgs, cwd, {
       ...process.env,
       npm_config_audit: "false",
       npm_config_fund: "false",
       npm_config_ignore_scripts: "false",
       ...extraEnv
-    },
-    timeout: 120_000
   });
-
-  return {
-    status: result.status,
-    stdout: result.stdout ?? "",
-    stderr: `${result.stderr ?? ""}${result.error ? `\n${String(result.error)}` : ""}`
-  };
 }
 
-function runNode(script: string, cwd: string, extraEnv: NodeJS.ProcessEnv = {}): CommandResult {
-  const result = spawnSync(process.execPath, [script], {
-    cwd,
-    encoding: "utf8",
-    env: { ...process.env, ...extraEnv },
-    timeout: 120_000
-  });
-  return {
-    status: result.status,
-    stdout: result.stdout ?? "",
-    stderr: `${result.stderr ?? ""}${result.error ? `\n${String(result.error)}` : ""}`
-  };
+function runNode(script: string, cwd: string, extraEnv: NodeJS.ProcessEnv = {}): Promise<CommandResult> {
+  return run(process.execPath, [script], cwd, extraEnv);
 }
 
 function expectSuccess(result: CommandResult): void {
@@ -113,13 +112,13 @@ afterEach(() => {
 });
 
 describe.sequential("SDK artifact lifecycle", () => {
-  it("removes files left in dist by a previous successful build", () => {
+  it("removes files left in dist by a previous successful build", async () => {
     const { sdk } = createIsolatedPackage();
     const sentinel = join(sdk, "dist", "obsolete-from-previous-build.js");
     mkdirSync(dirname(sentinel), { recursive: true });
     writeFileSync(sentinel, "throw new Error('stale artifact');\n");
 
-    const result = runNpm(["run", "build"], sdk);
+    const result = await runNpm(["run", "build"], sdk);
 
     expectSuccess(result);
     expect(existsSync(sentinel)).toBe(false);
@@ -127,13 +126,13 @@ describe.sequential("SDK artifact lifecycle", () => {
     expect(existsSync(join(sdk, "dist", "index.d.ts"))).toBe(true);
   }, 120_000);
 
-  it("runs the clean build lifecycle before a direct dry-run pack", () => {
+  it("runs the clean build lifecycle before a direct dry-run pack", async () => {
     const { sdk } = createIsolatedPackage();
-    expectSuccess(runNpm(["run", "build"], sdk));
+    expectSuccess(await runNpm(["run", "build"], sdk));
     const sentinel = join(sdk, "dist", "obsolete-from-previous-build.js");
     writeFileSync(sentinel, "throw new Error('stale artifact');\n");
 
-    const result = runNpm(["pack", "--dry-run", "--json"], sdk);
+    const result = await runNpm(["pack", "--dry-run", "--json"], sdk);
 
     expectSuccess(result);
     const files = packageFilePaths(result.stdout);
@@ -143,9 +142,9 @@ describe.sequential("SDK artifact lifecycle", () => {
     expect(existsSync(sentinel)).toBe(false);
   }, 120_000);
 
-  it("removes partial artifacts after the second compiler pass fails and requires a fresh pack build", () => {
+  it("removes partial artifacts after the second compiler pass fails and requires a fresh pack build", async () => {
     const { sdk } = createIsolatedPackage();
-    expectSuccess(runNpm(["run", "build"], sdk));
+    expectSuccess(await runNpm(["run", "build"], sdk));
     const urlConfigPath = join(sdk, "tsconfig.url-sanitization.json");
     const validUrlConfig = readFileSync(urlConfigPath, "utf8");
     writeFileSync(
@@ -157,33 +156,33 @@ describe.sequential("SDK artifact lifecycle", () => {
       })
     );
 
-    const failedBuild = runNpm(["run", "build"], sdk);
+    const failedBuild = await runNpm(["run", "build"], sdk);
 
     expect(failedBuild.status, `${failedBuild.stdout}\n${failedBuild.stderr}`).not.toBe(0);
     expect(existsSync(join(sdk, "dist"))).toBe(false);
     expect(existsSync(join(sdk, ".dist-staging"))).toBe(false);
 
-    const failedPack = runNpm(["pack", "--dry-run", "--json"], sdk);
+    const failedPack = await runNpm(["pack", "--dry-run", "--json"], sdk);
     expect(failedPack.status, `${failedPack.stdout}\n${failedPack.stderr}`).not.toBe(0);
     expect(existsSync(join(sdk, "dist"))).toBe(false);
     expect(existsSync(join(sdk, ".dist-staging"))).toBe(false);
 
     writeFileSync(urlConfigPath, validUrlConfig);
-    const recoveredPack = runNpm(["pack", "--dry-run", "--json"], sdk);
+    const recoveredPack = await runNpm(["pack", "--dry-run", "--json"], sdk);
     expectSuccess(recoveredPack);
     expect(packageFilePaths(recoveredPack.stdout)).toContain("dist/index.js");
   }, 120_000);
 
-  it("rejects a stale sentinel in the pack manifest before consumer installation", () => {
+  it("rejects a stale sentinel in the pack manifest before consumer installation", async () => {
     const { sdk } = createIsolatedPackage();
     const manifestPath = join(sdk, "package.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { scripts: Record<string, string> };
     delete manifest.scripts.prepack;
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    expectSuccess(runNpm(["run", "build"], sdk));
+    expectSuccess(await runNpm(["run", "build"], sdk));
     writeFileSync(join(sdk, "dist", "obsolete-from-previous-build.js"), "export const stale = true;\n");
 
-    const result = runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk, {
+    const result = await runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk, {
       npm_config_registry: "http://127.0.0.1:1",
       npm_config_fetch_retries: "0",
       npm_config_fetch_timeout: "1000"
@@ -195,7 +194,7 @@ describe.sequential("SDK artifact lifecycle", () => {
     );
   }, 120_000);
 
-  it("rejects an aliased private workspace runtime dependency before consumer installation", () => {
+  it("rejects an aliased private workspace runtime dependency before consumer installation", async () => {
     const { sdk } = createIsolatedPackage();
     const manifestPath = join(sdk, "package.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
@@ -204,7 +203,7 @@ describe.sequential("SDK artifact lifecycle", () => {
     manifest.dependencies["runtime-alias"] = "npm:@sigmon/private-runtime@1.0.0";
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
-    const result = runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk, {
+    const result = await runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk, {
       npm_config_registry: "http://127.0.0.1:1",
       npm_config_fetch_retries: "0",
       npm_config_fetch_timeout: "1000"
@@ -216,7 +215,7 @@ describe.sequential("SDK artifact lifecycle", () => {
     );
   }, 120_000);
 
-  it("rejects private workspace imports in packed JavaScript before consumer installation", () => {
+  it("rejects private workspace imports in packed JavaScript before consumer installation", async () => {
     const { sdk } = createIsolatedPackage();
     mkdirSync(join(sdk, "src", "internal"), { recursive: true });
     writeFileSync(
@@ -228,7 +227,7 @@ describe.sequential("SDK artifact lifecycle", () => {
       `${readFileSync(join(sdk, "src", "index.ts"), "utf8")}\nexport { privateRuntimeProbe } from "./internal/private-runtime-probe.js";\n`
     );
 
-    const result = runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk, {
+    const result = await runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk, {
       npm_config_registry: "http://127.0.0.1:1",
       npm_config_fetch_retries: "0",
       npm_config_fetch_timeout: "1000"
@@ -277,17 +276,17 @@ describe.sequential("SDK artifact lifecycle", () => {
       'export const probe = module.require("@sigmon/module-require");',
       "@sigmon/module-require"
     ]
-  ])("rejects %s", (_form, statement, expectedSpecifier) => {
+  ])("rejects %s", async (_form, statement, expectedSpecifier) => {
     const { sdk } = createIsolatedPackage();
     const manifestPath = join(sdk, "package.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { scripts: Record<string, string> };
     delete manifest.scripts.prepack;
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    expectSuccess(runNpm(["run", "build"], sdk));
+    expectSuccess(await runNpm(["run", "build"], sdk));
     const packedIndexPath = join(sdk, "dist", "index.js");
     writeFileSync(packedIndexPath, `${readFileSync(packedIndexPath, "utf8")}\n${statement}\n`);
 
-    const result = runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk, {
+    const result = await runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk, {
       npm_config_registry: "http://127.0.0.1:1",
       npm_config_fetch_retries: "0",
       npm_config_fetch_timeout: "1000"
@@ -299,13 +298,13 @@ describe.sequential("SDK artifact lifecycle", () => {
     );
   }, 120_000);
 
-  it("allows private import text that appears only in comments and ordinary strings", () => {
+  it("allows private import text that appears only in comments and ordinary strings", async () => {
     const { sdk } = createIsolatedPackage();
     const manifestPath = join(sdk, "package.json");
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { scripts: Record<string, string> };
     delete manifest.scripts.prepack;
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    expectSuccess(runNpm(["run", "build"], sdk));
+    expectSuccess(await runNpm(["run", "build"], sdk));
     const packedIndexPath = join(sdk, "dist", "index.js");
     writeFileSync(
       packedIndexPath,
@@ -318,7 +317,7 @@ void requireDocumentation;
 `
     );
 
-    const result = runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk);
+    const result = await runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk);
 
     expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
     expect(result.stdout).toContain("packed SDK clean-consumer smoke passed");

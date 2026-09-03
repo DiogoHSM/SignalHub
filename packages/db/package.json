@@ -15,7 +15,7 @@
     "pg": "^8.20.0"
   },
   "devDependencies": {
-    "@testcontainers/postgresql": "^11.14.0",
+    "@testcontainers/postgresql": "^12.1.0",
     "@types/pg": "^8.20.0"
   }
 }
