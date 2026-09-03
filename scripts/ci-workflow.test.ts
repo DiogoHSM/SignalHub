@@ -7,6 +7,10 @@ const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const workflowPath = join(repoRoot, ".github", "workflows", "ci.yml");
 const publishSdkWorkflowPath = join(repoRoot, ".github", "workflows", "publish-sdk.yml");
 const dependabotPath = join(repoRoot, ".github", "dependabot.yml");
+const actionRuntimeDocs = [
+  join(repoRoot, "README.md"),
+  join(repoRoot, ".claude", "docs", "DEPLOYMENT.md")
+];
 
 type ActionReference = {
   file: string;
@@ -193,6 +197,19 @@ describe("immutable workflow dependencies", () => {
     expect(update).toMatch(/schedule:\s*\n\s+interval:\s*weekly/);
     expect(update).toContain("open-pull-requests-limit: 5");
     expect(update).toContain('prefix: "chore(actions)"');
+  });
+
+  it("documents reviewed action releases without recommending mutable executable refs", () => {
+    for (const path of actionRuntimeDocs) {
+      const content = readFileSync(path, "utf8");
+      expect(content).not.toMatch(/actions\/(?:checkout|setup-node)@(?![0-9a-f]{40}\b)[^\s`)]+/);
+      expectIncludesAll(content, [
+        "actions/checkout v6.1.0",
+        "d23441a48e516b6c34aea4fa41551a30e30af803",
+        "actions/setup-node v6.5.0",
+        "249970729cb0ef3589644e2896645e5dc5ba9c38"
+      ]);
+    }
   });
 });
 

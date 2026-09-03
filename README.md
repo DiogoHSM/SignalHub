@@ -359,7 +359,7 @@ Use `--project-name` or `SIGMON_SMOKE_PROJECT_NAME` when running multiple smoke 
 
 The GitHub Actions CI workflow runs on pull requests to `main`, on pushes to `main`, and on `workflow_dispatch`. Runs superseded by a newer push to the same ref are cancelled. The workflow installs dependencies with the repo-pinned pnpm version, then runs tests, build, Docker Compose config validation, and the Compose smoke harness. The same gate is still expected to run locally before every push.
 
-The workflow uses GitHub-maintained actions on the Node 24 action runtime (`actions/checkout@v6` and `actions/setup-node@v6`). SignalMonitor's application runtime remains Node.js 22.
+The workflow pins the GitHub-maintained `actions/checkout v6.1.0` release to commit `d23441a48e516b6c34aea4fa41551a30e30af803` and `actions/setup-node v6.5.0` to commit `249970729cb0ef3589644e2896645e5dc5ba9c38`; both use the Node 24 action runtime. SignalMonitor's application runtime remains Node.js 22.
 
 The smoke job runs `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve` to validate the self-hosted Docker Compose install path in a clean GitHub-hosted runner. The workflow preserves resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. The same `pnpm smoke:compose` command remains available for local release checks.
 

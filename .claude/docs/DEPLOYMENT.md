@@ -87,7 +87,7 @@ The CI workflow runs automatically on pull requests to `main` and pushes to `mai
 
 Automatic CI does not replace the local gate. Run the release-readiness baseline before every push: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve`.
 
-The workflow uses GitHub-maintained actions that run on the Node 24 action runtime (`actions/checkout@v6` and `actions/setup-node@v6`). This is separate from the application runtime, which remains Node.js 22.
+The workflow pins the GitHub-maintained `actions/checkout v6.1.0` release to commit `d23441a48e516b6c34aea4fa41551a30e30af803` and `actions/setup-node v6.5.0` to commit `249970729cb0ef3589644e2896645e5dc5ba9c38`; both use the Node 24 action runtime. This is separate from the application runtime, which remains Node.js 22.
 
 The CI smoke job validates the Docker Compose install path with generated local-only secrets. It preserves smoke resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. It does not publish images or create releases.
 
