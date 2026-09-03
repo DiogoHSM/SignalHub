@@ -15,6 +15,7 @@
 - `actions/checkout` v6.1.0 is pinned to `d23441a48e516b6c34aea4fa41551a30e30af803`.
 - `actions/setup-node` v6.5.0 is pinned to `249970729cb0ef3589644e2896645e5dc5ba9c38`.
 - Every SHA retains its release in a trailing comment.
+- The publish job installs exactly `npm@11.19.1`; `npm@latest` and ranges are forbidden.
 - OIDC `id-token: write` exists only on the `publish-sdk` job.
 - CI triggers, Node versions, pnpm version, jobs, and manual publishing remain unchanged.
 - Dependabot updates are weekly and reviewed through ordinary CI.
@@ -28,18 +29,18 @@
 
 **Interfaces:**
 - Produces: workflow scanner enforcing full SHA pins, release comments, OIDC scope, and Dependabot configuration.
-- Consumes: `.github/workflows/*.yml` and `.github/dependabot.yml` as text/YAML fixtures.
+- Consumes: `.github/workflows/*.{yml,yaml}`, `.github/actions/**/action.{yml,yaml}`, and `.github/dependabot.yml` as text/YAML fixtures.
 
 - [ ] **Step 1: Write failing pin and permission assertions**
 
 ```ts
-const externalUses = workflowLines
+const externalUses = actionManifestLines
   .map((line, index) => ({ line, index: index + 1 }))
   .filter(({ line }) => /^\s*uses:\s*(?!\.\/)/.test(line));
 
 it("pins every external action to a full SHA with a version comment", () => {
   for (const { line } of externalUses) {
-    expect(line).toMatch(/uses:\s*[^@\s]+@[0-9a-f]{40}\s+#\s+v\d+(?:\.\d+){0,2}\s*$/);
+    expect(isRepositoryShaPin(line) || isDockerDigestPin(line)).toBe(true);
   }
 });
 
@@ -49,13 +50,13 @@ it("grants OIDC only inside the publish-sdk job", () => {
 });
 ```
 
-Add a test requiring a weekly `github-actions` Dependabot entry at directory `/`.
+Discover `.github/workflows/*.{yml,yaml}` and `.github/actions/**/action.{yml,yaml}`. Allow repository-relative local refs, require repository actions at full SHA plus release comment, and require Docker actions at a 64-hex `sha256` digest. Add tests requiring a weekly `github-actions` Dependabot entry at directory `/`, `package-manager-cache: false` in the release setup-node step, exact `npm@11.19.1`, and absence of `npm@latest`.
 
 - [ ] **Step 2: Verify RED**
 
 Run: `pnpm vitest run scripts/ci-workflow.test.ts`
 
-Expected: FAIL because workflows use mutable `@v6`, publishing grants workflow-level OIDC, and Dependabot config is absent.
+Expected: FAIL because workflows use mutable `@v6`, publishing grants workflow-level OIDC, npm is mutable, and Dependabot config is absent.
 
 - [ ] **Step 3: Commit the red test separately**
 
@@ -106,6 +107,8 @@ permissions:
   contents: read
   id-token: write
 ```
+
+Set `package-manager-cache: false` on the publish setup-node step. Replace `npm install -g npm@latest` with `npm install -g npm@11.19.1`, retaining the Trusted Publishing floor check. Job scoping is future-proofing: because publish is presently the only job, all of its steps still have the native OIDC request environment.
 
 - [ ] **Step 3: Run the contract test**
 
@@ -159,13 +162,21 @@ Expected: all commands exit 0.
 
 - [ ] **Step 3: Recheck upstream bindings**
 
-Run: `git ls-remote --tags https://github.com/actions/checkout.git refs/tags/v6.1.0`
+Run: `git ls-remote --tags https://github.com/actions/checkout.git refs/tags/v6.1.0 refs/tags/v6.1.0^{}`
 
 Expected: `d23441a48e516b6c34aea4fa41551a30e30af803`.
 
-Run: `git ls-remote --tags https://github.com/actions/setup-node.git refs/tags/v6.5.0`
+Run: `git ls-remote --tags https://github.com/actions/setup-node.git refs/tags/v6.5.0 refs/tags/v6.5.0^{}`
 
 Expected: `249970729cb0ef3589644e2896645e5dc5ba9c38`.
+
+When a tag is annotated, compare the expected commit to the peeled `^{}` row rather than the tag object.
+
+Parse all changed YAML independently:
+
+```bash
+python -c "from pathlib import Path; import yaml; [yaml.safe_load(p.read_text(encoding='utf-8')) for p in Path('.github').rglob('*.yml')]; [yaml.safe_load(p.read_text(encoding='utf-8')) for p in Path('.github').rglob('*.yaml')]"
+```
 
 - [ ] **Step 4: Commit**
 

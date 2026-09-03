@@ -1,0 +1,609 @@
+{
+  "capturedAt": "2026-09-02",
+  "gitCommit": "63c2c8e0cb33e4334f040a9b1f0f03c9acf3b387",
+  "pnpmVersion": "11.19.0",
+  "repositoryPackageManager": "pnpm@9.15.4",
+  "counts": {
+    "info": 0,
+    "low": 3,
+    "moderate": 25,
+    "high": 37,
+    "critical": 1
+  },
+  "advisories": [
+    {
+      "advisoryId": "1102341",
+      "ghsa": "GHSA-67mh-4wv8-2f99",
+      "module": "esbuild",
+      "severity": "moderate",
+      "installed": "0.21.5",
+      "scope": "dev",
+      "patched": ">=0.24.3"
+    },
+    {
+      "advisoryId": "1109131",
+      "ghsa": "GHSA-93m4-6634-74q7",
+      "module": "vite",
+      "severity": "moderate",
+      "installed": "5.4.20",
+      "scope": "dev",
+      "patched": ">=5.4.21"
+    },
+    {
+      "advisoryId": "1113515",
+      "ghsa": "GHSA-mw96-cpmx-2vgc",
+      "module": "rollup",
+      "severity": "high",
+      "installed": "4.52.4",
+      "scope": "dev",
+      "patched": ">=4.59.0"
+    },
+    {
+      "advisoryId": "1116229",
+      "ghsa": "GHSA-4w7w-66w2-5vf9",
+      "module": "vite",
+      "severity": "moderate",
+      "installed": "5.4.20",
+      "scope": "dev",
+      "patched": ">=6.4.2"
+    },
+    {
+      "advisoryId": "1117015",
+      "ghsa": "GHSA-qx2v-qp2m-jg93",
+      "module": "postcss",
+      "severity": "moderate",
+      "installed": "8.5.6",
+      "scope": "dev",
+      "patched": ">=8.5.10"
+    },
+    {
+      "advisoryId": "1119108",
+      "ghsa": "GHSA-58qx-3vcg-4xpx",
+      "module": "ws",
+      "severity": "moderate",
+      "installed": "8.20.0",
+      "scope": "dev",
+      "patched": ">=8.20.1"
+    },
+    {
+      "advisoryId": "1119378",
+      "ghsa": "GHSA-jggg-4jg4-v7c6",
+      "module": "protobufjs",
+      "severity": "moderate",
+      "installed": "7.5.6",
+      "scope": "dev",
+      "patched": ">=7.5.8"
+    },
+    {
+      "advisoryId": "1119441",
+      "ghsa": "GHSA-w5hq-g745-h8pq",
+      "module": "uuid",
+      "severity": "moderate",
+      "installed": "10.0.0",
+      "scope": "dev",
+      "patched": ">=11.1.1"
+    },
+    {
+      "advisoryId": "1120248",
+      "ghsa": "GHSA-pv5w-4p9q-p3v2",
+      "module": "kysely",
+      "severity": "high",
+      "installed": "0.28.16",
+      "scope": "production",
+      "patched": ">=0.28.17"
+    },
+    {
+      "advisoryId": "1120311",
+      "ghsa": "GHSA-jxxr-4gwj-5jf2",
+      "module": "brace-expansion",
+      "severity": "moderate",
+      "installed": "5.0.5",
+      "scope": "production",
+      "patched": ">=5.0.6"
+    },
+    {
+      "advisoryId": "1120582",
+      "ghsa": "GHSA-5375-pq7m-f5r2",
+      "module": "@grpc/grpc-js",
+      "severity": "high",
+      "installed": "1.14.3",
+      "scope": "dev",
+      "patched": ">=1.14.4"
+    },
+    {
+      "advisoryId": "1120588",
+      "ghsa": "GHSA-99f4-grh7-6pcq",
+      "module": "@grpc/grpc-js",
+      "severity": "high",
+      "installed": "1.14.3",
+      "scope": "dev",
+      "patched": ">=1.14.4"
+    },
+    {
+      "advisoryId": "1120654",
+      "ghsa": "GHSA-ph9p-34f9-6g65",
+      "module": "tmp",
+      "severity": "high",
+      "installed": "0.2.5",
+      "scope": "dev",
+      "patched": ">=0.2.6"
+    },
+    {
+      "advisoryId": "1120743",
+      "ghsa": "GHSA-hmw2-7cc7-3qxx",
+      "module": "form-data",
+      "severity": "high",
+      "installed": "4.0.5",
+      "scope": "dev",
+      "patched": ">=4.0.6"
+    },
+    {
+      "advisoryId": "1120784",
+      "ghsa": "GHSA-v6wh-96g9-6wx3",
+      "module": "vite",
+      "severity": "moderate",
+      "installed": "5.4.20",
+      "scope": "dev",
+      "patched": ">=6.4.3"
+    },
+    {
+      "advisoryId": "1120795",
+      "ghsa": "GHSA-268h-hp4c-crq3",
+      "module": "nodemailer",
+      "severity": "moderate",
+      "installed": "8.0.8",
+      "scope": "production",
+      "patched": ">=8.0.9"
+    },
+    {
+      "advisoryId": "1120796",
+      "ghsa": "GHSA-wqvq-jvpq-h66f",
+      "module": "nodemailer",
+      "severity": "moderate",
+      "installed": "8.0.8",
+      "scope": "production",
+      "patched": ">=8.0.9"
+    },
+    {
+      "advisoryId": "1121187",
+      "ghsa": "GHSA-vmh5-mc38-953g",
+      "module": "undici",
+      "severity": "high",
+      "installed": "7.25.0",
+      "scope": "dev",
+      "patched": ">=7.28.0"
+    },
+    {
+      "advisoryId": "1121241",
+      "ghsa": "GHSA-p88m-4jfj-68fv",
+      "module": "undici",
+      "severity": "moderate",
+      "installed": "7.25.0",
+      "scope": "dev",
+      "patched": ">=7.28.0"
+    },
+    {
+      "advisoryId": "1121244",
+      "ghsa": "GHSA-vxpw-j846-p89q",
+      "module": "undici",
+      "severity": "high",
+      "installed": "7.25.0",
+      "scope": "dev",
+      "patched": ">=7.28.0"
+    },
+    {
+      "advisoryId": "1121247",
+      "ghsa": "GHSA-hm92-r4w5-c3mj",
+      "module": "undici",
+      "severity": "high",
+      "installed": "7.25.0",
+      "scope": "dev",
+      "patched": ">=7.28.0"
+    },
+    {
+      "advisoryId": "1121254",
+      "ghsa": "GHSA-g8m3-5g58-fq7m",
+      "module": "undici",
+      "severity": "low",
+      "installed": "7.25.0",
+      "scope": "dev",
+      "patched": ">=7.28.0"
+    },
+    {
+      "advisoryId": "1121428",
+      "ghsa": "GHSA-pr7r-676h-xcf6",
+      "module": "undici",
+      "severity": "moderate",
+      "installed": "7.25.0",
+      "scope": "dev",
+      "patched": ">=7.28.0"
+    },
+    {
+      "advisoryId": "1123259",
+      "ghsa": "GHSA-96hv-2xvq-fx4p",
+      "module": "ws",
+      "severity": "high",
+      "installed": "8.20.0",
+      "scope": "dev",
+      "patched": ">=8.21.0"
+    },
+    {
+      "advisoryId": "1123488",
+      "ghsa": "GHSA-wcpc-wj8m-hjx6",
+      "module": "protobufjs",
+      "severity": "high",
+      "installed": "7.5.6",
+      "scope": "dev",
+      "patched": ">=7.6.1"
+    },
+    {
+      "advisoryId": "1123492",
+      "ghsa": "GHSA-f38q-mgvj-vph7",
+      "module": "protobufjs",
+      "severity": "moderate",
+      "installed": "7.5.6",
+      "scope": "dev",
+      "patched": ">=7.6.3"
+    },
+    {
+      "advisoryId": "1123525",
+      "ghsa": "GHSA-fx2h-pf6j-xcff",
+      "module": "vite",
+      "severity": "high",
+      "installed": "5.4.20",
+      "scope": "dev",
+      "patched": ">=6.4.3"
+    },
+    {
+      "advisoryId": "1123528",
+      "ghsa": "GHSA-4x5r-pxfx-6jf8",
+      "module": "@babel/core",
+      "severity": "low",
+      "installed": "7.29.0",
+      "scope": "dev",
+      "patched": ">=7.29.1"
+    },
+    {
+      "advisoryId": "1123896",
+      "ghsa": "GHSA-3jxr-9vmj-r5cp",
+      "module": "brace-expansion",
+      "severity": "high",
+      "installed": "2.1.0",
+      "scope": "dev",
+      "patched": ">=2.1.2"
+    },
+    {
+      "advisoryId": "1123898",
+      "ghsa": "GHSA-3jxr-9vmj-r5cp",
+      "module": "brace-expansion",
+      "severity": "high",
+      "installed": "5.0.5",
+      "scope": "production",
+      "patched": ">=5.0.7"
+    },
+    {
+      "advisoryId": "1123964",
+      "ghsa": "GHSA-j3f2-48v5-ccww",
+      "module": "protobufjs",
+      "severity": "moderate",
+      "installed": "7.5.6",
+      "scope": "dev",
+      "patched": ">=7.6.5"
+    },
+    {
+      "advisoryId": "1124064",
+      "ghsa": "GHSA-v2hh-gcrm-f6hx",
+      "module": "fast-uri",
+      "severity": "high",
+      "installed": "3.1.0",
+      "scope": "production",
+      "patched": ">=3.1.4"
+    },
+    {
+      "advisoryId": "1124252",
+      "ghsa": "GHSA-6g55-p6wh-862q",
+      "module": "postcss",
+      "severity": "high",
+      "installed": "8.5.6",
+      "scope": "dev",
+      "patched": ">=8.5.12"
+    },
+    {
+      "advisoryId": "1124273",
+      "ghsa": "GHSA-c96f-x56v-gq3h",
+      "module": "find-my-way",
+      "severity": "high",
+      "installed": "9.5.0",
+      "scope": "production",
+      "patched": ">=9.6.1"
+    },
+    {
+      "advisoryId": "1124285",
+      "ghsa": "GHSA-8pvw-jcv7-9cmj",
+      "module": "@fastify/static",
+      "severity": "moderate",
+      "installed": "9.1.3",
+      "scope": "production",
+      "patched": ">=10.1.2"
+    },
+    {
+      "advisoryId": "1124286",
+      "ghsa": "GHSA-83w8-p2f5-377r",
+      "module": "@fastify/static",
+      "severity": "high",
+      "installed": "9.1.3",
+      "scope": "production",
+      "patched": ">=10.1.1"
+    },
+    {
+      "advisoryId": "1130589",
+      "ghsa": "GHSA-mh99-v99m-4gvg",
+      "module": "brace-expansion",
+      "severity": "high",
+      "installed": "2.1.0",
+      "scope": "dev",
+      "patched": ">=2.1.3"
+    },
+    {
+      "advisoryId": "1130591",
+      "ghsa": "GHSA-mh99-v99m-4gvg",
+      "module": "brace-expansion",
+      "severity": "high",
+      "installed": "5.0.5",
+      "scope": "production",
+      "patched": ">=5.0.8"
+    },
+    {
+      "advisoryId": "1130709",
+      "ghsa": "GHSA-fxqj-rqcc-2cmp",
+      "module": "postcss",
+      "severity": "moderate",
+      "installed": "8.5.6",
+      "scope": "dev",
+      "patched": ">=8.5.23"
+    },
+    {
+      "advisoryId": "1130715",
+      "ghsa": "GHSA-8xcm-r25x-g524",
+      "module": "undici",
+      "severity": "moderate",
+      "installed": "7.25.0",
+      "scope": "dev",
+      "patched": ">=7.29.0"
+    },
+    {
+      "advisoryId": "1130718",
+      "ghsa": "GHSA-4cwx-7wf7-3272",
+      "module": "undici",
+      "severity": "high",
+      "installed": "7.25.0",
+      "scope": "dev",
+      "patched": ">=7.29.0"
+    },
+    {
+      "advisoryId": "1130720",
+      "ghsa": "GHSA-7p8r-x3mc-p8w7",
+      "module": "fast-uri",
+      "severity": "high",
+      "installed": "3.1.0",
+      "scope": "production",
+      "patched": ">=3.1.5"
+    },
+    {
+      "advisoryId": "1130726",
+      "ghsa": "GHSA-m8rv-5g2x-5cg5",
+      "module": "undici",
+      "severity": "moderate",
+      "installed": "7.25.0",
+      "scope": "dev",
+      "patched": ">=7.29.0"
+    },
+    {
+      "advisoryId": "1130729",
+      "ghsa": "GHSA-jr45-8vmc-qm54",
+      "module": "undici",
+      "severity": "moderate",
+      "installed": "7.25.0",
+      "scope": "dev",
+      "patched": ">=7.29.0"
+    },
+    {
+      "advisoryId": "1130731",
+      "ghsa": "GHSA-v3r7-h72x-cjcm",
+      "module": "undici",
+      "severity": "moderate",
+      "installed": "7.25.0",
+      "scope": "dev",
+      "patched": ">=7.29.0"
+    },
+    {
+      "advisoryId": "1130734",
+      "ghsa": "GHSA-rgw5-rvv9-x895",
+      "module": "brace-expansion",
+      "severity": "high",
+      "installed": "5.0.5",
+      "scope": "production",
+      "patched": ">=5.0.9"
+    },
+    {
+      "advisoryId": "1130736",
+      "ghsa": "GHSA-rgw5-rvv9-x895",
+      "module": "brace-expansion",
+      "severity": "high",
+      "installed": "2.1.0",
+      "scope": "dev",
+      "patched": ">=2.1.4"
+    },
+    {
+      "advisoryId": "1137242",
+      "ghsa": "GHSA-35p6-xmwp-9g52",
+      "module": "undici",
+      "severity": "low",
+      "installed": "7.25.0",
+      "scope": "dev",
+      "patched": ">=7.28.0"
+    },
+    {
+      "advisoryId": "1138810",
+      "ghsa": "GHSA-28wg-ghj8-5hjv",
+      "module": "nanoid",
+      "severity": "high",
+      "installed": "5.1.11",
+      "scope": "production",
+      "patched": ">=5.1.16"
+    },
+    {
+      "advisoryId": "1138811",
+      "ghsa": "GHSA-28wg-ghj8-5hjv",
+      "module": "nanoid",
+      "severity": "high",
+      "installed": "3.3.11",
+      "scope": "dev",
+      "patched": ">=3.3.16"
+    },
+    {
+      "advisoryId": "1139427",
+      "ghsa": "GHSA-2v37-7h3g-55p8",
+      "module": "nanoid",
+      "severity": "high",
+      "installed": "3.3.11",
+      "scope": "dev",
+      "patched": ">=3.3.18"
+    },
+    {
+      "advisoryId": "1139510",
+      "ghsa": "GHSA-r28c-9q8g-f849",
+      "module": "postcss",
+      "severity": "high",
+      "installed": "8.5.6",
+      "scope": "dev",
+      "patched": ">=8.5.18"
+    },
+    {
+      "advisoryId": "1139528",
+      "ghsa": "GHSA-5xrq-8626-4rwp",
+      "module": "vitest",
+      "severity": "critical",
+      "installed": "2.1.9",
+      "scope": "dev",
+      "patched": ">=3.2.6"
+    },
+    {
+      "advisoryId": "1145559",
+      "ghsa": "GHSA-q3j6-qgpj-74h6",
+      "module": "fast-uri",
+      "severity": "high",
+      "installed": "3.1.0",
+      "scope": "production",
+      "patched": ">=3.1.1"
+    },
+    {
+      "advisoryId": "1147878",
+      "ghsa": "GHSA-4c8g-83qw-93j6",
+      "module": "fast-uri",
+      "severity": "high",
+      "installed": "3.1.0",
+      "scope": "production",
+      "patched": ">=3.1.3"
+    },
+    {
+      "advisoryId": "1153168",
+      "ghsa": "GHSA-v39h-62p7-jpjc",
+      "module": "fast-uri",
+      "severity": "high",
+      "installed": "3.1.0",
+      "scope": "production",
+      "patched": ">=3.1.2"
+    },
+    {
+      "advisoryId": "1153171",
+      "ghsa": "GHSA-c83g-rgw3-j3cx",
+      "module": "browserslist",
+      "severity": "high",
+      "installed": "4.28.2",
+      "scope": "dev",
+      "patched": ">=4.28.7"
+    },
+    {
+      "advisoryId": "1153172",
+      "ghsa": "GHSA-73wf-gq98-2v4g",
+      "module": "browserslist",
+      "severity": "high",
+      "installed": "4.28.2",
+      "scope": "dev",
+      "patched": ">=4.28.7"
+    },
+    {
+      "advisoryId": "1153189",
+      "ghsa": "GHSA-xwg4-73v4-xw9w",
+      "module": "nanoid",
+      "severity": "high",
+      "installed": "3.3.11",
+      "scope": "dev",
+      "patched": ">=3.3.12"
+    },
+    {
+      "advisoryId": "1158506",
+      "ghsa": "GHSA-x5fp-wj9c-mxmx",
+      "module": "qs",
+      "severity": "moderate",
+      "installed": "6.15.3",
+      "scope": "production",
+      "patched": ">=6.15.4"
+    },
+    {
+      "advisoryId": "1158507",
+      "ghsa": "GHSA-4mjr-xmp4-gh2g",
+      "module": "qs",
+      "severity": "moderate",
+      "installed": "6.15.3",
+      "scope": "production",
+      "patched": ">=6.16.0"
+    },
+    {
+      "advisoryId": "1158513",
+      "ghsa": "GHSA-p6gq-j5cr-w38f",
+      "module": "nodemailer",
+      "severity": "high",
+      "installed": "8.0.8",
+      "scope": "production",
+      "patched": ">=9.0.1"
+    },
+    {
+      "advisoryId": "1158514",
+      "ghsa": "GHSA-w2qp-rph6-63g4",
+      "module": "fastify",
+      "severity": "moderate",
+      "installed": "5.8.5",
+      "scope": "production",
+      "patched": ">=5.12.1"
+    },
+    {
+      "advisoryId": "1158519",
+      "ghsa": "GHSA-3m5p-2c4r-xxw2",
+      "module": "fastify",
+      "severity": "moderate",
+      "installed": "5.8.5",
+      "scope": "production",
+      "patched": ">=5.12.1"
+    },
+    {
+      "advisoryId": "1158524",
+      "ghsa": "GHSA-f65p-4m7j-42xc",
+      "module": "fast-uri",
+      "severity": "high",
+      "installed": "3.1.0",
+      "scope": "production",
+      "patched": ">=3.1.6"
+    },
+    {
+      "advisoryId": "1158530",
+      "ghsa": "GHSA-jqff-g426-hqxp",
+      "module": "fast-uri",
+      "severity": "high",
+      "installed": "3.1.0",
+      "scope": "production",
+      "patched": ">=3.1.6"
+    }
+  ]
+}
