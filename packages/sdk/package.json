@@ -55,10 +55,10 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && tsc -p tsconfig.url-sanitization.json",
+    "build": "node ./scripts/build.mjs",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "smoke:packed": "pnpm build && node ./scripts/smoke-packed-consumer.mjs",
-    "prepublishOnly": "pnpm build"
+    "smoke:packed": "node ./scripts/smoke-packed-consumer.mjs",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "nanoid": "^5.1.11"

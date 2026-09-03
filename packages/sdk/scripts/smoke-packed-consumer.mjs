@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,9 +20,100 @@ function run(args, cwd) {
   });
 }
 
+function listTypeScriptSources(directory, prefix = "") {
+  const files = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      files.push(...listTypeScriptSources(join(directory, entry.name), relativePath));
+    } else if (entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts")) {
+      files.push(relativePath);
+    }
+  }
+  return files;
+}
+
+function assertPackedArtifact(packOutput, tarball) {
+  const packFiles = packOutput[0]?.files?.map((file) => file.path).sort();
+  if (!packFiles) {
+    throw new Error("npm pack did not return a package file manifest");
+  }
+
+  const expectedFiles = ["CHANGELOG.md", "LICENSE", "README.md", "package.json"];
+  for (const sourceFile of listTypeScriptSources(join(packageDir, "src"))) {
+    const basename = sourceFile.slice(0, -3);
+    expectedFiles.push(`dist/${basename}.d.ts`, `dist/${basename}.js`, `dist/${basename}.js.map`);
+  }
+  expectedFiles.sort();
+
+  const unexpectedFiles = packFiles.filter((file) => !expectedFiles.includes(file));
+  if (unexpectedFiles.includes("dist/obsolete-from-previous-build.js")) {
+    throw new Error("packed SDK contains stale artifact dist/obsolete-from-previous-build.js");
+  }
+  if (unexpectedFiles.length > 0) {
+    throw new Error(`packed SDK contains unexpected files: ${unexpectedFiles.join(", ")}`);
+  }
+  const missingFiles = expectedFiles.filter((file) => !packFiles.includes(file));
+  if (missingFiles.length > 0) {
+    throw new Error(`packed SDK is missing expected files: ${missingFiles.join(", ")}`);
+  }
+
+  const inspectionDir = join(smokeDir, "packed");
+  mkdirSync(inspectionDir, { recursive: true });
+  execFileSync("tar", ["-xzf", tarball, "-C", inspectionDir], { stdio: ["ignore", "pipe", "pipe"] });
+  const packedRoot = join(inspectionDir, "package");
+  const manifest = JSON.parse(readFileSync(join(packedRoot, "package.json"), "utf8"));
+
+  const runtimeDependencySections = ["dependencies", "optionalDependencies", "peerDependencies"];
+  for (const section of runtimeDependencySections) {
+    for (const [dependency, specifier] of Object.entries(manifest[section] ?? {})) {
+      const aliasedPrivateDependency =
+        typeof specifier === "string" && /^(?:npm:)?@sigmon\//.test(specifier);
+      if (dependency.startsWith("@sigmon/") || aliasedPrivateDependency) {
+        throw new Error(
+          `packed SDK retains private runtime dependency ${dependency} -> ${String(specifier)} in ${section}`
+        );
+      }
+    }
+  }
+
+  const exportedTargets = [manifest.main, manifest.types];
+  const collectExportTargets = (value) => {
+    if (typeof value === "string") {
+      exportedTargets.push(value);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    for (const nested of Object.values(value)) collectExportTargets(nested);
+  };
+  collectExportTargets(manifest.exports);
+  for (const target of new Set(exportedTargets.filter((value) => typeof value === "string"))) {
+    const normalizedTarget = target.replace(/^\.\//, "");
+    if (!packFiles.includes(normalizedTarget)) {
+      throw new Error(`packed SDK manifest target is missing: ${target}`);
+    }
+  }
+
+  const staticImportPattern = /(?:^|\n)\s*(?:import|export)\s+(?:[^"'\n]*?\s+from\s+)?["'](@sigmon\/[^"']+)["']/g;
+  const dynamicImportPattern = /\b(?:import|require)\s*\(\s*["'](@sigmon\/[^"']+)["']\s*\)/g;
+  for (const file of packFiles.filter((path) => path.startsWith("dist/") && path.endsWith(".js"))) {
+    const source = readFileSync(join(packedRoot, file), "utf8");
+    for (const pattern of [staticImportPattern, dynamicImportPattern]) {
+      pattern.lastIndex = 0;
+      const match = pattern.exec(source);
+      if (match) {
+        throw new Error(`packed SDK JavaScript retains a runtime import of private ${match[1]}`);
+      }
+    }
+  }
+
+  return manifest;
+}
+
 try {
   const packOutput = JSON.parse(run(["pack", "--json", "--pack-destination", smokeDir], packageDir));
   const tarball = join(smokeDir, packOutput[0].filename);
+  const manifest = assertPackedArtifact(packOutput, tarball);
   const consumerDir = join(smokeDir, "consumer");
   mkdirSync(consumerDir, { recursive: true });
   writeFileSync(
@@ -32,9 +123,11 @@ try {
 
   run(["install", "--ignore-scripts", "--no-audit", "--no-fund", "--package-lock=false", tarball], consumerDir);
 
-  const manifest = JSON.parse(readFileSync(join(consumerDir, "node_modules", "@sigmon", "sdk", "package.json"), "utf8"));
-  if (manifest.dependencies?.["@sigmon/telemetry"]) {
-    throw new Error("packed SDK retains a runtime dependency on private @sigmon/telemetry");
+  const installedManifest = JSON.parse(
+    readFileSync(join(consumerDir, "node_modules", "@sigmon", "sdk", "package.json"), "utf8")
+  );
+  if (installedManifest.name !== manifest.name || installedManifest.version !== manifest.version) {
+    throw new Error("installed SDK manifest does not match the inspected tarball");
   }
 
   execFileSync(
