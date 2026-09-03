@@ -185,7 +185,8 @@ describe.sequential("SDK artifact lifecycle", () => {
 
     const result = runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk, {
       npm_config_registry: "http://127.0.0.1:1",
-      npm_config_fetch_retries: "0"
+      npm_config_fetch_retries: "0",
+      npm_config_fetch_timeout: "1000"
     });
 
     expect(result.status).not.toBe(0);
@@ -205,7 +206,8 @@ describe.sequential("SDK artifact lifecycle", () => {
 
     const result = runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk, {
       npm_config_registry: "http://127.0.0.1:1",
-      npm_config_fetch_retries: "0"
+      npm_config_fetch_retries: "0",
+      npm_config_fetch_timeout: "1000"
     });
 
     expect(result.status).not.toBe(0);
@@ -228,12 +230,97 @@ describe.sequential("SDK artifact lifecycle", () => {
 
     const result = runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk, {
       npm_config_registry: "http://127.0.0.1:1",
-      npm_config_fetch_retries: "0"
+      npm_config_fetch_retries: "0",
+      npm_config_fetch_timeout: "1000"
     });
 
     expect(result.status).not.toBe(0);
     expect(`${result.stdout}\n${result.stderr}`).toContain(
       "packed SDK JavaScript retains a runtime import of private @sigmon/private-runtime"
     );
+  }, 120_000);
+
+  it.each([
+    ["comment-separated static import", 'import /* preserved comment */ "@sigmon/comment-static";', "@sigmon/comment-static"],
+    [
+      "dynamic import attributes",
+      'export const probe = () => import("@sigmon/import-attributes", { with: { type: "json" } });',
+      "@sigmon/import-attributes"
+    ],
+    [
+      "dynamic import with a literal template",
+      "export const probe = () => import(`@sigmon/template-import`);",
+      "@sigmon/template-import"
+    ],
+    [
+      "comment-separated require",
+      'export const probe = require /* preserved comment */("@sigmon/comment-require");',
+      "@sigmon/comment-require"
+    ],
+    [
+      "require with a literal template",
+      "export const probe = require(`@sigmon/template-require`);",
+      "@sigmon/template-require"
+    ],
+    [
+      "parenthesized require",
+      'export const probe = (require)("@sigmon/parenthesized-require");',
+      "@sigmon/parenthesized-require"
+    ],
+    [
+      "comma-expression require",
+      'export const probe = (0, require)("@sigmon/comma-require");',
+      "@sigmon/comma-require"
+    ],
+    [
+      "direct module.require",
+      'export const probe = module.require("@sigmon/module-require");',
+      "@sigmon/module-require"
+    ]
+  ])("rejects %s", (_form, statement, expectedSpecifier) => {
+    const { sdk } = createIsolatedPackage();
+    const manifestPath = join(sdk, "package.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { scripts: Record<string, string> };
+    delete manifest.scripts.prepack;
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    expectSuccess(runNpm(["run", "build"], sdk));
+    const packedIndexPath = join(sdk, "dist", "index.js");
+    writeFileSync(packedIndexPath, `${readFileSync(packedIndexPath, "utf8")}\n${statement}\n`);
+
+    const result = runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk, {
+      npm_config_registry: "http://127.0.0.1:1",
+      npm_config_fetch_retries: "0",
+      npm_config_fetch_timeout: "1000"
+    });
+
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}\n${result.stderr}`).toContain(
+      `packed SDK JavaScript retains a runtime import of private ${expectedSpecifier}`
+    );
+  }, 120_000);
+
+  it("allows private import text that appears only in comments and ordinary strings", () => {
+    const { sdk } = createIsolatedPackage();
+    const manifestPath = join(sdk, "package.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { scripts: Record<string, string> };
+    delete manifest.scripts.prepack;
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    expectSuccess(runNpm(["run", "build"], sdk));
+    const packedIndexPath = join(sdk, "dist", "index.js");
+    writeFileSync(
+      packedIndexPath,
+      `${readFileSync(packedIndexPath, "utf8")}
+// import("@sigmon/comment-only")
+const importDocumentation = 'import("@sigmon/string-only")';
+const requireDocumentation = \`require("@sigmon/template-text-only")\`;
+void importDocumentation;
+void requireDocumentation;
+`
+    );
+
+    const result = runNode(join("scripts", "smoke-packed-consumer.mjs"), sdk);
+
+    expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+    expect(result.stdout).toContain("packed SDK clean-consumer smoke passed");
   }, 120_000);
 });

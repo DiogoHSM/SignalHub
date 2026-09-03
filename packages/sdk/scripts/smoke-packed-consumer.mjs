@@ -1,11 +1,14 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const smokeDir = mkdtempSync(join(tmpdir(), "sigmon-sdk-packed-consumer-"));
+const require = createRequire(import.meta.url);
+const typescript = require("typescript");
 
 function run(args, cwd) {
   const command = process.platform === "win32" ? (process.env.ComSpec ?? "cmd.exe") : "npm";
@@ -31,6 +34,80 @@ function listTypeScriptSources(directory, prefix = "") {
     }
   }
   return files;
+}
+
+function moduleSpecifierText(expression) {
+  let current = expression;
+  while (typescript.isParenthesizedExpression(current)) current = current.expression;
+  return typescript.isStringLiteralLike(current) ? current.text : undefined;
+}
+
+function normalizeCallTarget(expression) {
+  let current = expression;
+  while (true) {
+    if (typescript.isParenthesizedExpression(current)) {
+      current = current.expression;
+      continue;
+    }
+    if (typescript.isCommaListExpression(current)) {
+      current = current.elements[current.elements.length - 1];
+      continue;
+    }
+    if (
+      typescript.isBinaryExpression(current) &&
+      current.operatorToken.kind === typescript.SyntaxKind.CommaToken
+    ) {
+      current = current.right;
+      continue;
+    }
+    return current;
+  }
+}
+
+function isRequireCallTarget(expression) {
+  const target = normalizeCallTarget(expression);
+  return (
+    (typescript.isIdentifier(target) && target.text === "require") ||
+    (typescript.isPropertyAccessExpression(target) && target.name.text === "require")
+  );
+}
+
+function findPrivateRuntimeImport(source, filename) {
+  const sourceFile = typescript.createSourceFile(
+    filename,
+    source,
+    typescript.ScriptTarget.Latest,
+    true,
+    typescript.ScriptKind.JS
+  );
+  let privateImport;
+
+  const visit = (node) => {
+    if (privateImport) return;
+    let specifier;
+    if (
+      (typescript.isImportDeclaration(node) || typescript.isExportDeclaration(node)) &&
+      node.moduleSpecifier
+    ) {
+      specifier = moduleSpecifierText(node.moduleSpecifier);
+    } else if (typescript.isCallExpression(node)) {
+      const isDynamicImport =
+        normalizeCallTarget(node.expression).kind === typescript.SyntaxKind.ImportKeyword;
+      const isRequire = isRequireCallTarget(node.expression);
+      if ((isDynamicImport || isRequire) && node.arguments[0]) {
+        specifier = moduleSpecifierText(node.arguments[0]);
+      }
+    }
+
+    if (specifier?.startsWith("@sigmon/")) {
+      privateImport = specifier;
+      return;
+    }
+    typescript.forEachChild(node, visit);
+  };
+
+  visit(sourceFile);
+  return privateImport;
 }
 
 function assertPackedArtifact(packOutput, tarball) {
@@ -94,16 +171,11 @@ function assertPackedArtifact(packOutput, tarball) {
     }
   }
 
-  const staticImportPattern = /(?:^|\n)\s*(?:import|export)\s+(?:[^"'\n]*?\s+from\s+)?["'](@sigmon\/[^"']+)["']/g;
-  const dynamicImportPattern = /\b(?:import|require)\s*\(\s*["'](@sigmon\/[^"']+)["']\s*\)/g;
   for (const file of packFiles.filter((path) => path.startsWith("dist/") && path.endsWith(".js"))) {
     const source = readFileSync(join(packedRoot, file), "utf8");
-    for (const pattern of [staticImportPattern, dynamicImportPattern]) {
-      pattern.lastIndex = 0;
-      const match = pattern.exec(source);
-      if (match) {
-        throw new Error(`packed SDK JavaScript retains a runtime import of private ${match[1]}`);
-      }
+    const privateImport = findPrivateRuntimeImport(source, file);
+    if (privateImport) {
+      throw new Error(`packed SDK JavaScript retains a runtime import of private ${privateImport}`);
     }
   }
 
