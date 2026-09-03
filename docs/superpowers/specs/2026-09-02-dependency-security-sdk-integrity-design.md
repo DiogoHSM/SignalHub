@@ -1,6 +1,6 @@
 # Dependency Security and SDK Package Integrity Design
 
-**Linear:** PER-516, PER-517, PER-518  
+**Linear:** PER-516, PER-517, PER-518
 **Related:** PER-514
 
 ## Goal
