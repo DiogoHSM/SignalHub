@@ -265,6 +265,19 @@ describe("immutable workflow dependencies", () => {
     expect(permissionSummaryInSource(fixture)).toEqual({ oidcWrites: 1, hasWriteAll: true });
   });
 
+  it("counts permissions for every resolved job alias", () => {
+    const fixture = [
+      "jobs:",
+      "  publish-sdk: &publish",
+      "    permissions: { contents: read, id-token: write }",
+      "    runs-on: ubuntu-latest",
+      "    steps: []",
+      "  attacker: *publish"
+    ].join("\n");
+
+    expect(permissionSummaryInSource(fixture)).toEqual({ oidcWrites: 2, hasWriteAll: false });
+  });
+
   it("disables automatic package-manager caching in the publish setup-node step", () => {
     expect(setupNodeCacheDisabledInSource(publishSdkWorkflow())).toBe(true);
   });
@@ -295,6 +308,17 @@ describe("immutable workflow dependencies", () => {
     ].join("\n");
 
     expect(installedNpmVersionsInSource(fixture)).toEqual(["11.19.1", "latest"]);
+  });
+
+  it("rejects an unversioned npm self-install that implicitly selects latest", () => {
+    const fixture = [
+      "if false; then",
+      "  npm install -g npm@11.19.1",
+      "fi",
+      "npm i -g npm"
+    ].join("\n");
+
+    expect(installedNpmVersionsInSource(fixture)).toEqual(["11.19.1", "<unversioned>"]);
   });
 
   it("configures weekly reviewed GitHub Actions dependency updates", () => {
