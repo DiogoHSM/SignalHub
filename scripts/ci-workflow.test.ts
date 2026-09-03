@@ -2,7 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { isAlias, isMap, isScalar, LineCounter, parse, parseDocument, visit } from "yaml";
+import { isAlias, isScalar, LineCounter, parse, parseDocument, visit } from "yaml";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const workflowPath = join(repoRoot, ".github", "workflows", "ci.yml");
@@ -95,25 +95,19 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 function permissionSummaryInSource(content: string): { oidcWrites: number; hasWriteAll: boolean } {
-  const document = parseDocument(content);
-  if (document.errors.length > 0) throw document.errors[0];
+  const root = asRecord(parse(content));
+  const jobs = asRecord(root?.jobs);
+  const permissionScopes = [
+    root?.permissions,
+    ...Object.values(jobs ?? {}).map((job) => asRecord(job)?.permissions)
+  ];
   let oidcWrites = 0;
   let hasWriteAll = false;
 
-  visit(document, {
-    Pair(_key, pair) {
-      if (resolvedYamlNodeValue(pair.key, document) !== "permissions") return;
-      const permissions = isAlias(pair.value) ? pair.value.resolve(document) : pair.value;
-      if (resolvedYamlNodeValue(permissions, document) === "write-all") hasWriteAll = true;
-      if (!isMap(permissions)) return;
-      for (const permission of permissions.items) {
-        if (resolvedYamlNodeValue(permission.key, document) === "id-token" &&
-          resolvedYamlNodeValue(permission.value, document) === "write") {
-          oidcWrites += 1;
-        }
-      }
-    }
-  });
+  for (const scope of permissionScopes) {
+    if (scope === "write-all") hasWriteAll = true;
+    if (asRecord(scope)?.["id-token"] === "write") oidcWrites += 1;
+  }
 
   return { oidcWrites, hasWriteAll };
 }
@@ -134,12 +128,18 @@ function setupNodeCacheDisabledInSource(content: string): boolean {
 }
 
 function installedNpmVersionsInSource(content: string): string[] {
-  return [...content.matchAll(/\bnpm@([^\s;|&]*)/g)].map((match) => {
+  const versions = [...content.matchAll(/\bnpm@([^\s;|&]*)/g)].map((match) => {
     const value = match[1];
     return value.length >= 2 && value[0] === value.at(-1) && /["']/.test(value[0])
       ? value.slice(1, -1)
       : value;
   });
+  const installAliases = "install|i|add|in|ins|inst|insta|instal|isnt|isnta|isntal|isntall";
+  const installCommand = new RegExp(`\\bnpm\\s+(?:${installAliases})\\b([^\\r\\n;&|]*)`, "g");
+  for (const match of content.matchAll(installCommand)) {
+    if (/(?:^|\s)["']?npm["']?(?=\s|$)/.test(match[1])) versions.push("<unversioned>");
+  }
+  return versions;
 }
 
 function workflow(): string {
