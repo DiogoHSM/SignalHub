@@ -187,7 +187,7 @@ async function defaultRunHttpSmoke(input: HttpSmokeInput): Promise<SmokeScope | 
 
   const apiKeyResponse = await postJson<{ apiKey: { secret?: string } }>(
     pathUrl(apiUrl, `/admin/projects/${encodedPath(projectId)}/api-keys`),
-    { environmentId, name: "Phase 6B Smoke Ingestion" },
+    { environmentId, name: "Phase 6B Smoke Ingestion", capability: "server" },
     { cookieJar, redact: input.redact }
   );
   const apiKeySecret = requireString(apiKeyResponse.apiKey.secret, "admin API key secret");

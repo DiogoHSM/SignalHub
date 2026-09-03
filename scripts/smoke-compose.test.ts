@@ -571,6 +571,53 @@ describe("smoke compose runner", () => {
 
   const commandString = (input: { command: string; args: string[] }) => [input.command, ...input.args].join(" ");
 
+  it("sends a server-capability API key request through the smoke HTTP helper", async () => {
+    const apiKeyBodies: unknown[] = [];
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const requestUrl = String(url);
+
+      if (requestUrl.endsWith("/auth/login")) {
+        return new Response(JSON.stringify({}), { status: 200 });
+      }
+
+      if (requestUrl.endsWith("/admin/projects")) {
+        return new Response(JSON.stringify({ project: { id: "prj_1" } }), { status: 201 });
+      }
+
+      if (requestUrl.endsWith("/admin/projects/prj_1/environments")) {
+        return new Response(JSON.stringify({ environment: { id: "env_1" } }), { status: 201 });
+      }
+
+      if (requestUrl.endsWith("/admin/projects/prj_1/api-keys")) {
+        apiKeyBodies.push(JSON.parse(String(init?.body)));
+        return new Response("stop after API key request", { status: 400 });
+      }
+
+      throw new Error(`Unexpected smoke HTTP request: ${requestUrl}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const exitCode = await runSmokeCompose({
+        options: runnerOptions,
+        write: () => undefined,
+        dependencies: {
+          getCommit: async () => "abc1234",
+          prepareResources: preparedResources,
+          runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" }),
+          removeTempDir: async () => undefined
+        }
+      });
+
+      expect(exitCode).toBe(1);
+      expect(apiKeyBodies).toEqual([
+        { environmentId: "env_1", name: "Phase 6B Smoke Ingestion", capability: "server" }
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("runs lifecycle steps with cleanup by default", async () => {
     const calls: string[] = [];
     const lines: string[] = [];
