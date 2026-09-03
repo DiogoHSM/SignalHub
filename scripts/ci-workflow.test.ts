@@ -137,12 +137,15 @@ function installedNpmVersionsInSource(content: string): string[] {
       ? value.slice(1, -1)
       : value;
   });
-  const installAliases = "install|i|add|in|ins|inst|insta|instal|isnt|isnta|isntal|isntall";
-  const installCommand = new RegExp(
-    `\\bnpm\\b[^\\r\\n;&|]*?\\b(?:${installAliases})\\b([^\\r\\n;&|]*)`,
+  const mutationAliases = [
+    "install", "i", "add", "in", "ins", "inst", "insta", "instal",
+    "isnt", "isnta", "isntal", "isntall", "update", "up", "upgrade", "udpate"
+  ].join("|");
+  const mutationCommand = new RegExp(
+    `\\bnpm\\b[^\\r\\n;&|]*?\\b(?:${mutationAliases})\\b([^\\r\\n;&|]*)`,
     "g"
   );
-  for (const match of normalized.matchAll(installCommand)) {
+  for (const match of normalized.matchAll(mutationCommand)) {
     if (/(?:^|\s)["']?npm["']?(?=\s|$)/.test(match[1])) versions.push("<unversioned>");
   }
   return versions;
