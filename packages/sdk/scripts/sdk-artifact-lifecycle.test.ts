@@ -24,7 +24,7 @@ type CommandResult = {
 };
 
 function run(command: string, args: string[], cwd: string, extraEnv: NodeJS.ProcessEnv = {}): Promise<CommandResult> {
-  return new Promise((resolveResult, reject) => {
+  return new Promise((resolveResult) => {
     const child = spawn(command, args, {
       cwd,
       env: { ...process.env, ...extraEnv },
@@ -33,12 +33,18 @@ function run(command: string, args: string[], cwd: string, extraEnv: NodeJS.Proc
     let stdout = "";
     let stderr = "";
     const timeout = setTimeout(() => child.kill(), 120_000);
+    let settled = false;
+    function finish(result: CommandResult): void {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolveResult(result);
+    }
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", reject);
+    child.on("error", (error) => finish({ status: null, stdout, stderr: `${stderr}\n${String(error)}` }));
     child.on("close", (status) => {
-      clearTimeout(timeout);
-      resolveResult({ status, stdout, stderr });
+      finish({ status, stdout, stderr });
     });
   });
 }
@@ -112,6 +118,13 @@ afterEach(() => {
 });
 
 describe.sequential("SDK artifact lifecycle", () => {
+  it("captures a failed executable launch as diagnostics", async () => {
+    const result = await run(join(repositoryRoot, "missing-sdk-artifact-executable"), [], repositoryRoot);
+
+    expect(result.status).toBeNull();
+    expect(result.stderr).toMatch(/ENOENT|not found/i);
+  });
+
   it("removes files left in dist by a previous successful build", async () => {
     const { sdk } = createIsolatedPackage();
     const sentinel = join(sdk, "dist", "obsolete-from-previous-build.js");
