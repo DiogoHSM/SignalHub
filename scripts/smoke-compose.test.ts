@@ -1,7 +1,9 @@
 import { EventEmitter } from "node:events";
 import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { promisify } from "node:util";
@@ -26,6 +28,9 @@ import { createStepRecorder, renderSummary } from "./smoke-compose/steps.js";
 import { createSmokeEnvContent, defaultSmokeSecrets, writeSmokeResources } from "./smoke-compose/temp-env.js";
 
 const execFileAsync = promisify(execFile);
+const require = createRequire(import.meta.url);
+const tsxCli = require.resolve("tsx/cli");
+const doctorEntry = fileURLToPath(new URL("./doctor.ts", import.meta.url));
 
 describe("smoke compose primitives", () => {
   it("uses default smoke options", () => {
@@ -133,6 +138,15 @@ class HangingFakeProcess extends EventEmitter {
 }
 
 describe("smoke compose command execution", () => {
+  it("launches the real doctor parser through Node without invoking Docker", async () => {
+    const literalArgument = "--literal value & $() | < >";
+
+    await expect(execFileAsync(process.execPath, [tsxCli, doctorEntry, literalArgument], { shell: false })).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining(`Unknown doctor argument: ${literalArgument}`)
+    });
+  });
+
   it("captures stdout, stderr, and exit code", async () => {
     const child = new FakeProcess();
     const promise = runCommand(
@@ -599,12 +613,12 @@ describe("smoke compose runner", () => {
 
     expect(exitCode).toBe(0);
     expect(calls).toEqual([
-      "pnpm run doctor -- --env-file /tmp/sigmon-smoke-1/.env",
+      `${process.execPath} ${tsxCli} ${doctorEntry} --env-file /tmp/sigmon-smoke-1/.env`,
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env config --quiet",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env up -d postgres redis",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm api pnpm seed:admin",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env up -d --build",
-      "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env",
+      `${process.execPath} ${tsxCli} ${doctorEntry} --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env`,
       "http-smoke",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm worker pnpm backup:create",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm worker sh -lc ls -1t /var/lib/sigmon/backups/*.dump | head -n 1",
@@ -612,7 +626,7 @@ describe("smoke compose runner", () => {
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env stop api worker",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm worker pnpm backup:restore -- /var/lib/sigmon/backups/sigmon-smoke.dump --yes",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env start api worker",
-      "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env",
+      `${process.execPath} ${tsxCli} ${doctorEntry} --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env`,
       "http-smoke",
       "docker compose -p sigmon_smoke down -v",
       "rm /tmp/sigmon-smoke-1"
@@ -635,7 +649,7 @@ describe("smoke compose runner", () => {
         runCommand: async (input) => {
           const command = commandString(input);
           calls.push(command);
-          if (command === "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env") {
+          if (command === `${process.execPath} ${tsxCli} ${doctorEntry} --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env`) {
             composeDoctorAttempts += 1;
             if (composeDoctorAttempts === 1) {
               return { exitCode: 1, stdout: "[FAIL] API /ready is unreachable", stderr: "" };
