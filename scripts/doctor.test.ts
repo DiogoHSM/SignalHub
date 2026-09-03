@@ -283,13 +283,37 @@ describe("doctor orchestration", () => {
     expect(commands[1]).toEqual([process.execPath, join(corepackRoot, "dist", "pnpm.js"), "--version"]);
   });
 
-  it("reproduces Corepack's bare pnpm Windows no-shell limitation", async (context) => {
-    if (process.platform !== "win32" || !process.env.COREPACK_ROOT) {
-      context.skip();
-      return;
-    }
+  it("reports the bare pnpm Windows no-shell failure without relying on PATH", async () => {
+    const command = selectPnpmVersionCommand({
+      platform: "win32",
+      execPath: "C:\\node.exe",
+      corepackRoot: "C:\\missing-corepack",
+      isFile: () => false
+    });
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough;
+      stderr: PassThrough;
+      kill: (signal: NodeJS.Signals) => boolean;
+    };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => true;
+    const spawned: Array<[string, string[]]> = [];
 
-    await expect(runCommandWithTimeout(["pnpm", "--version"])).rejects.toThrow("spawn pnpm ENOENT");
+    const result = await checkCommand("pnpm version check", command, (input) =>
+      runCommandWithTimeout(input, 1_000, {
+        spawnProcess: (program, args) => {
+          spawned.push([program, args]);
+          queueMicrotask(() => child.emit("error", new Error("spawn pnpm ENOENT")));
+          return child;
+        }
+      })
+    );
+
+    expect(spawned).toEqual([["pnpm", ["--version"]]]);
+    expect(result).toEqual(
+      expect.objectContaining({ status: "fail", message: "pnpm version check failed", detail: "spawn pnpm ENOENT" })
+    );
   });
 
   it("selects the validated Corepack pnpm entry point as literal Windows argv", () => {
