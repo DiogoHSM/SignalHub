@@ -1,8 +1,10 @@
+// @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 const root = process.cwd().endsWith("apps/console") ? process.cwd() : join(process.cwd(), "apps", "console");
 const css = readFileSync(join(root, "src", "styles", "v2", "shell.css"), "utf8");
+const primitivesCss = readFileSync(join(root, "src", "styles", "v2", "primitives.css"), "utf8");
 const componentsCss = readFileSync(join(root, "src", "styles", "v2", "components.css"), "utf8");
 const mobileCss = readFileSync(join(root, "src", "v2", "mobile-status.css"), "utf8");
 const keyframesCss = readFileSync(join(root, "src", "styles", "v2", "keyframes.css"), "utf8");
@@ -37,6 +39,40 @@ describe("v2 shell css is scoped", () => {
   it("does not emit a bare html/body/#root rule", () => {
     expect(css).not.toMatch(/^\s*html\s*,\s*body/m);
     expect(css).not.toMatch(/^\s*#root\s*\{/m);
+  });
+
+  it("lets growing cards retain intrinsic height while ordinary page sections stay fixed", () => {
+    const style = document.createElement("style");
+    // Match index.css import order: extracted primitives load before shell layout.
+    style.textContent = `${primitivesCss}\n${css}`;
+    document.head.append(style);
+    document.body.innerHTML = `
+      <div class="sh-v2">
+        <main class="page">
+          <section data-testid="fixed"></section>
+          <section class="sh-card-grow" data-testid="grow">
+            <div class="sh-scroll-fill" data-testid="scroll"></div>
+          </section>
+        </main>
+      </div>
+    `;
+
+    try {
+      const fixed = getComputedStyle(document.querySelector('[data-testid="fixed"]') as Element);
+      const grow = getComputedStyle(document.querySelector('[data-testid="grow"]') as Element);
+      const scroll = getComputedStyle(document.querySelector('[data-testid="scroll"]') as Element);
+
+      expect(fixed.flexShrink).toBe("0");
+      expect(grow.flexGrow).toBe("1");
+      expect(grow.flexShrink).toBe("0");
+      expect(grow.flexBasis).toBe("auto");
+      expect(grow.minHeight).toBe("0");
+      expect(scroll.flexGrow).toBe("1");
+      expect(scroll.overflow).toBe("auto");
+    } finally {
+      document.body.replaceChildren();
+      style.remove();
+    }
   });
   it("keeps the page-transition keyframes", () => {
     expect(css).toMatch(/@keyframes pgFwd/);

@@ -8,7 +8,7 @@
 .sh-v2 .sh-grid-16 { display: grid; gap: 16px; }
 .sh-v2 .sh-stack { display: flex; flex-direction: column; }
 .sh-v2 .sh-card-fill { display: flex; flex-direction: column; min-height: 0; }
-.sh-v2 .sh-card-grow { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.sh-v2 .sh-card-grow { flex: 1 0 auto; min-height: 0; display: flex; flex-direction: column; }
 .sh-v2 .sh-scroll-fill { overflow: auto; flex: 1; }
 .sh-v2 .sh-panel-rail { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow: auto; }
 .sh-v2 .sh-grow { flex: 1; }
