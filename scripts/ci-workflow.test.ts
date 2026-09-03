@@ -71,6 +71,23 @@ function isDockerDigestPin(value: string): boolean {
   return /^docker:\/\/[A-Za-z0-9][A-Za-z0-9._/:~-]*@sha256:[0-9a-f]{64}$/.test(value);
 }
 
+function permissionSummaryInSource(content: string): { oidcWrites: number; hasWriteAll: boolean } {
+  return {
+    oidcWrites: (content.match(/["']?id-token["']?\s*:\s*["']?write["']?/g) ?? []).length,
+    hasWriteAll: /permissions\s*:\s*["']?write-all["']?/.test(content)
+  };
+}
+
+function setupNodeCacheDisabledInSource(content: string): boolean {
+  const setupStart = content.indexOf("      - name: Set up Node.js");
+  const setupEnd = content.indexOf("\n      - name:", setupStart + 1);
+  return setupStart >= 0 && content.slice(setupStart, setupEnd).includes("package-manager-cache: false");
+}
+
+function installedNpmVersionsInSource(content: string): string[] {
+  return [...content.matchAll(/npm install -g npm@([^\s]+)/g)].map((match) => match[1]);
+}
+
 function dependabotUpdateBlock(content: string, ecosystem: string): string {
   const lines = content.split("\n");
   const start = lines.findIndex((line) => line.trim() === `- package-ecosystem: ${ecosystem}`);
@@ -146,6 +163,24 @@ describe("immutable workflow dependencies", () => {
       .toHaveLength(4);
   });
 
+  it("recognizes YAML-decoded and aliased uses keys", () => {
+    const fixture = [
+      "action-key: &action-key uses",
+      "steps:",
+      '  - "u\\u0073es": owner/unicode@main',
+      "  - ? uses",
+      "    : owner/explicit@main",
+      "  - ? *action-key",
+      "    : owner/alias@main"
+    ].join("\n");
+
+    expect(actionReferencesInSource(fixture, "fixture.yml").map(({ value }) => value)).toEqual([
+      "owner/unicode@main",
+      "owner/explicit@main",
+      "owner/alias@main"
+    ]);
+  });
+
   it("binds checkout and setup-node pins to the reviewed upstream releases", () => {
     const references = actionManifestPaths().flatMap(actionReferences);
     for (const reference of references.filter(({ value }) => value.startsWith("actions/checkout@"))) {
@@ -171,6 +206,18 @@ describe("immutable workflow dependencies", () => {
     expect(publishJob).toMatch(/permissions:\s*\n\s+contents:\s*read\s*\n\s+id-token:\s*write/);
   });
 
+  it("interprets escaped and aliased permission values as YAML does", () => {
+    const fixture = [
+      "permissions:",
+      '  "\\u0069d-token": write',
+      "jobs:",
+      "  unsafe:",
+      "    permissions: &all write-all"
+    ].join("\n");
+
+    expect(permissionSummaryInSource(fixture)).toEqual({ oidcWrites: 1, hasWriteAll: true });
+  });
+
   it("disables automatic package-manager caching in the publish setup-node step", () => {
     const publishJob = jobBlock(publishSdkWorkflow(), "publish-sdk");
     const setupStart = publishJob.indexOf("      - name: Set up Node.js");
@@ -181,11 +228,30 @@ describe("immutable workflow dependencies", () => {
     expect(setupStep).toContain("package-manager-cache: false");
   });
 
+  it("does not treat a comment as a disabled setup-node package-manager cache", () => {
+    const fixture = [
+      "      - name: Set up Node.js",
+      "        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0",
+      "        # package-manager-cache: false",
+      "      - name: Next step"
+    ].join("\n");
+
+    expect(setupNodeCacheDisabledInSource(fixture)).toBe(false);
+  });
+
   it("installs only the reviewed exact npm CLI before publishing", () => {
-    const installedVersions = [...publishSdkWorkflow().matchAll(/npm install -g npm@([^\s]+)/g)]
-      .map((match) => match[1]);
+    const installedVersions = installedNpmVersionsInSource(publishSdkWorkflow());
 
     expect(installedVersions).toEqual(["11.19.1"]);
+  });
+
+  it("rejects npm install aliases that select an unreviewed version", () => {
+    const fixture = [
+      "if false; then npm install -g npm@11.19.1; fi",
+      "npm i -g npm@latest"
+    ].join("\n");
+
+    expect(installedNpmVersionsInSource(fixture)).toEqual(["11.19.1", "latest"]);
   });
 
   it("configures weekly reviewed GitHub Actions dependency updates", () => {
