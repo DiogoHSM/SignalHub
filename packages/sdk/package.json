@@ -1,6 +1,6 @@
 {
   "name": "@sigmon/sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "SignalMonitor JavaScript and TypeScript SDK for events, errors, breadcrumbs, traces, LLM calls, identify, Web Vitals, session replay, click maps, feedback widgets, Node CPU/memory profiling, and Next.js instrumentation.",
   "type": "module",
   "license": "MIT",
