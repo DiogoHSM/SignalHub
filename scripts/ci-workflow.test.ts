@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { isAlias, isMap, isScalar, LineCounter, parse, parseDocument, visit } from "yaml";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const workflowPath = join(repoRoot, ".github", "workflows", "ci.yml");
@@ -37,14 +38,25 @@ function actionManifestPaths(): string[] {
 }
 
 function actionReferencesInSource(content: string, path: string): ActionReference[] {
+  const lineCounter = new LineCounter();
+  const document = parseDocument(content, { lineCounter });
+  if (document.errors.length > 0) throw document.errors[0];
+
   const results: ActionReference[] = [];
-  const key = /(?:^|[,{\s-])(?:uses|["']uses["'])\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\s,}#]*))/g;
-  for (const [index, source] of content.split("\n").entries()) {
-    let match: RegExpExecArray | null;
-    while ((match = key.exec(source)) !== null) {
-      results.push({ file: path, line: index + 1, source, value: match[1] ?? match[2] ?? match[3] });
+  const lines = content.split(/\r?\n/);
+  visit(document, {
+    Pair(_key, pair) {
+      if (resolvedYamlNodeValue(pair.key, document) !== "uses") return;
+      const value = resolvedYamlNodeValue(pair.value, document);
+      const line = pair.value?.range ? lineCounter.linePos(pair.value.range[0]).line : 1;
+      results.push({
+        file: path,
+        line,
+        source: lines[line - 1] ?? "",
+        value: typeof value === "string" ? value : ""
+      });
     }
-  }
+  });
   return results;
 }
 
@@ -71,29 +83,63 @@ function isDockerDigestPin(value: string): boolean {
   return /^docker:\/\/[A-Za-z0-9][A-Za-z0-9._/:~-]*@sha256:[0-9a-f]{64}$/.test(value);
 }
 
+function resolvedYamlNodeValue(node: unknown, document: ReturnType<typeof parseDocument>): unknown {
+  const resolved = isAlias(node) ? node.resolve(document) : node;
+  return isScalar(resolved) ? resolved.value : resolved;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
 function permissionSummaryInSource(content: string): { oidcWrites: number; hasWriteAll: boolean } {
-  return {
-    oidcWrites: (content.match(/["']?id-token["']?\s*:\s*["']?write["']?/g) ?? []).length,
-    hasWriteAll: /permissions\s*:\s*["']?write-all["']?/.test(content)
-  };
+  const document = parseDocument(content);
+  if (document.errors.length > 0) throw document.errors[0];
+  let oidcWrites = 0;
+  let hasWriteAll = false;
+
+  visit(document, {
+    Pair(_key, pair) {
+      if (resolvedYamlNodeValue(pair.key, document) !== "permissions") return;
+      const permissions = isAlias(pair.value) ? pair.value.resolve(document) : pair.value;
+      if (resolvedYamlNodeValue(permissions, document) === "write-all") hasWriteAll = true;
+      if (!isMap(permissions)) return;
+      for (const permission of permissions.items) {
+        if (resolvedYamlNodeValue(permission.key, document) === "id-token" &&
+          resolvedYamlNodeValue(permission.value, document) === "write") {
+          oidcWrites += 1;
+        }
+      }
+    }
+  });
+
+  return { oidcWrites, hasWriteAll };
 }
 
 function setupNodeCacheDisabledInSource(content: string): boolean {
-  const setupStart = content.indexOf("      - name: Set up Node.js");
-  const setupEnd = content.indexOf("\n      - name:", setupStart + 1);
-  return setupStart >= 0 && content.slice(setupStart, setupEnd).includes("package-manager-cache: false");
+  const root = asRecord(parse(content));
+  const jobs = asRecord(root?.jobs);
+  const publishJob = asRecord(jobs?.["publish-sdk"]);
+  const steps = Array.isArray(publishJob?.steps) ? publishJob.steps : [];
+  const setupNodeSteps = steps
+    .map(asRecord)
+    .filter((step) => typeof step?.uses === "string" && step.uses.startsWith("actions/setup-node@"));
+
+  return setupNodeSteps.length > 0 && setupNodeSteps.every((step) => {
+    const inputs = asRecord(step?.with);
+    return inputs?.["package-manager-cache"] === false;
+  });
 }
 
 function installedNpmVersionsInSource(content: string): string[] {
-  return [...content.matchAll(/npm install -g npm@([^\s]+)/g)].map((match) => match[1]);
-}
-
-function dependabotUpdateBlock(content: string, ecosystem: string): string {
-  const lines = content.split("\n");
-  const start = lines.findIndex((line) => line.trim() === `- package-ecosystem: ${ecosystem}`);
-  if (start < 0) return "";
-  const end = lines.findIndex((line, index) => index > start && /^\s{2}-\s+package-ecosystem:/.test(line));
-  return lines.slice(start, end < 0 ? undefined : end).join("\n");
+  return [...content.matchAll(/\bnpm@([^\s;|&]*)/g)].map((match) => {
+    const value = match[1];
+    return value.length >= 2 && value[0] === value.at(-1) && /["']/.test(value[0])
+      ? value.slice(1, -1)
+      : value;
+  });
 }
 
 function workflow(): string {
@@ -195,15 +241,16 @@ describe("immutable workflow dependencies", () => {
 
   it("grants OIDC only to the publish-sdk job and never through write-all", () => {
     const manifests = actionManifestPaths().map((path) => ({ path, content: readFileSync(path, "utf8") }));
-    const allContent = manifests.map(({ content }) => content).join("\n");
     const publishContent = publishSdkWorkflow();
-    const publishJob = jobBlock(publishContent, "publish-sdk");
-    const oidcWrites = allContent.match(/["']?id-token["']?\s*:\s*["']?write["']?/g) ?? [];
+    const summaries = manifests.map(({ content }) => permissionSummaryInSource(content));
+    const publish = asRecord(parse(publishContent));
+    const workflowPermissions = asRecord(publish?.permissions);
+    const publishPermissions = asRecord(asRecord(asRecord(publish?.jobs)?.["publish-sdk"])?.permissions);
 
-    expect(allContent).not.toMatch(/permissions\s*:\s*["']?write-all["']?/);
-    expect(oidcWrites).toHaveLength(1);
-    expect(publishContent.slice(0, publishContent.indexOf("\njobs:\n"))).not.toMatch(/id-token\s*:/);
-    expect(publishJob).toMatch(/permissions:\s*\n\s+contents:\s*read\s*\n\s+id-token:\s*write/);
+    expect(summaries.some(({ hasWriteAll }) => hasWriteAll)).toBe(false);
+    expect(summaries.reduce((sum, { oidcWrites }) => sum + oidcWrites, 0)).toBe(1);
+    expect(workflowPermissions?.["id-token"]).toBeUndefined();
+    expect(publishPermissions).toMatchObject({ contents: "read", "id-token": "write" });
   });
 
   it("interprets escaped and aliased permission values as YAML does", () => {
@@ -219,21 +266,17 @@ describe("immutable workflow dependencies", () => {
   });
 
   it("disables automatic package-manager caching in the publish setup-node step", () => {
-    const publishJob = jobBlock(publishSdkWorkflow(), "publish-sdk");
-    const setupStart = publishJob.indexOf("      - name: Set up Node.js");
-    const setupEnd = publishJob.indexOf("\n      - name:", setupStart + 1);
-    const setupStep = publishJob.slice(setupStart, setupEnd);
-
-    expect(setupStart).toBeGreaterThanOrEqual(0);
-    expect(setupStep).toContain("package-manager-cache: false");
+    expect(setupNodeCacheDisabledInSource(publishSdkWorkflow())).toBe(true);
   });
 
   it("does not treat a comment as a disabled setup-node package-manager cache", () => {
     const fixture = [
+      "jobs:",
+      "  publish-sdk:",
+      "    steps:",
       "      - name: Set up Node.js",
       "        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0",
-      "        # package-manager-cache: false",
-      "      - name: Next step"
+      "        # package-manager-cache: false"
     ].join("\n");
 
     expect(setupNodeCacheDisabledInSource(fixture)).toBe(false);
@@ -255,14 +298,17 @@ describe("immutable workflow dependencies", () => {
   });
 
   it("configures weekly reviewed GitHub Actions dependency updates", () => {
-    const content = dependabot();
-    const update = dependabotUpdateBlock(content, "github-actions");
+    const config = asRecord(parse(dependabot()));
+    const updates = Array.isArray(config?.updates) ? config.updates.map(asRecord) : [];
+    const update = updates.find((candidate) => candidate?.["package-ecosystem"] === "github-actions");
 
-    expect(content).toMatch(/^version:\s*2\s*$/m);
-    expect(update).toContain("directory: /");
-    expect(update).toMatch(/schedule:\s*\n\s+interval:\s*weekly/);
-    expect(update).toContain("open-pull-requests-limit: 5");
-    expect(update).toContain('prefix: "chore(actions)"');
+    expect(config?.version).toBe(2);
+    expect(update).toMatchObject({
+      directory: "/",
+      schedule: { interval: "weekly" },
+      "open-pull-requests-limit": 5,
+      "commit-message": { prefix: "chore(actions)" }
+    });
   });
 
   it("documents reviewed action releases without recommending mutable executable refs", () => {
