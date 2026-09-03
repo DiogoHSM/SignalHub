@@ -151,6 +151,10 @@ function installedNpmVersionsInSource(content: string): string[] {
   return versions;
 }
 
+function usesReviewedNpmForPublish(content: string): boolean {
+  return content.includes("npm publish --access public");
+}
+
 function workflow(): string {
   return readFileSync(workflowPath, "utf8");
 }
@@ -357,6 +361,18 @@ describe("immutable workflow dependencies", () => {
     ]);
   });
 
+  it("does not publish through an unversioned npm package executed by npx", () => {
+    const fixture = [
+      "jobs:",
+      "  publish-sdk:",
+      "    steps:",
+      "      - working-directory: packages/sdk",
+      "        run: npx --yes npm publish --access public"
+    ].join("\n");
+
+    expect(usesReviewedNpmForPublish(fixture)).toBe(false);
+  });
+
   it("configures weekly reviewed GitHub Actions dependency updates", () => {
     const config = asRecord(parse(dependabot()));
     const updates = Array.isArray(config?.updates) ? config.updates.map(asRecord) : [];
@@ -508,6 +524,7 @@ describe("GitHub Actions CI workflow", () => {
   it("publishes the SDK package to public npm only on manual dispatch with Trusted Publishing", () => {
     const content = publishSdkWorkflow();
 
+    expect(usesReviewedNpmForPublish(content)).toBe(true);
     expect(content).not.toContain("release:");
     expectIncludesAll(content, [
       "name: Publish SDK",
