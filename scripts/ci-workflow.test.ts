@@ -152,7 +152,17 @@ function installedNpmVersionsInSource(content: string): string[] {
 }
 
 function usesReviewedNpmForPublish(content: string): boolean {
-  return content.includes("npm publish --access public");
+  const root = asRecord(parse(content));
+  const jobs = asRecord(root?.jobs);
+  const publishJob = asRecord(jobs?.["publish-sdk"]);
+  const steps = Array.isArray(publishJob?.steps) ? publishJob.steps.map(asRecord) : [];
+  const publishingSteps = steps.filter((step) =>
+    typeof step?.run === "string" && /\bnpm\b.*\bpublish\b/s.test(step.run)
+  );
+
+  return publishingSteps.length === 1 &&
+    publishingSteps[0]?.["working-directory"] === "packages/sdk" &&
+    publishingSteps[0]?.run === "npm publish --access public";
 }
 
 function workflow(): string {
