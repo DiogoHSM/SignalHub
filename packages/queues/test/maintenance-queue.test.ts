@@ -120,6 +120,12 @@ describe("maintenance queue", () => {
     const queue = createMaintenanceQueue(redisUrl);
     const controller = new Redis(redisUrl);
     queue.on("error", () => undefined);
+    let pauseArmed = false;
+    const releasePause = async () => {
+      if (!pauseArmed) return;
+      await controller.call("CLIENT", "UNPAUSE");
+      pauseArmed = false;
+    };
 
     try {
       await enqueueBackupCreation(queue, {
@@ -127,7 +133,8 @@ describe("maintenance queue", () => {
         requestedBy: "usr_1",
         requestedAt: "2026-09-01T12:34:01.000Z"
       });
-      await controller.call("CLIENT", "PAUSE", "2500", "ALL");
+      await controller.call("CLIENT", "PAUSE", "10000", "WRITE");
+      pauseArmed = true;
 
       const startedAt = Date.now();
       const timedPayload: MaintenanceJob = {
@@ -137,6 +144,7 @@ describe("maintenance queue", () => {
       };
       await expect(enqueueBackupCreation(queue, timedPayload)).rejects.toThrow("Command timed out");
       expect(Date.now() - startedAt).toBeLessThan(1_800);
+      await releasePause();
 
       let recovered: Awaited<ReturnType<typeof enqueueBackupCreation>> | undefined;
       const deadline = Date.now() + 5_000;
@@ -150,9 +158,13 @@ describe("maintenance queue", () => {
       expect(recovered?.id).toBe("backup-create-20260901T1235Z");
       expect(await queue.count()).toBe(2);
     } finally {
-      await queue.obliterate({ force: true });
-      await queue.close();
-      await controller.quit();
+      try {
+        await releasePause();
+      } finally {
+        await queue.obliterate({ force: true });
+        await queue.close();
+        await controller.quit();
+      }
     }
   });
 });
