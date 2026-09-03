@@ -1536,6 +1536,67 @@ describe("repositories", () => {
     });
   });
 
+  it("round-trips every JSON root for optional span payload columns", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const projectId = "prj_span_json_roots";
+      const environmentId = "env_span_json_roots";
+      const timestamp = new Date("2026-09-03T12:00:00.000Z");
+      const cases: Array<{ label: string; value?: unknown; expected: unknown }> = [
+        { label: "omitted", expected: null },
+        { label: "null", value: null, expected: null },
+        { label: "object", value: { nested: true }, expected: { nested: true } },
+        { label: "array", value: ["visible", 42], expected: ["visible", 42] },
+        { label: "string", value: "visible", expected: "visible" },
+        { label: "number", value: 42, expected: 42 },
+        { label: "boolean", value: false, expected: false }
+      ];
+
+      await insertProjectAndEnvironment(db, projectId, environmentId);
+      try {
+        for (const testCase of cases) {
+          const optionalPayload = testCase.label === "omitted"
+            ? {}
+            : { input: testCase.value, output: testCase.value, error: testCase.value };
+          await insertSpan(db, {
+            id: `spn_json_root_${testCase.label}`,
+            projectId,
+            environmentId,
+            traceId: "trc_span_json_roots",
+            timestamp,
+            receivedAt: timestamp,
+            name: testCase.label,
+            status: "success",
+            startedAt: timestamp,
+            ...optionalPayload
+          });
+        }
+
+        const rows = await db
+          .selectFrom("spans")
+          .select(["id", "input", "output", "error"])
+          .where("project_id", "=", projectId)
+          .orderBy("id")
+          .execute();
+
+        expect(rows).toEqual(
+          [...cases]
+            .sort((left, right) => left.label.localeCompare(right.label))
+            .map((testCase) => ({
+              id: `spn_json_root_${testCase.label}`,
+              input: testCase.expected,
+              output: testCase.expected,
+              error: testCase.expected
+            }))
+        );
+      } finally {
+        await db.deleteFrom("spans").where("project_id", "=", projectId).execute();
+        await db.deleteFrom("environments").where("id", "=", environmentId).execute();
+        await db.deleteFrom("projects").where("id", "=", projectId).execute();
+      }
+    });
+  });
+
   it("rejects source map upload tokens for inactive missing or mismatched scopes", async () => {
     await withDb(async (db) => {
       await migrate(db);
