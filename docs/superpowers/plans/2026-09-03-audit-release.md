@@ -53,7 +53,7 @@
 
 ### Task 3: Prepare and perform coordinated production rollout
 
-**Files:** Read `.claude/docs/DEPLOYMENT.md`, `SELF-HOSTING.md`, `.env.example`, `Dockerfile`, `scripts/migrate-integration-secrets.ts`; record only non-secret operational evidence in the release evidence file.
+**Files:** Read `.claude/docs/DEPLOYMENT.md`, `docs/SELF-HOSTING.md`, `.env.example`, `Dockerfile`, `scripts/migrate-integration-secrets.ts`; record only non-secret operational evidence in the release evidence file.
 
 **Interfaces:** Consumes merged SHA and user-provisioned runtime secrets. Produces same-SHA healthy API/worker/scheduler with encrypted integration data and preserved storage.
 
