@@ -291,6 +291,12 @@ describe("system health routes", () => {
     const queue = createMaintenanceQueue(redisUrl);
     const controller = new Redis(redisUrl);
     queue.on("error", () => undefined);
+    let pauseArmed = false;
+    const releasePause = async () => {
+      if (!pauseArmed) return;
+      await controller.call("CLIENT", "UNPAUSE");
+      pauseArmed = false;
+    };
 
     try {
       await enqueueBackupCreation(queue, {
@@ -309,13 +315,15 @@ describe("system health routes", () => {
             })
         }
       });
-      await controller.call("CLIENT", "PAUSE", "2500", "ALL");
+      await controller.call("CLIENT", "PAUSE", "10000", "WRITE");
+      pauseArmed = true;
 
       const startedAt = Date.now();
       const stalled = await app.inject({ method: "POST", url: "/system/actions/backup" });
       expect(stalled.statusCode).toBe(503);
       expect(stalled.json()).toEqual({ error: "system_backup_failed" });
       expect(Date.now() - startedAt).toBeLessThan(1_800);
+      await releasePause();
 
       let recovered: Awaited<ReturnType<FastifyInstance["inject"]>> | undefined;
       const deadline = Date.now() + 5_000;
@@ -336,10 +344,14 @@ describe("system health routes", () => {
     } finally {
       await app?.close();
       app = undefined;
-      await queue.obliterate({ force: true });
-      await queue.close();
-      await controller.quit();
-      await container.stop();
+      try {
+        await releasePause();
+      } finally {
+        await queue.obliterate({ force: true });
+        await queue.close();
+        await controller.quit();
+        await container.stop();
+      }
     }
   }, 30_000);
 
