@@ -409,6 +409,17 @@ describe("immutable workflow dependencies", () => {
     });
   });
 
+  it("configures weekly root npm dependency updates", () => {
+    const config = asRecord(parse(dependabot()));
+    const updates = Array.isArray(config?.updates) ? config.updates.map(asRecord) : [];
+    const update = updates.find((candidate) => candidate?.["package-ecosystem"] === "npm");
+
+    expect(update).toMatchObject({
+      directory: "/",
+      schedule: { interval: "weekly" }
+    });
+  });
+
   it("documents reviewed action releases without recommending mutable executable refs", () => {
     for (const path of actionRuntimeDocs) {
       const content = readFileSync(path, "utf8");
@@ -458,7 +469,7 @@ describe("GitHub Actions CI workflow", () => {
   it("uses Node 24 actions, Node 22 app runtime, Corepack, and frozen pnpm installs in every build job", () => {
     const content = workflow();
 
-    for (const jobName of ["test", "build", "compose-config", "smoke-compose"]) {
+    for (const jobName of ["test", "build", "compose-config", "smoke-compose", "audit"]) {
       expectIncludesAll(jobBlock(content, jobName), [
         "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0",
         "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0",
@@ -481,6 +492,17 @@ describe("GitHub Actions CI workflow", () => {
     expectIncludesAll(jobBlock(content, "smoke-compose"), [
       "run: pnpm smoke:compose --project-name sigmon_ci_smoke --preserve"
     ]);
+  });
+
+  it("audits the complete frozen dependency graph in a dedicated job", () => {
+    const content = workflow();
+
+    expectIncludesAll(jobBlock(content, "audit"), [
+      "pnpm install --frozen-lockfile",
+      "run: pnpm audit"
+    ]);
+    expect(jobBlock(content, "audit")).not.toContain("--ignore");
+    expect(jobBlock(content, "audit")).not.toContain("--ignore-registry-errors");
   });
 
   it("collects best-effort smoke diagnostics only when the smoke job fails", () => {
@@ -535,7 +557,7 @@ describe("GitHub Actions CI workflow", () => {
       .filter((line) => /^ {2}[\w-]+:$/.test(line))
       .map((line) => line.trim().slice(0, -1));
 
-    expect(jobNames).toEqual(["test", "build", "compose-config", "smoke-compose"]);
+    expect(jobNames).toEqual(["audit", "test", "build", "compose-config", "smoke-compose"]);
 
     expect(content).not.toContain("deploy-easypanel:");
     expect(content).not.toContain("EASYPANEL");
