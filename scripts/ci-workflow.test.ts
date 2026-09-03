@@ -336,6 +336,24 @@ describe("immutable workflow dependencies", () => {
       .toEqual(["11.19.1", "latest"]);
   });
 
+  it("rejects npm update aliases that mutate the reviewed CLI", () => {
+    const fixture = [
+      "npm install -g npm@11.19.1",
+      "npm update -g npm",
+      "npm up -g npm",
+      "npm upgrade -g npm",
+      "npm udpate -g npm"
+    ].join("\n");
+
+    expect(installedNpmVersionsInSource(fixture)).toEqual([
+      "11.19.1",
+      "<unversioned>",
+      "<unversioned>",
+      "<unversioned>",
+      "<unversioned>"
+    ]);
+  });
+
   it("configures weekly reviewed GitHub Actions dependency updates", () => {
     const config = asRecord(parse(dependabot()));
     const updates = Array.isArray(config?.updates) ? config.updates.map(asRecord) : [];
