@@ -373,6 +373,18 @@ describe("immutable workflow dependencies", () => {
     expect(usesReviewedNpmForPublish(fixture)).toBe(false);
   });
 
+  it("does not publish through an unversioned npm package executed by npm exec", () => {
+    const fixture = [
+      "jobs:",
+      "  publish-sdk:",
+      "    steps:",
+      "      - working-directory: packages/sdk",
+      "        run: npm exec --yes --package npm -- npm publish --access public"
+    ].join("\n");
+
+    expect(usesReviewedNpmForPublish(fixture)).toBe(false);
+  });
+
   it("configures weekly reviewed GitHub Actions dependency updates", () => {
     const config = asRecord(parse(dependabot()));
     const updates = Array.isArray(config?.updates) ? config.updates.map(asRecord) : [];
