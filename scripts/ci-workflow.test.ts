@@ -128,15 +128,21 @@ function setupNodeCacheDisabledInSource(content: string): boolean {
 }
 
 function installedNpmVersionsInSource(content: string): string[] {
-  const versions = [...content.matchAll(/\bnpm@([^\s;|&]*)/g)].map((match) => {
+  const normalized = content
+    .replace(/\\\r?\n/g, " ")
+    .replace(/\\([^\r\n])/g, "$1");
+  const versions = [...normalized.matchAll(/\bnpm@([^\s;|&]*)/g)].map((match) => {
     const value = match[1];
     return value.length >= 2 && value[0] === value.at(-1) && /["']/.test(value[0])
       ? value.slice(1, -1)
       : value;
   });
   const installAliases = "install|i|add|in|ins|inst|insta|instal|isnt|isnta|isntal|isntall";
-  const installCommand = new RegExp(`\\bnpm\\s+(?:${installAliases})\\b([^\\r\\n;&|]*)`, "g");
-  for (const match of content.matchAll(installCommand)) {
+  const installCommand = new RegExp(
+    `\\bnpm\\b[^\\r\\n;&|]*?\\b(?:${installAliases})\\b([^\\r\\n;&|]*)`,
+    "g"
+  );
+  for (const match of normalized.matchAll(installCommand)) {
     if (/(?:^|\s)["']?npm["']?(?=\s|$)/.test(match[1])) versions.push("<unversioned>");
   }
   return versions;
