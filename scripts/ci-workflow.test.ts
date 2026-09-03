@@ -1,8 +1,79 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const workflowPath = ".github/workflows/ci.yml";
-const publishSdkWorkflowPath = ".github/workflows/publish-sdk.yml";
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+const workflowPath = join(repoRoot, ".github", "workflows", "ci.yml");
+const publishSdkWorkflowPath = join(repoRoot, ".github", "workflows", "publish-sdk.yml");
+const dependabotPath = join(repoRoot, ".github", "dependabot.yml");
+
+type ActionReference = {
+  file: string;
+  line: number;
+  source: string;
+  value: string;
+};
+
+function filesRecursively(directory: string): string[] {
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name);
+    return entry.isDirectory() ? filesRecursively(path) : [path];
+  });
+}
+
+function actionManifestPaths(): string[] {
+  const workflows = readdirSync(join(repoRoot, ".github", "workflows"), { withFileTypes: true })
+    .filter((entry) => entry.isFile() && /\.ya?ml$/i.test(entry.name))
+    .map((entry) => join(repoRoot, ".github", "workflows", entry.name));
+  const localActions = filesRecursively(join(repoRoot, ".github", "actions"))
+    .filter((path) => /^action\.ya?ml$/i.test(basename(path)));
+  return [...workflows, ...localActions].sort();
+}
+
+function actionReferencesInSource(content: string, path: string): ActionReference[] {
+  const results: ActionReference[] = [];
+  const key = /(?:^|[,{\s-])(?:uses|["']uses["'])\s*:\s*(?:"([^"]*)"|'([^']*)'|([^\s,}#]*))/g;
+  for (const [index, source] of content.split("\n").entries()) {
+    let match: RegExpExecArray | null;
+    while ((match = key.exec(source)) !== null) {
+      results.push({ file: path, line: index + 1, source, value: match[1] ?? match[2] ?? match[3] });
+    }
+  }
+  return results;
+}
+
+function actionReferences(path: string): ActionReference[] {
+  return actionReferencesInSource(readFileSync(path, "utf8"), path);
+}
+
+function isLocalAction(value: string): boolean {
+  if (!value.startsWith("./") && !value.startsWith("$/.github/")) return false;
+  return !value.includes("\\") && !value.includes("@") && !value.includes("${{") &&
+    !value.split("/").includes("..");
+}
+
+function hasReleaseComment(reference: ActionReference): boolean {
+  return /\s+#\s+v\d+(?:\.\d+){0,2}\s*$/.test(reference.source);
+}
+
+function isRepositoryShaPin(reference: ActionReference): boolean {
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*@[0-9a-f]{40}$/.test(reference.value) &&
+    hasReleaseComment(reference);
+}
+
+function isDockerDigestPin(value: string): boolean {
+  return /^docker:\/\/[A-Za-z0-9][A-Za-z0-9._/:~-]*@sha256:[0-9a-f]{64}$/.test(value);
+}
+
+function dependabotUpdateBlock(content: string, ecosystem: string): string {
+  const lines = content.split("\n");
+  const start = lines.findIndex((line) => line.trim() === `- package-ecosystem: ${ecosystem}`);
+  if (start < 0) return "";
+  const end = lines.findIndex((line, index) => index > start && /^\s{2}-\s+package-ecosystem:/.test(line));
+  return lines.slice(start, end < 0 ? undefined : end).join("\n");
+}
 
 function workflow(): string {
   return readFileSync(workflowPath, "utf8");
@@ -10,6 +81,10 @@ function workflow(): string {
 
 function publishSdkWorkflow(): string {
   return readFileSync(publishSdkWorkflowPath, "utf8");
+}
+
+function dependabot(): string {
+  return existsSync(dependabotPath) ? readFileSync(dependabotPath, "utf8") : "";
 }
 
 function expectIncludesAll(value: string, snippets: string[]) {
@@ -30,6 +105,96 @@ function jobBlock(content: string, jobName: string): string {
 
   return lines.slice(start, end === -1 ? undefined : end).join("\n");
 }
+
+describe("immutable workflow dependencies", () => {
+  it("pins every external action to an immutable digest and keeps repository release context", () => {
+    const references = actionManifestPaths().flatMap(actionReferences);
+    const invalid = references
+      .filter((reference) => !isLocalAction(reference.value))
+      .filter((reference) => !isRepositoryShaPin(reference) && !isDockerDigestPin(reference.value))
+      .map(({ file, line, value }) => `<repo>/${file.replace(repoRoot, "").replaceAll("\\", "/")}:${line} ${value}`);
+
+    expect(invalid).toEqual([]);
+  });
+
+  it("recognizes block, quoted, spaced, flow, local, and Docker uses forms", () => {
+    const fixture = [
+      "- uses: owner/action@v1",
+      "- 'uses' : 'owner/quoted@main'",
+      "- { name: Inline, uses: owner/flow@branch }",
+      "- uses: ./.github/actions/local",
+      "- uses: $/.github/actions/shared",
+      `- uses: docker://example/image@sha256:${"a".repeat(64)}`,
+      "- uses:"
+    ].join("\n");
+    const references = actionReferencesInSource(fixture, "fixture.yml");
+
+    expect(references.map(({ value }) => value)).toEqual([
+      "owner/action@v1",
+      "owner/quoted@main",
+      "owner/flow@branch",
+      "./.github/actions/local",
+      "$/.github/actions/shared",
+      `docker://example/image@sha256:${"a".repeat(64)}`,
+      ""
+    ]);
+    expect(references.filter(({ value }) => !isLocalAction(value) && !isDockerDigestPin(value)))
+      .toHaveLength(4);
+  });
+
+  it("binds checkout and setup-node pins to the reviewed upstream releases", () => {
+    const references = actionManifestPaths().flatMap(actionReferences);
+    for (const reference of references.filter(({ value }) => value.startsWith("actions/checkout@"))) {
+      expect(reference.value).toBe("actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803");
+      expect(reference.source).toMatch(/# v6\.1\.0\s*$/);
+    }
+    for (const reference of references.filter(({ value }) => value.startsWith("actions/setup-node@"))) {
+      expect(reference.value).toBe("actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38");
+      expect(reference.source).toMatch(/# v6\.5\.0\s*$/);
+    }
+  });
+
+  it("grants OIDC only to the publish-sdk job and never through write-all", () => {
+    const manifests = actionManifestPaths().map((path) => ({ path, content: readFileSync(path, "utf8") }));
+    const allContent = manifests.map(({ content }) => content).join("\n");
+    const publishContent = publishSdkWorkflow();
+    const publishJob = jobBlock(publishContent, "publish-sdk");
+    const oidcWrites = allContent.match(/["']?id-token["']?\s*:\s*["']?write["']?/g) ?? [];
+
+    expect(allContent).not.toMatch(/permissions\s*:\s*["']?write-all["']?/);
+    expect(oidcWrites).toHaveLength(1);
+    expect(publishContent.slice(0, publishContent.indexOf("\njobs:\n"))).not.toMatch(/id-token\s*:/);
+    expect(publishJob).toMatch(/permissions:\s*\n\s+contents:\s*read\s*\n\s+id-token:\s*write/);
+  });
+
+  it("disables automatic package-manager caching in the publish setup-node step", () => {
+    const publishJob = jobBlock(publishSdkWorkflow(), "publish-sdk");
+    const setupStart = publishJob.indexOf("      - name: Set up Node.js");
+    const setupEnd = publishJob.indexOf("\n      - name:", setupStart + 1);
+    const setupStep = publishJob.slice(setupStart, setupEnd);
+
+    expect(setupStart).toBeGreaterThanOrEqual(0);
+    expect(setupStep).toContain("package-manager-cache: false");
+  });
+
+  it("installs only the reviewed exact npm CLI before publishing", () => {
+    const installedVersions = [...publishSdkWorkflow().matchAll(/npm install -g npm@([^\s]+)/g)]
+      .map((match) => match[1]);
+
+    expect(installedVersions).toEqual(["11.19.1"]);
+  });
+
+  it("configures weekly reviewed GitHub Actions dependency updates", () => {
+    const content = dependabot();
+    const update = dependabotUpdateBlock(content, "github-actions");
+
+    expect(content).toMatch(/^version:\s*2\s*$/m);
+    expect(update).toContain("directory: /");
+    expect(update).toMatch(/schedule:\s*\n\s+interval:\s*weekly/);
+    expect(update).toContain("open-pull-requests-limit: 5");
+    expect(update).toContain('prefix: "chore(actions)"');
+  });
+});
 
 describe("GitHub Actions CI workflow", () => {
   it("runs automatically on pull requests and pushes to main, and still on demand", () => {
@@ -68,8 +233,8 @@ describe("GitHub Actions CI workflow", () => {
 
     for (const jobName of ["test", "build", "compose-config", "smoke-compose"]) {
       expectIncludesAll(jobBlock(content, jobName), [
-        "actions/checkout@v6",
-        "actions/setup-node@v6",
+        "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0",
+        "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0",
         "node-version: 22",
         "corepack enable",
         "corepack prepare pnpm@9.15.4 --activate",
@@ -180,7 +345,7 @@ describe("GitHub Actions CI workflow", () => {
 
     expectIncludesAll(content, [
       "Ensure npm supports Trusted Publishing",
-      "npm install -g npm@latest",
+      "npm install -g npm@11.19.1",
       "11.5.1"
     ]);
 
