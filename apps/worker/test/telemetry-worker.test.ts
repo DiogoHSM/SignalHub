@@ -851,6 +851,38 @@ describe("processTelemetryJob", () => {
     );
   });
 
+  it.each([
+    ["omitted", undefined, undefined],
+    ["null", null, null],
+    ["string", "visible", "visible"],
+    ["number", 42, 42],
+    ["boolean", false, false],
+    ["array", [{ password: "secret", keep: true }], [{ password: "[REDACTED]", keep: true }]],
+    ["object", { password: "secret", keep: true }, { password: "[REDACTED]", keep: true }]
+  ])("preserves %s optional span payload roots through the persistence boundary", async (_label, value, expected) => {
+    const writer = createWriter();
+    const optionalPayload = value === undefined ? {} : { input: value, output: value, error: value };
+    const job: TelemetryJobPayload = {
+      kind: "span",
+      id: "spn_optional",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        trace_id: "trc_1",
+        name: "optional.payload",
+        status: "success",
+        started_at: "2026-01-01T00:00:01.000Z",
+        ...optionalPayload
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertSpan).toHaveBeenCalledWith(
+      expect.objectContaining({ input: expected, output: expected, error: expected })
+    );
+  });
+
   it("persists sanitized breadcrumb jobs", async () => {
     const writer = createWriter();
     const job: TelemetryJobPayload = {

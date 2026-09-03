@@ -208,11 +208,15 @@ export async function upsertDataGovernancePolicy(
   return toPolicy(row);
 }
 
-function cloneJsonObject(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
+function cloneJsonValue<T>(value: T): T {
+  if (value === null || typeof value !== "object") {
+    return value;
   }
-  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function pathParts(path: string): string[] {
@@ -254,12 +258,15 @@ function applyRule(root: Record<string, unknown>, rule: DataGovernancePropertyRu
   cursor[leaf] = "[REDACTED]";
 }
 
-export function applyDataGovernanceRules(
-  value: unknown,
+export function applyDataGovernanceRules<T>(
+  value: T,
   policy: Pick<DataGovernancePolicy, "propertyRules">,
   target: DataGovernancePropertyRuleTarget
-): Record<string, unknown> {
-  const governed = cloneJsonObject(value);
+): T {
+  const governed = cloneJsonValue(value);
+  if (!isJsonObject(governed)) {
+    return governed;
+  }
   for (const rule of policy.propertyRules) {
     if (rule.target === target) {
       applyRule(governed, rule);
