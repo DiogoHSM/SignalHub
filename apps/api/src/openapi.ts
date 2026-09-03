@@ -44,6 +44,22 @@ const identifyAcceptedResponse = {
   }
 };
 
+const dataGovernanceRetentionProperties = {
+  events: { type: "integer", minimum: 1, maximum: 3650 },
+  errors: { type: "integer", minimum: 1, maximum: 3650 },
+  traces: { type: "integer", minimum: 1, maximum: 3650 },
+  spans: { type: "integer", minimum: 1, maximum: 3650 },
+  llmCalls: { type: "integer", minimum: 1, maximum: 3650 },
+  profiles: { type: "integer", minimum: 1, maximum: 3650 },
+  breadcrumbs: { type: "integer", minimum: 1, maximum: 3650 },
+  webVitals: { type: "integer", minimum: 1, maximum: 3650 },
+  clicks: { type: "integer", minimum: 1, maximum: 3650 },
+  replays: { type: "integer", minimum: 1, maximum: 3650 }
+};
+
+const dataGovernanceRetentionDescription =
+  "Closed per-category project/environment overrides in days. Omitted categories use their corresponding installation defaults; clicks, replays, and webVitals inherit RETENTION_EVENTS_DAYS. Unknown categories are rejected.";
+
 const jsonBody = (schema: string, example: Record<string, unknown>) => ({
   required: true,
   content: {
@@ -149,6 +165,23 @@ const systemActionOperation = (summary: string, description: string) => ({
     "200": {
       description: "System action completed or skipped",
       content: { "application/json": { schema: { $ref: "#/components/schemas/SystemActionResponse" } } }
+    },
+    "401": { $ref: "#/components/responses/Unauthorized" },
+    "403": { $ref: "#/components/responses/Forbidden" },
+    "501": { $ref: "#/components/responses/Unavailable" },
+    "503": { $ref: "#/components/responses/Unavailable" }
+  }
+});
+
+const backupActionOperation = (summary: string, description: string) => ({
+  tags: ["Session authenticated"],
+  summary,
+  description,
+  security: [{ sessionCookie: [] }],
+  responses: {
+    "202": {
+      description: "Backup job accepted",
+      content: { "application/json": { schema: { $ref: "#/components/schemas/SystemBackupActionResponse" } } }
     },
     "401": { $ref: "#/components/responses/Unauthorized" },
     "403": { $ref: "#/components/responses/Forbidden" },
@@ -845,8 +878,9 @@ export const openApiDocument = {
           environmentId: { type: "string" },
           retentionPolicy: {
             type: "object",
-            description: "Optional per-project retention windows in days. Scoped windows can shorten installation-level retention.",
-            additionalProperties: { type: "integer", minimum: 1, maximum: 3650 },
+            description: dataGovernanceRetentionDescription,
+            properties: dataGovernanceRetentionProperties,
+            additionalProperties: false,
             examples: [{ events: 90, errors: 180, traces: 30 }]
           },
           propertyRules: {
@@ -1709,11 +1743,23 @@ export const openApiDocument = {
         required: ["ok", "action", "status", "message", "generatedAt"],
         properties: {
           ok: { type: "boolean", const: true },
-          action: { type: "string", enum: ["doctor", "backup", "retention"] },
+          action: { type: "string", enum: ["doctor", "retention"] },
           status: { type: "string", enum: ["success", "skipped"] },
           message: { type: "string" },
           ran: { type: "boolean" },
           skipped: { type: "boolean" },
+          generatedAt: { type: "string", format: "date-time" }
+        }
+      },
+      SystemBackupActionResponse: {
+        type: "object",
+        required: ["ok", "action", "status", "message", "jobId", "generatedAt"],
+        properties: {
+          ok: { type: "boolean", const: true },
+          action: { type: "string", const: "backup" },
+          status: { type: "string", const: "accepted" },
+          message: { type: "string", const: "Backup queued." },
+          jobId: { type: "string" },
           generatedAt: { type: "string", format: "date-time" }
         }
       },
@@ -2842,7 +2888,7 @@ export const openApiDocument = {
       get: {
         tags: ["Session authenticated"],
         summary: "Read data governance policy",
-        description: "Read retention windows and sensitive property rules for a project/environment.",
+        description: "Read scoped retention overrides and sensitive property rules for a project/environment. Categories absent from the policy use installation defaults.",
         security: [{ sessionCookie: [] }],
         parameters: [
           { name: "project_id", in: "query", required: true, schema: { type: "string" } },
@@ -2862,7 +2908,7 @@ export const openApiDocument = {
       put: {
         tags: ["Session authenticated"],
         summary: "Update data governance policy",
-        description: "Configure project/environment retention windows and property mask/block rules.",
+        description: "Configure project/environment retention values that override installation defaults whether shorter or longer, plus property mask/block rules.",
         security: [{ sessionCookie: [] }],
         requestBody: {
           required: true,
@@ -2876,7 +2922,9 @@ export const openApiDocument = {
                   environmentId: { type: "string" },
                   retentionPolicy: {
                     type: "object",
-                    additionalProperties: { type: "integer", minimum: 1, maximum: 3650 },
+                    description: dataGovernanceRetentionDescription,
+                    properties: dataGovernanceRetentionProperties,
+                    additionalProperties: false,
                     examples: [{ events: 90, errors: 180, traces: 30 }]
                   },
                   propertyRules: {
@@ -4544,7 +4592,7 @@ export const openApiDocument = {
     "/query/events/retention": {
       get: queryReadRoute(
         "Query event retention curves",
-        "Analyze retention cohorts for a project environment. Cohorts are anchored on each actor's user_profiles.first_seen_at, not the minimum entry_event timestamp inside the queried window. Query with project_id, environment_id, window=24h|7d|30d, optional entry_event (cohort eligibility filter), optional return_event (absent means any event counts as retained), optional period=daily|weekly|monthly, optional intervals=2..12, and optional range_days=1..730 to override the window-derived range for long lookback queries. Ranges older than the configured raw event retention window are served from the event_actor_daily rollup, reported as source=raw|rollup in the response."
+        "Analyze retention cohorts for a project environment. Cohorts are anchored on each actor's user_profiles.first_seen_at, not the minimum entry_event timestamp inside the queried window. Query with project_id, environment_id, window=24h|7d|30d, optional entry_event (cohort eligibility filter), optional return_event (absent means any event counts as retained), optional period=daily|weekly|monthly, optional intervals=2..12, and optional range_days=1..730 to override the window-derived range for long lookback queries. RETENTION_EVENTS_DAYS remains the installation-level raw-versus-rollup routing threshold; scoped events retention independently controls raw-row deletion and can be shorter or longer. The response reports source=raw|rollup."
       )
     },
     "/query/events/click-map": {
@@ -6003,9 +6051,9 @@ export const openApiDocument = {
       )
     },
     "/system/actions/backup": {
-      post: systemActionOperation(
+      post: backupActionOperation(
         "Trigger manual backup",
-        "Admin-only action that runs the same backup workflow used by the scheduler, guarded by the backup advisory lock."
+        "Admin-only action that queues the same backup workflow used by the scheduler. The worker runs it asynchronously under the backup advisory lock."
       )
     },
     "/system/actions/retention": {

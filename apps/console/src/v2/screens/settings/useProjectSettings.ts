@@ -351,6 +351,23 @@ export function useProjectSettings(ctx: ScreenCtx) {
     );
   }, [client, ctx, perform, updateData]);
 
+  const createApiKey = useCallback(async (input: { name: string; capability: ApiKey["capability"] }) => {
+    if (!projectId || !environmentId) return false;
+    return perform(
+      () => client.createApiKey(projectId, { environmentId, ...input }),
+      (response) => {
+        const { secret, ...apiKey } = response.apiKey;
+        updateData((current) => ({ ...current, apiKeys: [apiKey, ...current.apiKeys] }));
+        ctx.onSecretCreated(
+          secret,
+          apiKey.capability === "server" ? "serverApiKey" : "browserApiKey",
+        );
+        ctx.pushToast("API key created — copy it now, it is shown only once");
+      },
+      "Could not create API key.", "apiKeys",
+    );
+  }, [client, ctx, environmentId, perform, projectId, updateData]);
+
   const createOrigin = useCallback(async (origin: string) => {
     if (!projectId || !client.createBrowserOrigin) return false;
     return perform(
@@ -469,6 +486,7 @@ export function useProjectSettings(ctx: ScreenCtx) {
     setSelectedDestinationId,
     renameApiKey,
     revokeApiKey,
+    createApiKey,
     createOrigin,
     archiveOrigin,
     saveGovernance,

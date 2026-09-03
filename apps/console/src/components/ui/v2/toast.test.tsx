@@ -18,7 +18,9 @@ describe("ToastView", () => {
   it("dismisses by id", async () => {
     const onDismiss = vi.fn();
     render(<ToastView toast={base} onDismiss={onDismiss} />);
-    await userEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    const dismiss = screen.getByRole("button", { name: "Dismiss" });
+    expect(dismiss).toHaveClass("sh-hit-target");
+    await userEvent.click(dismiss);
     expect(onDismiss).toHaveBeenCalledWith(1);
   });
 });

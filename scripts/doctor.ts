@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 
@@ -234,12 +235,40 @@ type CommandResult = {
 
 type CommandRunner = (command: string[]) => Promise<CommandResult>;
 
+type PnpmVersionCommandOptions = {
+  platform?: NodeJS.Platform;
+  execPath?: string;
+  corepackRoot?: string;
+  isFile?: (path: string) => boolean;
+};
+
 type FetchResult = {
   ok: boolean;
   status: number;
 };
 
 type FetchHealth = (url: string) => Promise<FetchResult>;
+
+function isRegularFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+export function selectPnpmVersionCommand(options: PnpmVersionCommandOptions = {}): string[] {
+  const fallback = ["pnpm", "--version"];
+  const platform = options.platform ?? process.platform;
+  const execPath = options.execPath ?? process.execPath;
+  const corepackRoot = options.corepackRoot ?? process.env.COREPACK_ROOT;
+  const isFile = options.isFile ?? isRegularFile;
+
+  if (platform !== "win32" || !execPath || !corepackRoot) return fallback;
+
+  const pnpmEntryPoint = join(corepackRoot, "dist", "pnpm.js");
+  return isFile(pnpmEntryPoint) ? [execPath, pnpmEntryPoint, "--version"] : fallback;
+}
 
 type BuildDoctorDependencies = {
   options: DoctorOptions;
@@ -330,7 +359,7 @@ export async function buildDoctorResults(dependencies: BuildDoctorDependencies):
   let env: DoctorEnv = {};
 
   results.push(await checkCommand("Node.js version check", ["node", "--version"], runCommand));
-  results.push(await checkCommand("pnpm version check", ["pnpm", "--version"], runCommand));
+  results.push(await checkCommand("pnpm version check", selectPnpmVersionCommand(), runCommand));
 
   if (!fileExists(options.envFile)) {
     results.push(createResult("fail", `${options.envFile} is missing; copy .env.example to ${options.envFile}`));

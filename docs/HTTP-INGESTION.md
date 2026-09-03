@@ -8,12 +8,47 @@ Use this guide for non-TypeScript clients, smoke tests, and code agents that nee
 
 | Credential | Used by | Keep secret? | Notes |
 | --- | --- | --- | --- |
-| Ingestion API key | `/v1/events`, `/v1/errors`, `/v1/breadcrumbs`, `/v1/clicks`, `/v1/replays`, `/v1/surveys/responses`, `/v1/llm`, `/v1/web-vitals`, `/v1/profiles`, `/v1/traces`, `/v1/spans`, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
+| Ingestion API key | Telemetry endpoints and, for server keys only, `/v1/identify/*` | Server keys: yes. Browser keys: public by design. | Create separate keys for server and browser emitters. |
 | Heartbeat secret | `/v1/heartbeats/{id}` | Yes | Generated per heartbeat monitor. Use from cron, workers, and schedulers. |
 | Source-map upload token | `/v1/source-maps` | Yes | CI-only token created from the Artifacts console. |
 | Session cookie | `/admin/*`, `/query/*`, `/system/*` | Browser session only | Used by logged-in human operators and the console. |
 
 Archived projects and environments are inactive scopes. Their ingestion keys, heartbeat secrets, and source-map upload tokens are rejected for new writes.
+
+## API Key Capabilities
+
+Browser keys are public by design and can send normal telemetry. They cannot mutate durable user or tenant profiles: `POST /v1/identify/user` and `POST /v1/identify/tenant` return `403 api_key_capability_forbidden` for a browser key. Keep server keys in server-side secret storage; they can send telemetry and are required for identify.
+
+Upgraded installations treat existing ingestion keys as browser-safe. Before deploying an existing server identify integration, create or rotate a server-capability key and replace the integration's secret.
+
+### Upgrade, migration, and rollback
+
+Before upgrading, inventory server-side calls to `/v1/identify/user` and `/v1/identify/tenant`. Create a server-capability key for each server integration, store it only in that integration's secret manager, and deploy the integration with the replacement key.
+
+Existing ingestion keys deliberately become browser-capability keys: they remain compatible with normal telemetry and must not be promoted to server capability, because an existing key may have been exposed in browser configuration. If a server identify integration needs a rapid rollback, restore the previous secret reference only when it already targets a server-capability key.
+
+The minimum safe API rollback target is a release that includes both API-key capability lookup and the browser-key guards on **both** identify routes. Never roll the API back to a release predating those controls: keeping a server key in the server integration does not stop other active browser or legacy keys from identifying against the old route. If no capability-enforcing API artifact is available, first block `/v1/identify/user` and `/v1/identify/tenant` at an external gateway and revoke every browser/legacy key, then verify the gateway block before rolling back. Server identify must remain unavailable behind that emergency block until a capability-enforcing API release is restored. Do not reclassify a browser or legacy key to recover identify access.
+
+Run this release smoke before and after every API deployment or rollback, using keys scoped to the same test project/environment. The release is safe only when the three status codes are `403`, `202`, and `202` respectively; the first response body must be `{ "error": "api_key_capability_forbidden" }`.
+
+```bash
+curl -i "$SIGMON_API_BASE/v1/identify/user" \
+  -H "Authorization: Bearer $SIGMON_BROWSER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"release-smoke-browser"}'
+
+curl -i "$SIGMON_API_BASE/v1/identify/user" \
+  -H "Authorization: Bearer $SIGMON_SERVER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"release-smoke-server"}'
+
+curl -i "$SIGMON_API_BASE/v1/events" \
+  -H "Authorization: Bearer $SIGMON_BROWSER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"release_smoke"}'
+```
+
+After deployment, run `pnpm privacy:redact-feedback-urls` once against the production database and retain its `scanned`/`updated` result with the release record. New and queued feedback is redacted server-side, and reads sanitize legacy values while the backfill catches up. Redaction removes URL query values irreversibly; rollback never restores them. MCP tools redact URL-like fields and suppress raw detail by default on the server. If raw-detail access must be withdrawn, set `MCP_ALLOW_RAW_DETAIL=false` and restart the MCP process; the caller's `includeRawDetail` flag alone cannot bypass that process boundary.
 
 ## Base Request
 
@@ -53,8 +88,8 @@ Content-Type: application/json
 | Runtime profiles | `POST /v1/profiles` | Ingestion API key |
 | Traces | `POST /v1/traces` | Ingestion API key |
 | Spans | `POST /v1/spans` | Ingestion API key |
-| Identify user | `POST /v1/identify/user` | Ingestion API key |
-| Identify tenant | `POST /v1/identify/tenant` | Ingestion API key |
+| Identify user | `POST /v1/identify/user` | Server ingestion API key |
+| Identify tenant | `POST /v1/identify/tenant` | Server ingestion API key |
 | Heartbeat check-in | `POST /v1/heartbeats/{id}` | Heartbeat secret |
 | Source-map upload | `POST /v1/source-maps` | Source-map upload token |
 
@@ -290,7 +325,7 @@ reserved for a future privacy-safe widget flow with masking and explicit consent
 
 Operators can analyze temporal retention cohorts with `GET /query/events/retention`. Cohorts are anchored on each actor's `user_profiles.first_seen_at` (their real first appearance), not the minimum `entry_event` timestamp inside the queried window — an actor who existed before the window but re-fires the entry event inside it does not start a new cohort. `entry_event` is an optional cohort eligibility filter; `return_event` is optional and, when absent, any event counts as retained activity across daily, weekly, or monthly intervals.
 
-An optional `range_days` (1..730) overrides the `window`-derived range for long lookback queries. Ranges older than the configured raw event retention window (`RETENTION_EVENTS_DAYS`) are served from the `event_actor_daily` daily rollup instead of raw events, and the response reports `source: "raw" | "rollup"` accordingly.
+An optional `range_days` (1..730) overrides the `window`-derived range for long lookback queries. Ranges crossing the installation `RETENTION_EVENTS_DAYS` threshold are served from the `event_actor_daily` daily rollup instead of raw events, and the response reports `source: "raw" | "rollup"` accordingly. This routing threshold is not scope-aware: the scoped events policy independently controls raw-row deletion and may be shorter or longer. A shorter scoped window can therefore remove raw rows while a request still routes to the raw path; a longer window can retain raw rows after requests route to rollups.
 
 Example query:
 
@@ -702,7 +737,7 @@ curl -i https://sigmon.example.com/v1/spans \
 
 ## Identify
 
-Identify calls upsert durable project/environment-scoped profile traits. New `traits` shallow-merge into the existing stored traits for that project/environment, so a later identify call can update one key without resending the whole profile. Normal telemetry with matching `user_id` or `tenant_id` updates last-seen timestamps, but only identify calls update stored traits.
+Identify calls require a server ingestion API key and upsert durable project/environment-scoped profile traits. New `traits` shallow-merge into the existing stored traits for that project/environment, so a later identify call can update one key without resending the whole profile. Normal telemetry with matching `user_id` or `tenant_id` updates last-seen timestamps, but only identify calls update stored traits.
 
 ```bash
 curl -i https://sigmon.example.com/v1/identify/user \

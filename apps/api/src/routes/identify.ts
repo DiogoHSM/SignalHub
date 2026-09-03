@@ -7,14 +7,16 @@ import {
 import type { FastifyInstance } from "fastify";
 import { requireApiKeyScope, type ApiKeyVerifier, type ApiKeyScope } from "./api-key-auth.js";
 
-type IdentifyUserInput = ApiKeyScope & {
+type IdentifyScope = Pick<ApiKeyScope, "projectId" | "environmentId">;
+
+type IdentifyUserInput = IdentifyScope & {
   userId: string;
   tenantId?: string | null;
   traits: Record<string, unknown>;
   timestamp: Date;
 };
 
-type IdentifyTenantInput = ApiKeyScope & {
+type IdentifyTenantInput = IdentifyScope & {
   tenantId: string;
   traits: Record<string, unknown>;
   timestamp: Date;
@@ -43,6 +45,9 @@ export function registerIdentifyRoutes(app: FastifyInstance, identify?: Identify
     const scope = await requireApiKeyScope(request, reply, identify?.verifyApiKey);
     if (!scope || !identify) {
       return reply;
+    }
+    if (scope.capability !== "server") {
+      return reply.status(403).send({ error: "api_key_capability_forbidden" });
     }
 
     const parsed = userIdentifyPayloadSchema.safeParse(request.body);
@@ -73,6 +78,9 @@ export function registerIdentifyRoutes(app: FastifyInstance, identify?: Identify
     const scope = await requireApiKeyScope(request, reply, identify?.verifyApiKey);
     if (!scope || !identify) {
       return reply;
+    }
+    if (scope.capability !== "server") {
+      return reply.status(403).send({ error: "api_key_capability_forbidden" });
     }
 
     const parsed = tenantIdentifyPayloadSchema.safeParse(request.body);

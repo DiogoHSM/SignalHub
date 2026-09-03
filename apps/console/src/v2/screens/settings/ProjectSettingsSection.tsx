@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { EmptyHint, Icon, Segmented, StatusDot } from "../../../components/ui/v2";
+import { useState, type FormEvent } from "react";
+import { EmptyHint, Icon, SecretField, Segmented, StatusDot } from "../../../components/ui/v2";
 import type {
   ApiKey,
   DataGovernancePolicy,
@@ -56,10 +56,28 @@ const DATASETS: Array<{ key: WarehouseDataset; label: string }> = [
 
 type SettingsModel = ReturnType<typeof useProjectSettings>;
 
-function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environmentId: string }) {
+function ApiKeysPanel({
+  model,
+  environmentId,
+  serverSecret,
+  onClearServerSecret,
+}: {
+  model: SettingsModel;
+  environmentId: string;
+  serverSecret: string | null;
+  onClearServerSecret: () => void;
+}) {
   const [editing, setEditing] = useState<ApiKey | null>(null);
   const [name, setName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [capability, setCapability] = useState<ApiKey["capability"]>("browser");
   const keys = model.apiKeys.filter((key) => key.environmentId === environmentId && key.revokedAt == null);
+
+  function resetCreateForm() {
+    setCreating(false);
+    setName("");
+    setCapability("browser");
+  }
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -71,6 +89,15 @@ function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environm
     }
   }
 
+  async function create(event: FormEvent) {
+    event.preventDefault();
+    const cleanName = name.trim();
+    if (!cleanName) return;
+    if (await model.createApiKey({ name: cleanName, capability })) {
+      resetCreateForm();
+    }
+  }
+
   return (
     <div className="sh-card__body" style={{ display: "grid", gap: 12 }}>
       <div className="sh-settings-intro">
@@ -78,10 +105,26 @@ function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environm
           <h3 className="sh-h2">Ingest API keys</h3>
           <p className="sh-muted">Keys are scoped to this project and environment. Renaming does not rotate the secret.</p>
         </div>
-        <span className="sh-tag">{keys.length} active</span>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span className="sh-tag">{keys.length} active</span>
+          <button className="sh-btn ghost" type="button" disabled={model.busy} onClick={() => {
+            if (creating) resetCreateForm();
+            else setCreating(true);
+          }}>
+            New API key
+          </button>
+        </div>
       </div>
       {!model.capabilities.renameApiKeys ? <div className="sh-alert warning">Key rename is unavailable in this deployment. Revocation remains available.</div> : null}
       {model.errors.apiKeys ? <div className="sh-alert bad" role="alert">{model.errors.apiKeys}</div> : null}
+      {serverSecret ? (
+        <div className="sh-alert warning" style={{ display: "grid", gap: 8 }}>
+          <strong>Server API key created</strong>
+          <span>Copy this key now and store it only in server-side secret storage. It is required for identify requests.</span>
+          <SecretField value={serverSecret} />
+          <button className="sh-btn ghost" type="button" onClick={onClearServerSecret}>Dismiss server key</button>
+        </div>
+      ) : null}
       {keys.length === 0 ? (
         <EmptyHint icon="key" title="No active keys" sub="Generate the first key in the SDK installation panel above." />
       ) : (
@@ -92,6 +135,7 @@ function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environm
                 <strong style={{ fontSize: 12.5 }}>{key.name}</strong>
                 <div className="sh-faint sh-mono" style={{ fontSize: 10.5 }}>
                   {key.prefix} · created {new Date(key.createdAt).toLocaleDateString()}
+                  {" · "}{key.capability}
                 </div>
               </div>
               <button
@@ -121,6 +165,28 @@ function ApiKeysPanel({ model, environmentId }: { model: SettingsModel; environm
           ))}
         </div>
       )}
+      {creating ? (
+        <form onSubmit={(event) => void create(event)} style={{ display: "grid", gap: 8 }}>
+          <label className="sh-settings-field">
+            <span>API key name</span>
+            <input className="sh-input" value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label className="sh-settings-field">
+            <span>API key capability</span>
+            <select className="sh-input" value={capability} onChange={(event) => setCapability(event.target.value as ApiKey["capability"])}>
+              <option value="browser">Browser</option>
+              <option value="server">Server</option>
+            </select>
+          </label>
+          <p className="sh-muted" style={{ margin: 0 }}>
+            Browser keys are public by design for client-side telemetry. Server keys must remain secret and are required for identify requests.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="sh-btn primary" type="submit" disabled={model.busy || !name.trim()}>Create API key</button>
+            <button className="sh-btn ghost" type="button" disabled={model.busy} onClick={resetCreateForm}>Cancel</button>
+          </div>
+        </form>
+      ) : null}
       {editing ? (
         <form onSubmit={(event) => void save(event)} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 8 }}>
           <label className="sh-settings-field">
@@ -321,29 +387,7 @@ function GovernancePanel({ model }: { model: SettingsModel }) {
   const [path, setPath] = useState("");
   const [action, setAction] = useState<DataGovernancePropertyRule["action"]>("mask");
   const [validationError, setValidationError] = useState<string | null>(null);
-  const persistedRetention = useMemo(
-    () => Object.fromEntries(
-      RETENTION_CATEGORIES.map((category) => [
-        category.key,
-        model.policy?.retentionPolicy[category.key] ?? category.fallback,
-      ]),
-    ) as DataGovernancePolicy["retentionPolicy"],
-    [model.policy?.retentionPolicy],
-  );
-  const persistedRetentionSignature = JSON.stringify(persistedRetention);
-
-  useEffect(() => {
-    setRetention(
-      Object.fromEntries(
-        RETENTION_CATEGORIES.map((category) => [
-          category.key,
-          String(persistedRetention[category.key] ?? category.fallback),
-        ]),
-      ),
-    );
-    setValidationError(null);
-  }, [model.scopeKey, persistedRetentionSignature]);
-
+  const persistedRetention = model.policy?.retentionPolicy ?? {};
   function parseRetention(): DataGovernancePolicy["retentionPolicy"] | null {
     const entries: Array<[DataGovernanceRetentionCategory, number]> = [];
     for (const category of RETENTION_CATEGORIES) {
@@ -390,6 +434,9 @@ function GovernancePanel({ model }: { model: SettingsModel }) {
         <section className="sh-settings-subpanel">
           <div className="sh-card__head"><h4 className="sh-h2">Retention windows</h4><span className="sh-faint">days</span></div>
           <div className="sh-card__body" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+            <p className="sh-muted" style={{ gridColumn: "1 / -1", margin: 0 }}>
+              Values saved here override installation defaults for this environment, whether shorter or longer.
+            </p>
             {RETENTION_CATEGORIES.map((category) => (
               <label className="sh-settings-field" key={category.key}>
                 <span>{category.label} retention days</span>
@@ -694,7 +741,13 @@ export function ProjectSettingsSection({ ctx }: { ctx: ScreenCtx }) {
       {model.loading ? (
         <div className="sh-card__body"><EmptyHint icon="activity" title="Loading settings…" sub="Reading the selected project and environment configuration." /></div>
       ) : tab === "API keys" ? (
-        <ApiKeysPanel key={model.scopeKey} model={model} environmentId={ctx.environment.id} />
+        <ApiKeysPanel
+          key={model.scopeKey}
+          model={model}
+          environmentId={ctx.environment.id}
+          serverSecret={ctx.createdSecret?.kind === "serverApiKey" ? ctx.createdSecret.value : null}
+          onClearServerSecret={() => ctx.onSecretCreated(null, "serverApiKey")}
+        />
       ) : tab === "Browser origins" ? (
         <BrowserOriginsPanel key={model.scopeKey} model={model} />
       ) : tab === "Releases & code" ? (

@@ -1,8 +1,4 @@
-import { lookup as dnsLookup, type LookupAddress } from "node:dns";
-import { lookup as resolveDns } from "node:dns/promises";
-import { request as httpRequest } from "node:http";
-import { request as httpsRequest } from "node:https";
-import { isIP, type LookupFunction } from "node:net";
+import type { LookupFunction } from "node:net";
 import type { AppConfig } from "@sigmon/config";
 import type {
   AlertEscalationRecord,
@@ -11,10 +7,11 @@ import type {
   WebhookLikeChannelType
 } from "@sigmon/db/repositories/alerts.js";
 import {
-  assertSafeResolvedAddresses,
-  assertSafeWebhookHost,
-  validateWebhookTargetUrl,
-  type ResolvedAddress
+  OutboundPolicy,
+  isRetryableOutboundError,
+  safeHttpRequest,
+  validateOutboundHttpTransport,
+  type SafeHttpRequestInput
 } from "@sigmon/config";
 import { sanitizePreviewText } from "@sigmon/telemetry/sanitization";
 import { deliverEmail, type EmailTransportFactory } from "./email.js";
@@ -101,13 +98,7 @@ type WebhookDeliveryChannel = Pick<
 >;
 
 type ResolveHostname = (hostname: string) => Promise<Array<{ address: string; family?: number }>>;
-type WebhookRequest = (input: {
-  url: URL;
-  headers: Record<string, string>;
-  body: string;
-  timeoutMs: number;
-  lookup: LookupFunction;
-}) => Promise<{ status: number }>;
+type WebhookRequest = (input: SafeHttpRequestInput) => Promise<{ status: number }>;
 
 const DEFAULT_WEBHOOK_DELIVERY_ATTEMPTS = 3;
 const DEFAULT_WEBHOOK_RETRY_DELAY_MS = 250;
@@ -252,8 +243,12 @@ export async function runAlertEvaluationOnce(runtime: AlertEvaluationRuntime): P
   };
 }
 
-export function validateWebhookTarget(rawUrl: string, _nodeEnv: string): URL {
-  return validateWebhookTargetUrl(rawUrl);
+export function validateWebhookTarget(rawUrl: string, nodeEnv: string, policy?: OutboundPolicy): URL {
+  try {
+    return (policy ?? createDefaultOutboundPolicy(nodeEnv)).validateOutboundUrl(rawUrl);
+  } catch (error) {
+    throw new Error(formatWebhookTargetError(error));
+  }
 }
 
 export async function deliverNotification(input: {
@@ -264,13 +259,15 @@ export async function deliverNotification(input: {
   nodeEnv: string;
   emailTransportFactory?: EmailTransportFactory;
   publicEndpoint?: string;
+  outboundPolicy?: OutboundPolicy;
 }): Promise<DeliveryResult> {
   if (input.channel.type !== "email") {
     return deliverWebhook({
       channel: input.channel,
       payload: input.payload,
       timeoutMs: input.timeoutMs,
-      nodeEnv: input.nodeEnv
+      nodeEnv: input.nodeEnv,
+      outboundPolicy: input.outboundPolicy
     });
   }
 
@@ -291,20 +288,33 @@ export async function deliverWebhook(input: {
   resolveHostname?: ResolveHostname;
   requestImpl?: WebhookRequest;
   requestLookup?: LookupFunction;
+  outboundPolicy?: OutboundPolicy;
   timeoutMs: number;
   nodeEnv: string;
   attempts?: number;
   retryDelayMs?: number;
   sleepFn?: (ms: number) => Promise<void>;
 }): Promise<DeliveryResult> {
+  if (input.channel.url === null) {
+    return { status: "failed", responseStatus: null, errorMessage: "Webhook URL unavailable" };
+  }
   let url: URL;
+  const policy = input.outboundPolicy ?? createDefaultOutboundPolicy(input.nodeEnv);
   try {
-    url = validateWebhookTarget(input.channel.url, input.nodeEnv);
+    url = validateOutboundHttpTransport(input.channel.url, policy, {
+      requireHttps:
+        input.channel.type === "slack" ||
+        input.channel.type === "discord" ||
+        Boolean(input.channel.secretHeaderName || input.channel.hasSecret || input.channel.secretHeaderValue)
+    });
   } catch (error) {
+    const message = error instanceof Error && error.message === "outbound_https_required"
+      ? "Webhook HTTPS is required"
+      : formatWebhookTargetError(error);
     return {
       status: "failed",
       responseStatus: null,
-      errorMessage: sanitizeMessage(error instanceof Error ? error.message : "invalid webhook URL")
+      errorMessage: message
     };
   }
 
@@ -318,20 +328,6 @@ export async function deliverWebhook(input: {
     };
   }
 
-  if (shouldResolveWebhookHostname(url)) {
-    const resolveHostname = input.resolveHostname ?? defaultResolveHostname;
-
-    try {
-      const resolved = await resolveHostname(url.hostname);
-      assertSafeResolvedAddresses(toResolvedAddresses(resolved));
-    } catch (error) {
-      if (error instanceof Error && error.message === "unsafe webhook target") {
-        return { status: "failed", responseStatus: null, errorMessage: "unsafe webhook target" };
-      }
-      return { status: "failed", responseStatus: null, errorMessage: "Webhook DNS resolution failed" };
-    }
-  }
-
   const body = JSON.stringify(toChannelRequestPayload(input.channel.type, input.payload));
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -341,21 +337,29 @@ export async function deliverWebhook(input: {
     headers[input.channel.secretHeaderName] = input.channel.secretHeaderValue;
   }
 
-  const requestImpl = input.requestImpl ?? defaultWebhookRequest;
-  const lookup = createValidatingWebhookLookup(input.requestLookup ?? defaultWebhookLookup);
+  const requestImpl = input.requestImpl ?? safeHttpRequest;
   const attempts = boundWebhookAttempts(input.attempts);
   const retryDelayMs = boundRetryDelay(input.retryDelayMs);
   const sleepFn = input.sleepFn ?? sleep;
   let lastResult: DeliveryResult | null = null;
+  const deadlineAt = Date.now() + input.timeoutMs;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const remainingMs = deadlineAt - Date.now();
+    if (!Number.isSafeInteger(input.timeoutMs) || input.timeoutMs <= 0 || remainingMs <= 0) {
+      return webhookTimeoutResult();
+    }
     try {
       const response = await requestImpl({
         url,
+        method: "POST",
         headers,
         body,
-        timeoutMs: input.timeoutMs,
-        lookup
+        timeoutMs: remainingMs,
+        maxResponseBytes: 16 * 1024,
+        redirectLimit: 0,
+        policy,
+        lookup: input.requestLookup
       });
 
       if (response.status >= 200 && response.status < 300) {
@@ -371,167 +375,59 @@ export async function deliverWebhook(input: {
         return lastResult;
       }
     } catch (error) {
-      const errorMessage = sanitizeMessage(formatWebhookDeliveryError(error));
+      const classifiedError = input.requestImpl ? markLegacyWebhookRetryability(error) : error;
+      const errorMessage = formatWebhookDeliveryError(classifiedError);
       lastResult = {
         status: "failed",
         responseStatus: null,
         errorMessage
       };
-      if (!isRetryableWebhookError(error) || attempt === attempts) {
+      if (!isRetryableWebhookError(classifiedError) || attempt === attempts) {
         return lastResult;
       }
     }
 
-    await sleepFn(retryDelayMs * attempt);
+    const delayMs = retryDelayMs * attempt;
+    if (Date.now() + delayMs >= deadlineAt) {
+      return webhookTimeoutResult();
+    }
+    await sleepFn(delayMs);
   }
 
   return lastResult ?? { status: "failed", responseStatus: null, errorMessage: "Webhook delivery failed" };
 }
 
-function defaultResolveHostname(hostname: string): Promise<ResolvedAddress[]> {
-  return resolveDns(hostname, { all: true });
-}
-
-function toResolvedAddresses(addresses: Array<{ address: string; family?: number }>): ResolvedAddress[] {
-  return addresses.map((address) => ({ address: address.address, family: address.family ?? isIP(address.address) }));
-}
-
-const defaultWebhookLookup: LookupFunction = (hostname, options, callback) => {
-  dnsLookup(hostname, options, callback);
-};
-
-function defaultWebhookRequest(input: {
-  url: URL;
-  headers: Record<string, string>;
-  body: string;
-  timeoutMs: number;
-  lookup: LookupFunction;
-}): Promise<{ status: number }> {
-  if (input.url.protocol === "https:") {
-    return requestHttpsWebhook(input);
-  }
-
-  return requestHttpWebhook(input);
-}
-
-function requestHttpWebhook(input: {
-  url: URL;
-  headers: Record<string, string>;
-  body: string;
-  timeoutMs: number;
-  lookup: LookupFunction;
-}): Promise<{ status: number }> {
-  return new Promise((resolve, reject) => {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const request = httpRequest(
-      input.url,
-      {
-        method: "POST",
-        headers: input.headers,
-        lookup: input.lookup
-      },
-      (response) => {
-        if (timeout) clearTimeout(timeout);
-        response.resume();
-        resolve({ status: response.statusCode ?? 0 });
-      }
-    );
-
-    timeout = setTimeout(() => {
-      request.destroy(new Error("Webhook delivery timed out"));
-    }, input.timeoutMs);
-
-    request.on("error", reject);
-    request.on("close", () => {
-      if (timeout) clearTimeout(timeout);
-    });
-    request.end(input.body);
-  });
-}
-
-function requestHttpsWebhook(input: {
-  url: URL;
-  headers: Record<string, string>;
-  body: string;
-  timeoutMs: number;
-  lookup: LookupFunction;
-}): Promise<{ status: number }> {
-  return new Promise((resolve, reject) => {
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const request = httpsRequest(
-      input.url,
-      {
-        method: "POST",
-        headers: input.headers,
-        lookup: input.lookup,
-        servername: input.url.hostname
-      },
-      (response) => {
-        if (timeout) clearTimeout(timeout);
-        response.resume();
-        resolve({ status: response.statusCode ?? 0 });
-      }
-    );
-
-    timeout = setTimeout(() => {
-      request.destroy(new Error("Webhook delivery timed out"));
-    }, input.timeoutMs);
-
-    request.on("error", reject);
-    request.on("close", () => {
-      if (timeout) clearTimeout(timeout);
-    });
-    request.end(input.body);
-  });
-}
-
-function createValidatingWebhookLookup(lookup: LookupFunction): LookupFunction {
-  return (hostname, options, callback) => {
-    lookup(hostname, options, (error, address, family) => {
-      if (error) {
-        callback(error, address as string, family);
-        return;
-      }
-
-      if (Array.isArray(address)) {
-        for (const entry of address) {
-          try {
-            assertSafeWebhookHost(entry.address);
-          } catch (unsafeError) {
-            callback(
-              unsafeError instanceof Error ? unsafeError : new Error("unsafe webhook target"),
-              entry.address,
-              entry.family
-            );
-            return;
-          }
-        }
-
-        callback(null, address as LookupAddress[], family);
-        return;
-      }
-
-      try {
-        assertSafeWebhookHost(address);
-      } catch (unsafeError) {
-        callback(unsafeError instanceof Error ? unsafeError : new Error("unsafe webhook target"), address, family);
-        return;
-      }
-
-      callback(null, address, family);
-    });
-  };
-}
-
 function formatWebhookDeliveryError(error: unknown): string {
   if (!(error instanceof Error)) return "Webhook delivery failed";
 
+  if (error.message === "outbound_http_target_forbidden") return "unsafe webhook target";
+  if (error.message === "outbound_http_lookup_failed") return "Webhook DNS resolution failed";
+  if (error.message === "outbound_http_timeout") return "Webhook delivery timed out";
+  if (error.message === "outbound_http_response_too_large") return "Webhook response too large";
   const code = (error as NodeJS.ErrnoException).code;
   if (code === "ENOTFOUND" || code === "EAI_AGAIN" || code === "ENODATA") {
     return "Webhook DNS resolution failed";
   }
 
-  return error.message;
+  if (/timed out/i.test(error.message)) return "Webhook delivery timed out";
+  return "Webhook request failed";
+}
+
+function formatWebhookTargetError(error: unknown): string {
+  if (!(error instanceof Error)) return "invalid webhook URL";
+  if (error.message === "outbound_url_invalid") return "invalid webhook URL";
+  if (error.message === "outbound_protocol_forbidden") return "webhook URL must use http or https";
+  if (error.message === "outbound_credentials_forbidden") return "webhook URL credentials are not allowed";
+  return "unsafe webhook target";
+}
+
+function webhookTimeoutResult(): DeliveryResult {
+  return { status: "failed", responseStatus: null, errorMessage: "Webhook delivery timed out" };
+}
+
+function createDefaultOutboundPolicy(nodeEnv: string): OutboundPolicy {
+  const environment = nodeEnv === "development" || nodeEnv === "test" || nodeEnv === "production" ? nodeEnv : undefined;
+  return new OutboundPolicy({ nodeEnv: environment });
 }
 
 function boundWebhookAttempts(attempts: number | undefined): number {
@@ -555,12 +451,31 @@ function isRetryableWebhookStatus(status: number): boolean {
 }
 
 function isRetryableWebhookError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  if (error.message === "unsafe webhook target") return false;
+  return isRetryableOutboundError(error);
+}
+
+function markLegacyWebhookRetryability(error: unknown): unknown {
+  if (!(error instanceof Error)) return error;
   const code = (error as NodeJS.ErrnoException).code;
-  if (code === "EAI_AGAIN") return true;
-  if (code === "ECONNRESET" || code === "ECONNREFUSED" || code === "ETIMEDOUT" || code === "EPIPE") return true;
-  return /timed out/i.test(error.message);
+  const retryable =
+    code === "EAI_AGAIN" ||
+    code === "ECONNRESET" ||
+    code === "ECONNREFUSED" ||
+    code === "ETIMEDOUT" ||
+    code === "EPIPE" ||
+    /timed out/i.test(error.message);
+  if (!retryable) return error;
+  const classifiedError = new Error(error.message);
+  if (code !== undefined) {
+    Object.defineProperty(classifiedError, "code", { value: code, enumerable: false });
+  }
+  Object.defineProperty(classifiedError, "retryable", {
+    value: true,
+    enumerable: false,
+    configurable: false,
+    writable: false
+  });
+  return classifiedError;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -634,12 +549,6 @@ function validateSecretHeaderName(headerName: string | null | undefined): void {
   if (!normalizedHeaderName.startsWith("x-") && !normalizedHeaderName.startsWith("sigmon-")) {
     throw new Error("reserved webhook secret header name");
   }
-}
-
-function shouldResolveWebhookHostname(url: URL): boolean {
-  const host = url.hostname.toLowerCase().replace(/^\[(.*)\]$/, "$1");
-
-  return host !== "localhost" && isIP(host) === 0;
 }
 
 function toWebhookPayload(

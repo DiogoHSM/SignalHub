@@ -25,7 +25,7 @@ async function main(): Promise<void> {
   const readToken = requireEnv("SIGMON_READ_TOKEN");
 
   const client = new SigmonClient({ baseUrl, readToken });
-  const server = createSigmonMcpServer(client);
+  const server = createSigmonMcpServer(client, { allowRawDetail: process.env.MCP_ALLOW_RAW_DETAIL === "true" });
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

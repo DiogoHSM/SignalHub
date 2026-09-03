@@ -1,10 +1,15 @@
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
-import { sql } from "kysely";
+import { SecretBox } from "@sigmon/config";
+import { sql, type Transaction } from "kysely";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedBootstrapAdmin } from "../../../scripts/seed-admin.js";
+import { runRetentionOnce } from "../../../apps/worker/src/retention.js";
 import type { Db } from "../src/client.js";
+import type { Database } from "../src/schema.js";
 import { migrate } from "../src/migrate.js";
 import { createTestDb } from "./test-db.js";
+
+const integrationSecretBox = new SecretBox({ currentKey: Buffer.alloc(32, 14).toString("base64") });
 import { compileSegmentDefinition } from "../src/repositories/analytics-segment-compiler.js";
 import {
   deleteDeadLetterJob,
@@ -109,6 +114,7 @@ import {
   createAlertRule,
   createNotificationChannel,
   evaluateAlertRule,
+  getNotificationChannel,
   isErrorGroupSilenced,
   listAlertEscalationsDue,
   listActiveAlertRules,
@@ -123,8 +129,10 @@ import {
   withAlertEvaluationLock
 } from "../src/repositories/alerts.js";
 import {
+  archiveMonitor,
   createHeartbeatMonitor,
   createHttpMonitor,
+  findActiveHeartbeatMonitor,
   listDueHttpMonitors,
   listMonitorChecks,
   listMonitors,
@@ -147,6 +155,7 @@ import {
   updateUser,
   updateUserAsAdmin
 } from "../src/repositories/users.js";
+import { createAuthSession, findActiveSessionUser } from "../src/repositories/auth-sessions.js";
 import {
   insertBreadcrumb,
   insertClickEvent,
@@ -226,12 +235,17 @@ import {
   createSourceMapArtifact,
   deleteSourceMapArtifact,
   findSourceMapArtifactForFrame,
+  findActiveSourceMapStoragePaths,
   getCachedErrorStackResolution,
+  listActiveSourceMapMetadataPage,
   listExpiredSourceMapArtifacts,
   listSourceMapArtifacts,
   listSourceMapArtifactsPage,
   replaceErrorStackResolutions,
-  softDeleteSourceMapArtifactForRetention
+  softDeleteSourceMapMetadataForReconciliation,
+  softDeleteSourceMapArtifactForRetention,
+  withSourceMapStorageLock,
+  withSourceMapStorageLockOnConnection
 } from "../src/repositories/source-maps.js";
 import {
   createSourceMapUploadTokenRecord,
@@ -292,6 +306,112 @@ describe("repositories", () => {
     } finally {
       await db.destroy();
     }
+  }
+
+  function createNamedRaceDb(applicationName: string): Db {
+    const connectionUrl = new URL(container.getConnectionUri());
+    connectionUrl.searchParams.set("application_name", applicationName);
+    return createTestDb(connectionUrl.toString());
+  }
+
+  function createBarrier(): { promise: Promise<void>; release: () => void } {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { promise, release };
+  }
+
+  async function observeSessionUntilSettled(
+    db: Db,
+    applicationName: string,
+    work: Promise<unknown>,
+    timeoutMs = 10_000
+  ): Promise<"blocked" | "completed" | "rejected" | "timeout"> {
+    let polling = true;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const blocked = (async () => {
+      while (polling) {
+        const result = await sql<{ blocked: boolean }>`
+          select exists (
+            select 1
+            from pg_stat_activity
+            where application_name = ${applicationName}
+              and wait_event_type = 'Lock'
+          ) as blocked
+        `.execute(db);
+        if (result.rows[0]?.blocked === true) {
+          return "blocked" as const;
+        }
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      return "timeout" as const;
+    })();
+    const completed = work.then(
+      () => "completed" as const,
+      () => "rejected" as const
+    );
+    const timedOut = new Promise<"timeout">((resolve) => {
+      timeout = setTimeout(() => resolve("timeout"), timeoutMs);
+    });
+
+    try {
+      return await Promise.race([blocked, completed, timedOut]);
+    } finally {
+      polling = false;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    }
+  }
+
+  async function withIsolatedRetentionFixtures(
+    db: Db,
+    run: (trx: Transaction<Database>) => Promise<void>
+  ): Promise<void> {
+    const rollback = new Error("rollback_isolated_retention_fixtures");
+
+    try {
+      await db.transaction().execute(async (trx) => {
+        await sql`
+          truncate table
+            events,
+            click_events,
+            session_replays,
+            errors,
+            traces,
+            spans,
+            llm_calls,
+            web_vitals,
+            profiles,
+            breadcrumbs,
+            data_governance_policies
+          cascade
+        `.execute(trx);
+        await run(trx);
+        throw rollback;
+      });
+    } catch (error) {
+      if (error !== rollback) throw error;
+    }
+  }
+
+  function retentionOptions(now: Date) {
+    return {
+      now,
+      batchSize: 100,
+      eventsDays: 30,
+      errorsDays: 30,
+      tracesDays: 30,
+      spansDays: 30,
+      llmCallsDays: 30,
+      profilesDays: 30,
+      breadcrumbsDays: 30,
+      deadLetterJobsDays: 30,
+      sourceMapsEnabled: false,
+      sourceMapsDays: 30,
+      sourceMapsBatchSize: 100
+    };
   }
 
   function decodeEntityCursorForTest(cursor: string): EntityCursor {
@@ -1416,6 +1536,67 @@ describe("repositories", () => {
     });
   });
 
+  it("round-trips every JSON root for optional span payload columns", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const projectId = "prj_span_json_roots";
+      const environmentId = "env_span_json_roots";
+      const timestamp = new Date("2026-09-03T12:00:00.000Z");
+      const cases: Array<{ label: string; value?: unknown; expected: unknown }> = [
+        { label: "omitted", expected: null },
+        { label: "null", value: null, expected: null },
+        { label: "object", value: { nested: true }, expected: { nested: true } },
+        { label: "array", value: ["visible", 42], expected: ["visible", 42] },
+        { label: "string", value: "visible", expected: "visible" },
+        { label: "number", value: 42, expected: 42 },
+        { label: "boolean", value: false, expected: false }
+      ];
+
+      await insertProjectAndEnvironment(db, projectId, environmentId);
+      try {
+        for (const testCase of cases) {
+          const optionalPayload = testCase.label === "omitted"
+            ? {}
+            : { input: testCase.value, output: testCase.value, error: testCase.value };
+          await insertSpan(db, {
+            id: `spn_json_root_${testCase.label}`,
+            projectId,
+            environmentId,
+            traceId: "trc_span_json_roots",
+            timestamp,
+            receivedAt: timestamp,
+            name: testCase.label,
+            status: "success",
+            startedAt: timestamp,
+            ...optionalPayload
+          });
+        }
+
+        const rows = await db
+          .selectFrom("spans")
+          .select(["id", "input", "output", "error"])
+          .where("project_id", "=", projectId)
+          .orderBy("id")
+          .execute();
+
+        expect(rows).toEqual(
+          [...cases]
+            .sort((left, right) => left.label.localeCompare(right.label))
+            .map((testCase) => ({
+              id: `spn_json_root_${testCase.label}`,
+              input: testCase.expected,
+              output: testCase.expected,
+              error: testCase.expected
+            }))
+        );
+      } finally {
+        await db.deleteFrom("spans").where("project_id", "=", projectId).execute();
+        await db.deleteFrom("environments").where("id", "=", environmentId).execute();
+        await db.deleteFrom("projects").where("id", "=", projectId).execute();
+      }
+    });
+  });
+
   it("rejects source map upload tokens for inactive missing or mismatched scopes", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -2106,56 +2287,658 @@ describe("repositories", () => {
     });
   });
 
+  it("normalizes malformed legacy retention JSON without materializing one-day overrides", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Malformed Governance Read" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+
+      await sql`
+        insert into data_governance_policies (project_id, environment_id, retention_policy)
+        values (
+          ${project.id},
+          ${environment.id},
+          ${JSON.stringify({
+            events: true,
+            errors: false,
+            traces: [1],
+            spans: ["90"],
+            llmCalls: {},
+            profiles: null,
+            breadcrumbs: "90",
+            unknown: "45"
+          })}::jsonb
+        )
+      `.execute(db);
+
+      const policy = await getDataGovernancePolicy(db, {
+        projectId: project.id,
+        environmentId: environment.id
+      });
+      expect(policy.retentionPolicy).toEqual({ breadcrumbs: 90 });
+    });
+  });
+
   it("uses project data governance windows during retention", async () => {
     await withDb(async (db) => {
       await migrate(db);
       const project = await createProject(db, { name: "Governed Retention" });
       const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
 
-      await insertEvent(db, {
-        id: "evt_governed_old",
-        projectId: project.id,
-        environmentId: environment.id,
-        timestamp: new Date("2026-01-01T00:00:00.000Z"),
-        receivedAt: new Date("2026-01-01T00:00:00.000Z"),
-        name: "governed.old"
-      });
-      await insertEvent(db, {
-        id: "evt_governed_fresh",
-        projectId: project.id,
-        environmentId: environment.id,
-        timestamp: new Date("2026-02-20T00:00:00.000Z"),
-        receivedAt: new Date("2026-02-20T00:00:00.000Z"),
-        name: "governed.fresh"
-      });
-      await upsertDataGovernancePolicy(db, {
-        projectId: project.id,
-        environmentId: environment.id,
-        retentionPolicy: { events: 30 },
-        propertyRules: []
-      });
+      try {
+        await insertEvent(db, {
+          id: "evt_governed_old",
+          projectId: project.id,
+          environmentId: environment.id,
+          timestamp: new Date("2026-01-01T00:00:00.000Z"),
+          receivedAt: new Date("2026-01-01T00:00:00.000Z"),
+          name: "governed.old"
+        });
+        await insertEvent(db, {
+          id: "evt_governed_fresh",
+          projectId: project.id,
+          environmentId: environment.id,
+          timestamp: new Date("2026-02-20T00:00:00.000Z"),
+          receivedAt: new Date("2026-02-20T00:00:00.000Z"),
+          name: "governed.fresh"
+        });
+        await upsertDataGovernancePolicy(db, {
+          projectId: project.id,
+          environmentId: environment.id,
+          retentionPolicy: { events: 30 },
+          propertyRules: []
+        });
 
-      const deleted = await deleteExpiredTelemetry(db, {
-        eventsDays: 365,
-        errorsDays: 365,
-        tracesDays: 365,
-        spansDays: 365,
-        llmCallsDays: 365,
-        profilesDays: 365,
-        breadcrumbsDays: 365,
-        deadLetterJobsDays: 365,
-        sourceMapsEnabled: false,
-        sourceMapsDays: 365,
-        sourceMapsBatchSize: 100,
-        now: new Date("2026-03-05T00:00:00.000Z"),
-        batchSize: 100
-      });
+        const deleted = await deleteExpiredTelemetry(db, {
+          eventsDays: 365,
+          errorsDays: 365,
+          tracesDays: 365,
+          spansDays: 365,
+          llmCallsDays: 365,
+          profilesDays: 365,
+          breadcrumbsDays: 365,
+          deadLetterJobsDays: 365,
+          sourceMapsEnabled: false,
+          sourceMapsDays: 365,
+          sourceMapsBatchSize: 100,
+          now: new Date("2026-03-05T00:00:00.000Z"),
+          batchSize: 100
+        });
 
-      expect(deleted.events).toBe(1);
-      await expect(db.selectFrom("events").select("id").where("id", "=", "evt_governed_old").executeTakeFirst()).resolves.toBeUndefined();
-      await expect(db.selectFrom("events").select("id").where("id", "=", "evt_governed_fresh").executeTakeFirst()).resolves.toMatchObject({
-        id: "evt_governed_fresh"
+        expect(deleted.events).toBe(1);
+        await expect(db.selectFrom("events").select("id").where("id", "=", "evt_governed_old").executeTakeFirst()).resolves.toBeUndefined();
+        await expect(db.selectFrom("events").select("id").where("id", "=", "evt_governed_fresh").executeTakeFirst()).resolves.toMatchObject({
+          id: "evt_governed_fresh"
+        });
+      } finally {
+        await db.deleteFrom("events").where("id", "in", ["evt_governed_old", "evt_governed_fresh"]).execute();
+        await db
+          .deleteFrom("data_governance_policies")
+          .where("project_id", "=", project.id)
+          .where("environment_id", "=", environment.id)
+          .execute();
+      }
+    });
+  });
+
+  it("honors effective retention boundaries for longer shorter absent and partial scoped policies", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await withIsolatedRetentionFixtures(db, async (trx) => {
+        const now = new Date("2026-09-01T00:00:00.000Z");
+        const at = (days: number, olderByMs = 0) => new Date(now.getTime() - days * 86_400_000 - olderByMs);
+
+        await sql`
+          insert into projects (id, name) values
+            ('prj_ret_effective_long', 'Effective long'),
+            ('prj_ret_effective_short', 'Effective short'),
+            ('prj_ret_effective_default', 'Effective default'),
+            ('prj_ret_effective_missing', 'Effective missing category')
+        `.execute(trx);
+        await sql`
+          insert into environments (id, project_id, name) values
+            ('env_ret_effective_long', 'prj_ret_effective_long', 'long'),
+            ('env_ret_effective_long_other', 'prj_ret_effective_long', 'other'),
+            ('env_ret_effective_short', 'prj_ret_effective_short', 'short'),
+            ('env_ret_effective_default', 'prj_ret_effective_default', 'default'),
+            ('env_ret_effective_missing', 'prj_ret_effective_missing', 'missing')
+        `.execute(trx);
+        await sql`
+          insert into data_governance_policies (project_id, environment_id, retention_policy) values
+            ('prj_ret_effective_long', 'env_ret_effective_long', '{"events":90,"errors":7}'::jsonb),
+            ('prj_ret_effective_short', 'env_ret_effective_short', '{"events":7}'::jsonb),
+            ('prj_ret_effective_missing', 'env_ret_effective_missing', '{"errors":90}'::jsonb)
+        `.execute(trx);
+        await sql`
+          insert into events (id, project_id, environment_id, timestamp, received_at, name) values
+            ('evt_ret_long_60d_survives', 'prj_ret_effective_long', 'env_ret_effective_long', ${at(60)}, ${now}, 'long.60'),
+            ('evt_ret_long_90d_boundary_survives', 'prj_ret_effective_long', 'env_ret_effective_long', ${at(90)}, ${now}, 'long.boundary'),
+            ('evt_ret_long_90d_plus_1ms_deletes', 'prj_ret_effective_long', 'env_ret_effective_long', ${at(90, 1)}, ${now}, 'long.older'),
+            ('evt_ret_short_7d_boundary_survives', 'prj_ret_effective_short', 'env_ret_effective_short', ${at(7)}, ${now}, 'short.boundary'),
+            ('evt_ret_short_7d_plus_1ms_deletes', 'prj_ret_effective_short', 'env_ret_effective_short', ${at(7, 1)}, ${now}, 'short.older'),
+            ('evt_ret_short_8d_deletes', 'prj_ret_effective_short', 'env_ret_effective_short', ${at(8)}, ${now}, 'short.8'),
+            ('evt_ret_default_30d_boundary_survives', 'prj_ret_effective_default', 'env_ret_effective_default', ${at(30)}, ${now}, 'default.boundary'),
+            ('evt_ret_default_30d_plus_1ms_deletes', 'prj_ret_effective_default', 'env_ret_effective_default', ${at(30, 1)}, ${now}, 'default.older'),
+            ('evt_ret_default_31d_deletes', 'prj_ret_effective_default', 'env_ret_effective_default', ${at(31)}, ${now}, 'default.31'),
+            ('evt_ret_missing_category_30d_boundary_survives', 'prj_ret_effective_missing', 'env_ret_effective_missing', ${at(30)}, ${now}, 'missing.boundary'),
+            ('evt_ret_missing_category_30d_plus_1ms_deletes', 'prj_ret_effective_missing', 'env_ret_effective_missing', ${at(30, 1)}, ${now}, 'missing.older'),
+            ('evt_ret_other_environment_60d_deletes', 'prj_ret_effective_long', 'env_ret_effective_long_other', ${at(60)}, ${now}, 'other.environment')
+        `.execute(trx);
+        await sql`
+          insert into errors (id, project_id, environment_id, timestamp, received_at, message, severity) values
+            ('err_ret_partial_8d_deletes', 'prj_ret_effective_long', 'env_ret_effective_long', ${at(8)}, ${now}, 'partial category', 'error')
+        `.execute(trx);
+
+        const deleted = await deleteExpiredTelemetry(trx, retentionOptions(now));
+
+        expect(deleted).toEqual({
+          events: 7,
+          errors: 1,
+          traces: 0,
+          spans: 0,
+          llmCalls: 0,
+          webVitals: 0,
+          profiles: 0,
+          breadcrumbs: 0,
+          deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
+          sourceMapFiles: 0
+        });
+        await expect(
+          trx
+            .selectFrom("events")
+            .select("id")
+            .orderBy("id")
+            .execute()
+        ).resolves.toEqual([
+          { id: "evt_ret_default_30d_boundary_survives" },
+          { id: "evt_ret_long_60d_survives" },
+          { id: "evt_ret_long_90d_boundary_survives" },
+          { id: "evt_ret_missing_category_30d_boundary_survives" },
+          { id: "evt_ret_short_7d_boundary_survives" }
+        ]);
+        await expect(trx.selectFrom("errors").select("id").execute()).resolves.toEqual([]);
       });
+    });
+  });
+
+  it("uses exact elapsed retention days across UTC and a DST-observing session timezone", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const outcomes: Array<{ timezone: string; survivingIds: string[] }> = [];
+
+      for (const timezone of ["UTC", "America/New_York"]) {
+        await withIsolatedRetentionFixtures(db, async (trx) => {
+          const priorTimezoneResult = await sql<{ timezone: string }>`
+            select current_setting('TimeZone') as timezone
+          `.execute(trx);
+          const priorTimezone = priorTimezoneResult.rows[0]?.timezone ?? "UTC";
+
+          try {
+            await sql`select set_config('TimeZone', ${timezone}, false)`.execute(trx);
+            const now = new Date("2026-03-09T00:00:00.000Z");
+
+            await sql`insert into projects (id, name) values ('prj_ret_dst', 'Retention DST')`.execute(trx);
+            await sql`
+              insert into environments (id, project_id, name)
+              values ('env_ret_dst', 'prj_ret_dst', 'dst')
+            `.execute(trx);
+            await sql`
+              insert into data_governance_policies (project_id, environment_id, retention_policy)
+              values ('prj_ret_dst', 'env_ret_dst', '{"events":1}'::jsonb)
+            `.execute(trx);
+            await sql`
+              insert into events (id, project_id, environment_id, timestamp, received_at, name) values
+                ('evt_ret_dst_exact_boundary_survives', 'prj_ret_dst', 'env_ret_dst', '2026-03-08T00:00:00.000Z', ${now}, 'dst.boundary'),
+                ('evt_ret_dst_one_ms_older_deletes', 'prj_ret_dst', 'env_ret_dst', '2026-03-07T23:59:59.999Z', ${now}, 'dst.older')
+            `.execute(trx);
+
+            await deleteExpiredTelemetry(trx, retentionOptions(now));
+            const rows = await trx
+              .selectFrom("events")
+              .select("id")
+              .where("environment_id", "=", "env_ret_dst")
+              .orderBy("id")
+              .execute();
+            outcomes.push({ timezone, survivingIds: rows.map((row) => row.id) });
+          } finally {
+            await sql`select set_config('TimeZone', ${priorTimezone}, false)`.execute(trx);
+          }
+        });
+      }
+
+      expect(outcomes).toEqual([
+        { timezone: "UTC", survivingIds: ["evt_ret_dst_exact_boundary_survives"] },
+        { timezone: "America/New_York", survivingIds: ["evt_ret_dst_exact_boundary_survives"] }
+      ]);
+    });
+  });
+
+  it("executes every retention table owner once and aggregates physical category counters", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await withIsolatedRetentionFixtures(db, async (trx) => {
+        const now = new Date("2026-09-01T00:00:00.000Z");
+        const old = new Date("2026-08-23T00:00:00.000Z");
+        const eventOld = new Date("2026-05-31T00:00:00.000Z");
+
+        await sql`insert into projects (id, name) values ('prj_ret_owners', 'Retention owners')`.execute(trx);
+        await sql`
+          insert into environments (id, project_id, name)
+          values ('env_ret_owners', 'prj_ret_owners', 'owners')
+        `.execute(trx);
+        await sql`
+          insert into data_governance_policies (project_id, environment_id, retention_policy)
+          values (
+            'prj_ret_owners',
+            'env_ret_owners',
+            '{"events":90,"clicks":7,"replays":7,"errors":7,"traces":7,"spans":7,"llmCalls":7,"webVitals":7,"profiles":7,"breadcrumbs":7}'::jsonb
+          )
+        `.execute(trx);
+        await sql`
+          insert into events (id, project_id, environment_id, timestamp, received_at, name) values
+            ('evt_ret_owner_deletes', 'prj_ret_owners', 'env_ret_owners', ${eventOld}, ${now}, 'owner.delete'),
+            ('evt_ret_owner_8d_survives', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'owner.survive')
+        `.execute(trx);
+        await sql`
+          insert into click_events (id, project_id, environment_id, timestamp, received_at, route, selector, x, y, viewport_width, viewport_height)
+          values ('clk_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, '/', '#owner', 0.5, 0.5, 100, 100)
+        `.execute(trx);
+        await sql`
+          insert into session_replays (id, replay_id, project_id, environment_id, timestamp, received_at, started_at)
+          values ('rpl_ret_owner', 'replay-ret-owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, ${old})
+        `.execute(trx);
+        await sql`
+          insert into errors (id, project_id, environment_id, timestamp, received_at, message, severity)
+          values ('err_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'owner', 'error')
+        `.execute(trx);
+        await sql`
+          insert into traces (id, project_id, environment_id, timestamp, received_at, name, status, started_at)
+          values ('trc_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'owner', 'ok', ${old})
+        `.execute(trx);
+        await sql`
+          insert into spans (id, project_id, environment_id, trace_id, timestamp, received_at, name, status, started_at)
+          values ('spn_ret_owner', 'prj_ret_owners', 'env_ret_owners', 'trace-ret-owner', ${old}, ${now}, 'owner', 'ok', ${old})
+        `.execute(trx);
+        await sql`
+          insert into llm_calls (id, project_id, environment_id, timestamp, received_at, provider, model, status)
+          values ('llm_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'openai', 'gpt-5', 'success')
+        `.execute(trx);
+        await sql`
+          insert into web_vitals (id, project_id, environment_id, timestamp, received_at, name, value, rating)
+          values ('wvt_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'LCP', 1000, 'good')
+        `.execute(trx);
+        await sql`
+          insert into profiles (id, project_id, environment_id, timestamp, received_at, name, kind, runtime, started_at)
+          values ('prf_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'owner', 'cpu', 'node', ${old})
+        `.execute(trx);
+        await sql`
+          insert into breadcrumbs (id, project_id, environment_id, timestamp, received_at, type, message, level)
+          values ('brd_ret_owner', 'prj_ret_owners', 'env_ret_owners', ${old}, ${now}, 'custom', 'owner', 'info')
+        `.execute(trx);
+
+        await sql`create temporary table task2_retention_delete_statements (table_name text not null) on commit drop`.execute(trx);
+        await sql`
+          create function pg_temp.audit_task2_retention_delete() returns trigger
+          language plpgsql as $$
+          begin
+            insert into task2_retention_delete_statements (table_name) values (tg_table_name);
+            return null;
+          end
+          $$
+        `.execute(trx);
+        for (const table of [
+          "events",
+          "click_events",
+          "session_replays",
+          "errors",
+          "traces",
+          "spans",
+          "llm_calls",
+          "web_vitals",
+          "profiles",
+          "breadcrumbs"
+        ] as const) {
+          await sql`
+            create trigger task2_retention_delete_statement
+            after delete on ${sql.table(table)}
+            for each statement execute function pg_temp.audit_task2_retention_delete()
+          `.execute(trx);
+        }
+
+        const deleted = await deleteExpiredTelemetry(trx, retentionOptions(now));
+
+        expect(deleted).toEqual({
+          events: 3,
+          errors: 1,
+          traces: 1,
+          spans: 1,
+          llmCalls: 1,
+          webVitals: 1,
+          profiles: 1,
+          breadcrumbs: 1,
+          deadLetterJobs: 0,
+          sourceMapArtifacts: 0,
+          sourceMapFiles: 0
+        });
+        await expect(
+          trx.selectFrom("events").select("id").execute()
+        ).resolves.toEqual([{ id: "evt_ret_owner_8d_survives" }]);
+        await expect(
+          sql<{ table_name: string }>`
+            select table_name from task2_retention_delete_statements order by table_name
+          `.execute(trx)
+        ).resolves.toMatchObject({
+          rows: [
+            { table_name: "breadcrumbs" },
+            { table_name: "click_events" },
+            { table_name: "errors" },
+            { table_name: "events" },
+            { table_name: "llm_calls" },
+            { table_name: "profiles" },
+            { table_name: "session_replays" },
+            { table_name: "spans" },
+            { table_name: "traces" },
+            { table_name: "web_vitals" }
+          ]
+        });
+      });
+    });
+  });
+
+  it("falls back safely for malformed legacy effective retention values", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await withIsolatedRetentionFixtures(db, async (trx) => {
+        const now = new Date("2026-09-01T00:00:00.000Z");
+        const malformedValues: Array<{ label: string; value: unknown }> = [
+          { label: "zero", value: 0 },
+          { label: "bad_string", value: "bad" },
+          { label: "fraction", value: 1.5 },
+          { label: "negative", value: -2 },
+          { label: "too_large", value: 3651 },
+          { label: "array", value: [] },
+          { label: "array_one", value: [1] },
+          { label: "array_string", value: ["90"] },
+          { label: "object", value: {} },
+          { label: "null", value: null },
+          { label: "boolean_true", value: true },
+          { label: "boolean_false", value: false },
+          { label: "string_whitespace", value: " 90" },
+          { label: "string_decimal", value: "90.0" },
+          { label: "string_sign", value: "+90" },
+          { label: "string_exponent", value: "9e1" }
+        ];
+
+        await sql`insert into projects (id, name) values ('prj_ret_malformed', 'Malformed retention')`.execute(trx);
+        for (const { label, value } of malformedValues) {
+          const environmentId = `env_ret_malformed_${label}`;
+          await sql`
+            insert into environments (id, project_id, name)
+            values (${environmentId}, 'prj_ret_malformed', ${`malformed-${label}`})
+          `.execute(trx);
+          await sql`
+            insert into data_governance_policies (project_id, environment_id, retention_policy)
+            values ('prj_ret_malformed', ${environmentId}, ${JSON.stringify({ events: value })}::jsonb)
+          `.execute(trx);
+          await sql`
+            insert into events (id, project_id, environment_id, timestamp, received_at, name) values
+              (
+                ${`evt_ret_malformed_${label}_boundary_survives`},
+                'prj_ret_malformed',
+                ${environmentId},
+                '2026-08-02T00:00:00.000Z',
+                ${now},
+                'malformed.boundary'
+              ),
+              (
+                ${`evt_ret_malformed_${label}_one_ms_older_deletes`},
+                'prj_ret_malformed',
+                ${environmentId},
+                '2026-08-01T23:59:59.999Z',
+                ${now},
+                'malformed.older'
+              )
+          `.execute(trx);
+        }
+        await sql`
+          insert into environments (id, project_id, name)
+          values ('env_ret_numeric_string', 'prj_ret_malformed', 'numeric-string')
+        `.execute(trx);
+        await sql`
+          insert into data_governance_policies (project_id, environment_id, retention_policy)
+          values ('prj_ret_malformed', 'env_ret_numeric_string', '{"events":"90"}'::jsonb)
+        `.execute(trx);
+        await sql`
+          insert into events (id, project_id, environment_id, timestamp, received_at, name) values
+            ('evt_ret_numeric_string_60d_survives', 'prj_ret_malformed', 'env_ret_numeric_string', '2026-07-03T00:00:00.000Z', ${now}, 'numeric.survive'),
+            ('evt_ret_numeric_string_91d_deletes', 'prj_ret_malformed', 'env_ret_numeric_string', '2026-06-01T00:00:00.000Z', ${now}, 'numeric.delete')
+        `.execute(trx);
+
+        const deleted = await deleteExpiredTelemetry(trx, retentionOptions(now));
+
+        expect(deleted.events).toBe(17);
+        for (const { label } of malformedValues) {
+          await expect(
+            trx
+              .selectFrom("events")
+              .select("id")
+              .where("environment_id", "=", `env_ret_malformed_${label}`)
+              .execute()
+          ).resolves.toEqual([{ id: `evt_ret_malformed_${label}_boundary_survives` }]);
+        }
+        await expect(
+          trx
+            .selectFrom("events")
+            .select("id")
+            .where("environment_id", "=", "env_ret_numeric_string")
+            .execute()
+        ).resolves.toEqual([{ id: "evt_ret_numeric_string_60d_survives" }]);
+      });
+    });
+  });
+
+  it("reports exact diagnostic counts and ownership when a later retention category fails", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      await withIsolatedRetentionFixtures(db, async (trx) => {
+        const now = new Date("2026-09-01T00:00:00.000Z");
+        const old = new Date("2026-07-01T00:00:00.000Z");
+
+        await sql`insert into projects (id, name) values ('prj_ret_failure', 'Retention failure')`.execute(trx);
+        await sql`
+          insert into environments (id, project_id, name)
+          values ('env_ret_failure', 'prj_ret_failure', 'failure')
+        `.execute(trx);
+        await sql`
+          insert into events (id, project_id, environment_id, timestamp, received_at, name)
+          values ('evt_ret_failure_deleted_first', 'prj_ret_failure', 'env_ret_failure', ${old}, ${now}, 'failure.first')
+        `.execute(trx);
+        await sql`
+          insert into errors (id, project_id, environment_id, timestamp, received_at, message, severity)
+          values ('err_ret_failure', 'prj_ret_failure', 'env_ret_failure', ${old}, ${now}, 'failure later', 'error')
+        `.execute(trx);
+        await sql`
+          create function pg_temp.fail_task2_error_retention() returns trigger
+          language plpgsql as $$
+          begin
+            raise exception 'forced_task2_error_retention_failure';
+          end
+          $$
+        `.execute(trx);
+        await sql`
+          create trigger task2_error_retention_failure
+          before delete on errors
+          for each statement execute function pg_temp.fail_task2_error_retention()
+        `.execute(trx);
+
+        let caught: unknown;
+        try {
+          await deleteExpiredTelemetry(trx, retentionOptions(now));
+        } catch (error) {
+          caught = error;
+        }
+
+        expect(caught).toMatchObject({
+          name: "RetentionDeleteError",
+          category: "errors",
+          table: "errors",
+          deleted: {
+            events: 1,
+            errors: 0,
+            traces: 0,
+            spans: 0,
+            llmCalls: 0,
+            webVitals: 0,
+            profiles: 0,
+            breadcrumbs: 0,
+            deadLetterJobs: 0,
+            sourceMapArtifacts: 0,
+            sourceMapFiles: 0
+          }
+        });
+      });
+    });
+  });
+
+  it("rolls back earlier retention categories and persists zero committed counts after a locked failure", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const now = new Date("2026-09-01T00:00:00.000Z");
+      const options = {
+        ...retentionOptions(now),
+        eventsDays: 3650,
+        errorsDays: 3650,
+        tracesDays: 3650,
+        spansDays: 3650,
+        llmCallsDays: 3650,
+        profilesDays: 3650,
+        breadcrumbsDays: 3650
+      };
+      let persistedRun: Awaited<ReturnType<typeof recordRetentionRun>> | undefined;
+
+      await sql`insert into projects (id, name) values ('prj_ret_locked_failure', 'Locked retention failure')`.execute(db);
+      await sql`
+        insert into environments (id, project_id, name)
+        values ('env_ret_locked_failure', 'prj_ret_locked_failure', 'failure')
+      `.execute(db);
+      await sql`
+        insert into data_governance_policies (project_id, environment_id, retention_policy)
+        values ('prj_ret_locked_failure', 'env_ret_locked_failure', '{"events":30,"errors":30}'::jsonb)
+      `.execute(db);
+      await sql`
+        insert into events (id, project_id, environment_id, timestamp, received_at, name)
+        values ('evt_ret_locked_failure', 'prj_ret_locked_failure', 'env_ret_locked_failure', '2026-07-01T00:00:00.000Z', ${now}, 'failure.event')
+      `.execute(db);
+      await sql`
+        insert into errors (id, project_id, environment_id, timestamp, received_at, message, severity)
+        values ('err_ret_locked_failure', 'prj_ret_locked_failure', 'env_ret_locked_failure', '2026-07-01T00:00:00.000Z', ${now}, 'failure error', 'error')
+      `.execute(db);
+      await sql`
+        create function task2_fail_locked_error_retention() returns trigger
+        language plpgsql as $$
+        begin
+          raise exception 'forced_locked_retention_failure authorization: Bearer task2-secret';
+        end
+        $$
+      `.execute(db);
+      await sql`
+        create trigger task2_locked_error_retention_failure
+        before delete on errors
+        for each statement execute function task2_fail_locked_error_retention()
+      `.execute(db);
+
+      try {
+        let lockedFailure: unknown;
+        try {
+          await withRetentionLock(db, (lockedDb) => deleteExpiredTelemetry(lockedDb, options));
+        } catch (error) {
+          lockedFailure = error;
+        }
+
+        expect(lockedFailure).toMatchObject({
+          message: expect.stringContaining("retention_delete_failed:"),
+          cause: {
+            name: "RetentionDeleteError",
+            category: "errors",
+            table: "errors",
+            deleted: expect.objectContaining({ events: 1, errors: 0 })
+          }
+        });
+        await expect(
+          db
+            .selectFrom("events")
+            .select("id")
+            .where("id", "=", "evt_ret_locked_failure")
+            .executeTakeFirst()
+        ).resolves.toEqual({ id: "evt_ret_locked_failure" });
+        await expect(
+          db
+            .selectFrom("errors")
+            .select("id")
+            .where("id", "=", "err_ret_locked_failure")
+            .executeTakeFirst()
+        ).resolves.toEqual({ id: "err_ret_locked_failure" });
+
+        await expect(
+          runRetentionOnce({
+            now: () => now,
+            policy: options,
+            withLock: (run) =>
+              withRetentionLock(db, async (lockedDb) =>
+                run({
+                  deleteExpiredTelemetry: () => deleteExpiredTelemetry(lockedDb, options)
+                })
+              ),
+            deleteExpiredSourceMapArtifacts: async () => ({ sourceMapArtifacts: 0, sourceMapFiles: 0 }),
+            recordRetentionRun: async (input) => {
+              persistedRun = await recordRetentionRun(db, input);
+              return persistedRun;
+            }
+          })
+        ).resolves.toEqual({ ran: true, skipped: false });
+
+        expect(persistedRun).toMatchObject({
+          status: "failed",
+          errorMessage: expect.stringContaining("authorization: [REDACTED]"),
+          deleted: {
+            events: 0,
+            errors: 0,
+            traces: 0,
+            spans: 0,
+            llmCalls: 0,
+            webVitals: 0,
+            profiles: 0,
+            breadcrumbs: 0,
+            deadLetterJobs: 0,
+            sourceMapArtifacts: 0,
+            sourceMapFiles: 0
+          }
+        });
+        expect(persistedRun?.errorMessage).not.toContain("task2-secret");
+        await expect(
+          db
+            .selectFrom("events")
+            .select("id")
+            .where("id", "=", "evt_ret_locked_failure")
+            .executeTakeFirst()
+        ).resolves.toEqual({ id: "evt_ret_locked_failure" });
+      } finally {
+        await sql`drop trigger if exists task2_locked_error_retention_failure on errors`.execute(db);
+        await sql`drop function if exists task2_fail_locked_error_retention()`.execute(db);
+        if (persistedRun) {
+          await db.deleteFrom("retention_runs").where("id", "=", persistedRun.id).execute();
+        }
+        await db.deleteFrom("events").where("id", "=", "evt_ret_locked_failure").execute();
+        await db.deleteFrom("errors").where("id", "=", "err_ret_locked_failure").execute();
+        await db
+          .deleteFrom("data_governance_policies")
+          .where("project_id", "=", "prj_ret_locked_failure")
+          .where("environment_id", "=", "env_ret_locked_failure")
+          .execute();
+        await db.deleteFrom("environments").where("id", "=", "env_ret_locked_failure").execute();
+        await db.deleteFrom("projects").where("id", "=", "prj_ret_locked_failure").execute();
+      }
     });
   });
 
@@ -2763,6 +3546,159 @@ describe("repositories", () => {
         where id in ('smap_older', 'smap_old_1', 'smap_old_2', 'smap_old_deleted', 'smap_fresh')
       `.execute(db);
     });
+  });
+
+  it("pages active reconciliation metadata by stable id and bounds path membership queries", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Source Map Reconciliation Paging" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "Production" });
+      const user = await createUser(db, {
+        email: "sourcemaps-reconciliation-paging@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      await sql`
+        insert into source_map_artifacts
+          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id, deleted_at)
+        values
+          ('smap_zzzz_reconcile_paging_003', ${project.id}, ${environment.id}, 'web@1', '3.js', '3.js.map', 'application/json', 1, 'sha3', '/storage/3.map', ${user.id}, null),
+          ('smap_zzzz_reconcile_paging_001', ${project.id}, ${environment.id}, 'web@1', '1.js', '1.js.map', 'application/json', 1, 'sha1', '/storage/1.map', ${user.id}, null),
+          ('smap_zzzz_reconcile_paging_002', ${project.id}, ${environment.id}, 'web@1', '2.js', '2.js.map', 'application/json', 1, 'sha2', '/storage/2.map', ${user.id}, ${new Date("2026-01-01T00:00:00.000Z")})
+      `.execute(db);
+
+      const first = await listActiveSourceMapMetadataPage(db, {
+        afterId: "smap_zzzz_reconcile_paging_000",
+        batchSize: 1
+      });
+      const second = await listActiveSourceMapMetadataPage(db, { afterId: first[0].id, batchSize: 1 });
+      expect(first).toEqual([{ id: "smap_zzzz_reconcile_paging_001", storagePath: "/storage/1.map" }]);
+      expect(second).toEqual([{ id: "smap_zzzz_reconcile_paging_003", storagePath: "/storage/3.map" }]);
+      await expect(listActiveSourceMapMetadataPage(db, { afterId: null, batchSize: 101 }))
+        .rejects.toThrow("source_map_reconciliation_batch_size_invalid");
+
+      await expect(findActiveSourceMapStoragePaths(db, ["/storage/3.map", "/storage/2.map"]))
+        .resolves.toEqual(["/storage/3.map"]);
+      await expect(findActiveSourceMapStoragePaths(db, Array.from({ length: 101 }, (_, index) => `/storage/${index}.map`)))
+        .rejects.toThrow("source_map_reconciliation_batch_size_invalid");
+
+      await sql`
+        delete from source_map_artifacts
+        where id in (
+          'smap_zzzz_reconcile_paging_001',
+          'smap_zzzz_reconcile_paging_002',
+          'smap_zzzz_reconcile_paging_003'
+        )
+      `.execute(db);
+    });
+  });
+
+  it("returns at most one active membership value for arbitrarily duplicated storage metadata", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const project = await createProject(db, { name: "Source Map Reconciliation Duplicate Paths" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "Production" });
+      const user = await createUser(db, {
+        email: "sourcemaps-reconciliation-duplicates@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const sharedPath = "/storage/shared-duplicate.map";
+      await sql`
+        insert into source_map_artifacts
+          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id)
+        select
+          'smap_reconcile_duplicate_' || lpad(value::text, 3, '0'),
+          ${project.id}, ${environment.id}, 'web@duplicate',
+          'file-' || value::text || '.js', 'file-' || value::text || '.js.map',
+          'application/json', 1, 'sha-' || value::text, ${sharedPath}, ${user.id}
+        from generate_series(1, 150) as value
+      `.execute(db);
+
+      await expect(findActiveSourceMapStoragePaths(db, [sharedPath])).resolves.toEqual([sharedPath]);
+      await expect(findActiveSourceMapStoragePaths(db, [sharedPath, sharedPath])).resolves.toEqual([sharedPath]);
+
+      await sql`delete from source_map_artifacts where id like 'smap_reconcile_duplicate_%'`.execute(db);
+    });
+  });
+
+  it("soft-deletes reconciliation metadata only when its current locator still matches", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Source Map Reconciliation Delete" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "Production" });
+      const user = await createUser(db, {
+        email: "sourcemaps-reconciliation-delete@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      await sql`
+        insert into source_map_artifacts
+          (id, project_id, environment_id, release, minified_file, original_filename, content_type, byte_size, sha256, storage_path, uploaded_by_user_id)
+        values
+          ('smap_reconcile_delete', ${project.id}, ${environment.id}, 'web@1', 'app.js', 'app.js.map', 'application/json', 1, 'sha', '/storage/current.map', ${user.id})
+      `.execute(db);
+
+      await expect(softDeleteSourceMapMetadataForReconciliation(db, {
+        id: "smap_reconcile_delete",
+        storagePath: "/storage/stale.map"
+      })).resolves.toBeNull();
+      await expect(softDeleteSourceMapMetadataForReconciliation(db, {
+        id: "smap_reconcile_delete",
+        storagePath: "/storage/current.map"
+      })).resolves.toEqual(expect.objectContaining({ id: "smap_reconcile_delete" }));
+      await expect(softDeleteSourceMapMetadataForReconciliation(db, {
+        id: "smap_reconcile_delete",
+        storagePath: "/storage/current.map"
+      })).resolves.toBeNull();
+
+      await sql`delete from source_map_artifacts where id = 'smap_reconcile_delete'`.execute(db);
+    });
+  });
+
+  it("pins the source-map storage advisory lock to one connection and releases it on errors", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const first = await withSourceMapStorageLock(db, async (lockedDb) => {
+        const holder = await sql<{ pid: number; lockCount: string }>`
+          select pg_backend_pid() as pid,
+            (select count(*)::text from pg_locks where pid = pg_backend_pid() and locktype = 'advisory') as "lockCount"
+        `.execute(lockedDb);
+        const nested = await withSourceMapStorageLock(db, async () => "nested");
+        return { holder: holder.rows[0], nested };
+      });
+
+      expect(first).toEqual({
+        locked: true,
+        result: {
+          holder: expect.objectContaining({ pid: expect.any(Number), lockCount: "1" }),
+          nested: { locked: false }
+        }
+      });
+
+      await expect(withSourceMapStorageLock(db, async () => {
+        throw new Error("source_map_primary_failure");
+      })).rejects.toThrow("source_map_primary_failure");
+      await expect(withSourceMapStorageLock(db, async () => "released"))
+        .resolves.toEqual({ locked: true, result: "released" });
+    });
+  });
+
+  it("preserves the primary source-map storage failure when advisory unlock also fails", async () => {
+    const primary = new Error("source_map_primary_failure");
+    const connection = {} as Transaction<Database>;
+
+    const promise = withSourceMapStorageLockOnConnection(connection, async () => {
+      throw primary;
+    }, {
+      tryAcquire: async () => true,
+      release: async () => { throw new Error("source_map_unlock_failure"); }
+    });
+
+    await expect(promise).rejects.toBe(primary);
   });
 
   it("soft-deletes a retained source-map artifact and cached resolutions", async () => {
@@ -3556,7 +4492,7 @@ describe("repositories", () => {
         type: "webhook",
         url: "https://hooks.example.com/sigmon",
         enabled: true
-      });
+      }, integrationSecretBox);
       await expect(updateNotificationChannel(db, webhook.id, { url: null })).rejects.toThrow(
         "webhook_url_required"
       );
@@ -3572,10 +4508,12 @@ describe("repositories", () => {
         type: "slack",
         url: "https://hooks.slack.com/services/T0/xyz",
         enabled: true
-      });
+      }, integrationSecretBox);
       expect(slack).toMatchObject({
         type: "slack",
-        url: "https://hooks.slack.com/services/T0/xyz",
+        url: null,
+        hasUrl: true,
+        urlPreview: "https://hooks.slack.com/service…",
         emailRecipients: [],
         hasSecret: false
       });
@@ -3587,12 +4525,19 @@ describe("repositories", () => {
         secretHeaderName: "X-Sigmon-Secret",
         secretHeaderValue: "secret-value",
         enabled: true
-      });
+      }, integrationSecretBox);
       expect(discord).toMatchObject({
         type: "discord",
-        url: "https://discord.com/api/webhooks/1/token",
+        url: null,
+        hasUrl: true,
+        urlPreview: "https://discord.com/api/web…",
         hasSecret: true
       });
+
+      await expect(getNotificationChannel(db, slack.id, {
+        includeSecret: true,
+        secretBox: integrationSecretBox
+      })).resolves.toMatchObject({ url: "https://hooks.slack.com/services/T0/xyz" });
 
       await expect(updateNotificationChannel(db, slack.id, { url: null })).rejects.toThrow(
         "webhook_url_required"
@@ -3601,8 +4546,13 @@ describe("repositories", () => {
       const retyped = await updateNotificationChannel(db, slack.id, {
         type: "discord",
         url: "https://discord.com/api/webhooks/2/other"
+      }, integrationSecretBox);
+      expect(retyped).toMatchObject({
+        type: "discord",
+        url: null,
+        hasUrl: true,
+        urlPreview: "https://discord.com/api/web…"
       });
-      expect(retyped).toMatchObject({ type: "discord", url: "https://discord.com/api/webhooks/2/other" });
     });
   });
 
@@ -3620,9 +4570,14 @@ describe("repositories", () => {
         secretHeaderName: "X-SignalMonitor-Secret",
         secretHeaderValue: "secret-value",
         enabled: true
-      });
+      }, integrationSecretBox);
       expect(channel.hasSecret).toBe(true);
-      expect(channel.secretHeaderValue).toBe("secret-value");
+      expect(channel.secretHeaderValue).toBeNull();
+      const deliveryChannel = await getNotificationChannel(db, channel.id, {
+        includeSecret: true,
+        secretBox: integrationSecretBox
+      });
+      expect(deliveryChannel?.secretHeaderValue).toBe("secret-value");
 
       const rule = await createAlertRule(db, {
         projectId: project.id,
@@ -3862,6 +4817,414 @@ describe("repositories", () => {
         now: new Date("2026-05-24T12:07:00.000Z")
       });
       expect(stale.map((item) => item.id)).toContain(monitor.id);
+    });
+  });
+
+  it.each(["monitor", "environment", "project"] as const)(
+    "rejects heartbeat lookup and persistence after %s archival without mutating check-in state",
+    async (archivedScope) => {
+      await withDb(async (db) => {
+        await migrate(db);
+        const projectId = `prj_heartbeat_archived_${archivedScope}`;
+        const environmentId = `env_heartbeat_archived_${archivedScope}`;
+        await insertProjectAndEnvironment(db, projectId, environmentId);
+        const monitor = await createHeartbeatMonitor(db, {
+          projectId,
+          environmentId,
+          name: `Archived ${archivedScope} heartbeat`,
+          expectedIntervalMinutes: 5,
+          graceMinutes: 1,
+          secretHash: `hash_archived_${archivedScope}`,
+          enabled: true
+        });
+
+        await expect(findActiveHeartbeatMonitor(db, monitor.id)).resolves.toMatchObject({
+          id: monitor.id,
+          projectId,
+          environmentId,
+          kind: "heartbeat"
+        });
+
+        if (archivedScope === "monitor") {
+          await archiveMonitor(db, monitor.id);
+        } else if (archivedScope === "environment") {
+          await archiveEnvironment(db, environmentId);
+        } else {
+          await archiveProject(db, projectId);
+        }
+
+        await expect(findActiveHeartbeatMonitor(db, monitor.id)).resolves.toBeUndefined();
+        await expect(
+          recordHeartbeatCheckIn(db, {
+            monitorId: monitor.id,
+            checkedInAt: new Date("2026-05-24T12:00:00.000Z")
+          })
+        ).resolves.toBeNull();
+
+        const state = await db
+          .selectFrom("monitors")
+          .select([
+            "status",
+            "consecutive_failures",
+            "consecutive_successes",
+            "last_checked_at",
+            "last_heartbeat_at"
+          ])
+          .where("id", "=", monitor.id)
+          .executeTakeFirstOrThrow();
+        const checkCount = await db
+          .selectFrom("monitor_checks")
+          .select(({ fn }) => fn.countAll<number>().as("count"))
+          .where("monitor_id", "=", monitor.id)
+          .executeTakeFirstOrThrow();
+
+        expect(state).toEqual({
+          status: "unknown",
+          consecutive_failures: 0,
+          consecutive_successes: 0,
+          last_checked_at: null,
+          last_heartbeat_at: null
+        });
+        expect(Number(checkCount.count)).toBe(0);
+      });
+    }
+  );
+
+  it("rejects a heartbeat whose environment does not belong to its project", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const monitorId = "mon_heartbeat_mismatched_scope";
+      const projectId = "prj_heartbeat_mismatched_scope";
+      const environmentProjectId = "prj_heartbeat_mismatched_environment";
+      const environmentId = "env_heartbeat_mismatched_scope";
+
+      await insertProjectAndEnvironment(db, environmentProjectId, environmentId);
+      await sql`insert into projects (id, name) values (${projectId}, ${projectId})`.execute(db);
+      try {
+        await db.connection().execute(async (connectionDb) => {
+          await sql`set session_replication_role = replica`.execute(connectionDb);
+          try {
+            await sql`
+              insert into monitors (
+                id, project_id, environment_id, kind, name, enabled, status,
+                failure_threshold, recovery_threshold, consecutive_failures,
+                consecutive_successes, expected_interval_minutes, grace_minutes, secret_hash
+              ) values (
+                ${monitorId}, ${projectId}, ${environmentId}, 'heartbeat', 'Mismatched scope', true, 'unknown',
+                1, 1, 0, 0, 5, 1, 'hash_mismatched_scope'
+              )
+            `.execute(connectionDb);
+          } finally {
+            await sql`set session_replication_role = origin`.execute(connectionDb);
+          }
+        });
+
+        await expect(findActiveHeartbeatMonitor(db, monitorId)).resolves.toBeUndefined();
+        await expect(
+          recordHeartbeatCheckIn(db, {
+            monitorId,
+            checkedInAt: new Date("2026-05-24T12:00:00.000Z")
+          })
+        ).resolves.toBeNull();
+
+        const state = await db
+          .selectFrom("monitors")
+          .select([
+            "status",
+            "consecutive_failures",
+            "consecutive_successes",
+            "last_checked_at",
+            "last_heartbeat_at"
+          ])
+          .where("id", "=", monitorId)
+          .executeTakeFirstOrThrow();
+        const checkCount = await db
+          .selectFrom("monitor_checks")
+          .select(({ fn }) => fn.countAll<number>().as("count"))
+          .where("monitor_id", "=", monitorId)
+          .executeTakeFirstOrThrow();
+
+        expect(state).toEqual({
+          status: "unknown",
+          consecutive_failures: 0,
+          consecutive_successes: 0,
+          last_checked_at: null,
+          last_heartbeat_at: null
+        });
+        expect(Number(checkCount.count)).toBe(0);
+      } finally {
+        await sql`delete from monitors where id = ${monitorId}`.execute(db);
+        await sql`delete from environments where id = ${environmentId}`.execute(db);
+        await sql`delete from projects where id in (${projectId}, ${environmentProjectId})`.execute(db);
+      }
+    });
+  });
+
+  it("waits for an in-flight environment archive and performs no heartbeat mutation after it commits", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const projectId = "prj_heartbeat_archive_wins";
+      const environmentId = "env_heartbeat_archive_wins";
+      await insertProjectAndEnvironment(db, projectId, environmentId);
+      const monitor = await createHeartbeatMonitor(db, {
+        projectId,
+        environmentId,
+        name: "Archive wins heartbeat race",
+        expectedIntervalMinutes: 5,
+        graceMinutes: 1,
+        secretHash: "hash_archive_wins",
+        enabled: true
+      });
+
+      const archiveDb = createNamedRaceDb("heartbeat_archive_wins_archive");
+      const heartbeatDb = createNamedRaceDb("heartbeat_archive_wins_checkin");
+      const observerDb = createNamedRaceDb("heartbeat_archive_wins_observer");
+      const archiveUpdated = createBarrier();
+      const releaseArchive = createBarrier();
+      const archiveWork = archiveDb.transaction().execute(async (trx) => {
+        await trx
+          .updateTable("environments")
+          .set({ archived_at: new Date("2026-05-24T11:59:00.000Z") })
+          .where("id", "=", environmentId)
+          .execute();
+        archiveUpdated.release();
+        await releaseArchive.promise;
+      });
+
+      try {
+        await archiveUpdated.promise;
+        const heartbeatWork = recordHeartbeatCheckIn(heartbeatDb, {
+          monitorId: monitor.id,
+          checkedInAt: new Date("2026-05-24T12:00:00.000Z")
+        });
+        const observedState = await observeSessionUntilSettled(
+          observerDb,
+          "heartbeat_archive_wins_checkin",
+          heartbeatWork
+        );
+
+        releaseArchive.release();
+        await archiveWork;
+        const result = await heartbeatWork;
+
+        expect(observedState).toBe("blocked");
+        expect(result).toBeNull();
+        const state = await db
+          .selectFrom("monitors")
+          .select([
+            "status",
+            "consecutive_failures",
+            "consecutive_successes",
+            "last_checked_at",
+            "last_heartbeat_at"
+          ])
+          .where("id", "=", monitor.id)
+          .executeTakeFirstOrThrow();
+        const checkCount = await db
+          .selectFrom("monitor_checks")
+          .select(({ fn }) => fn.countAll<number>().as("count"))
+          .where("monitor_id", "=", monitor.id)
+          .executeTakeFirstOrThrow();
+        expect(state).toEqual({
+          status: "unknown",
+          consecutive_failures: 0,
+          consecutive_successes: 0,
+          last_checked_at: null,
+          last_heartbeat_at: null
+        });
+        expect(Number(checkCount.count)).toBe(0);
+      } finally {
+        releaseArchive.release();
+        await Promise.allSettled([archiveWork]);
+        await Promise.all([archiveDb.destroy(), heartbeatDb.destroy(), observerDb.destroy()]);
+      }
+    });
+  });
+
+  it("serializes parent archival behind a heartbeat that locked the complete active scope", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const projectId = "prj_heartbeat_checkin_wins";
+      const environmentId = "env_heartbeat_checkin_wins";
+      await insertProjectAndEnvironment(db, projectId, environmentId);
+      const monitor = await createHeartbeatMonitor(db, {
+        projectId,
+        environmentId,
+        name: "Check-in wins heartbeat race",
+        expectedIntervalMinutes: 5,
+        graceMinutes: 1,
+        secretHash: "hash_checkin_wins",
+        enabled: true
+      });
+
+      const advisoryLockId = 7_315_503;
+      await sql`
+        create or replace function test_block_heartbeat_check_insert()
+        returns trigger
+        language plpgsql
+        as $function$
+        begin
+          perform pg_advisory_xact_lock(7315503);
+          return new;
+        end;
+        $function$
+      `.execute(db);
+      await sql`
+        create trigger test_block_heartbeat_check_insert
+        before insert on monitor_checks
+        for each row execute function test_block_heartbeat_check_insert()
+      `.execute(db);
+
+      const gateDb = createNamedRaceDb("heartbeat_checkin_wins_gate");
+      const heartbeatDb = createNamedRaceDb("heartbeat_checkin_wins_checkin");
+      const environmentArchiveDb = createNamedRaceDb("heartbeat_checkin_wins_environment_archive");
+      const projectArchiveDb = createNamedRaceDb("heartbeat_checkin_wins_project_archive");
+      const observerDb = createNamedRaceDb("heartbeat_checkin_wins_observer");
+      const gateHeld = createBarrier();
+      const releaseGate = createBarrier();
+      const gateWork = gateDb.connection().execute(async (connectionDb) => {
+        await sql`select pg_advisory_lock(${advisoryLockId})`.execute(connectionDb);
+        gateHeld.release();
+        await releaseGate.promise;
+        await sql`select pg_advisory_unlock(${advisoryLockId})`.execute(connectionDb);
+      });
+
+      try {
+        await gateHeld.promise;
+        const heartbeatWork = recordHeartbeatCheckIn(heartbeatDb, {
+          monitorId: monitor.id,
+          checkedInAt: new Date("2026-05-24T12:00:00.000Z")
+        });
+        const heartbeatBarrierState = await observeSessionUntilSettled(
+          observerDb,
+          "heartbeat_checkin_wins_checkin",
+          heartbeatWork
+        );
+
+        const environmentArchiveWork = archiveEnvironment(environmentArchiveDb, environmentId);
+        const projectArchiveWork = archiveProject(projectArchiveDb, projectId);
+        const [environmentArchiveState, projectArchiveState] = await Promise.all([
+          observeSessionUntilSettled(
+            observerDb,
+            "heartbeat_checkin_wins_environment_archive",
+            environmentArchiveWork
+          ),
+          observeSessionUntilSettled(
+            observerDb,
+            "heartbeat_checkin_wins_project_archive",
+            projectArchiveWork
+          )
+        ]);
+
+        releaseGate.release();
+        const heartbeatResult = await heartbeatWork;
+        await Promise.all([environmentArchiveWork, projectArchiveWork]);
+        const laterResult = await recordHeartbeatCheckIn(db, {
+          monitorId: monitor.id,
+          checkedInAt: new Date("2026-05-24T12:01:00.000Z")
+        });
+
+        expect(heartbeatBarrierState).toBe("blocked");
+        expect(environmentArchiveState).toBe("blocked");
+        expect(projectArchiveState).toBe("blocked");
+        expect(heartbeatResult).toMatchObject({
+          id: monitor.id,
+          status: "up",
+          lastHeartbeatAt: new Date("2026-05-24T12:00:00.000Z")
+        });
+        expect(laterResult).toBeNull();
+        const checks = await db
+          .selectFrom("monitor_checks")
+          .select(["checked_at", "status"])
+          .where("monitor_id", "=", monitor.id)
+          .execute();
+        expect(checks).toEqual([
+          { checked_at: new Date("2026-05-24T12:00:00.000Z"), status: "success" }
+        ]);
+      } finally {
+        releaseGate.release();
+        await Promise.allSettled([gateWork]);
+        await sql`drop trigger if exists test_block_heartbeat_check_insert on monitor_checks`.execute(db);
+        await sql`drop function if exists test_block_heartbeat_check_insert()`.execute(db);
+        await Promise.all([
+          gateDb.destroy(),
+          heartbeatDb.destroy(),
+          environmentArchiveDb.destroy(),
+          projectArchiveDb.destroy(),
+          observerDb.destroy()
+        ]);
+      }
+    });
+  });
+
+  it("rolls back the heartbeat check row when the monitor update fails", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const projectId = "prj_heartbeat_rollback";
+      const environmentId = "env_heartbeat_rollback";
+      await insertProjectAndEnvironment(db, projectId, environmentId);
+      const monitor = await createHeartbeatMonitor(db, {
+        projectId,
+        environmentId,
+        name: "Rollback heartbeat",
+        expectedIntervalMinutes: 5,
+        graceMinutes: 1,
+        secretHash: "hash_rollback",
+        enabled: true
+      });
+
+      await sql`
+        create or replace function test_reject_heartbeat_monitor_update()
+        returns trigger
+        language plpgsql
+        as $function$
+        begin
+          raise exception 'test heartbeat monitor update failure';
+        end;
+        $function$
+      `.execute(db);
+      await sql`
+        create trigger test_reject_heartbeat_monitor_update
+        before update on monitors
+        for each row execute function test_reject_heartbeat_monitor_update()
+      `.execute(db);
+
+      try {
+        await expect(
+          recordHeartbeatCheckIn(db, {
+            monitorId: monitor.id,
+            checkedInAt: new Date("2026-05-24T12:00:00.000Z")
+          })
+        ).rejects.toThrow(/test heartbeat monitor update failure/);
+
+        const unchanged = await db
+          .selectFrom("monitors")
+          .select([
+            "status",
+            "consecutive_failures",
+            "consecutive_successes",
+            "last_checked_at",
+            "last_heartbeat_at"
+          ])
+          .where("id", "=", monitor.id)
+          .executeTakeFirstOrThrow();
+        const checks = await db
+          .selectFrom("monitor_checks")
+          .select("id")
+          .where("monitor_id", "=", monitor.id)
+          .execute();
+        expect(unchanged).toEqual({
+          status: "unknown",
+          consecutive_failures: 0,
+          consecutive_successes: 0,
+          last_checked_at: null,
+          last_heartbeat_at: null
+        });
+        expect(checks).toEqual([]);
+      } finally {
+        await sql`drop trigger if exists test_reject_heartbeat_monitor_update on monitors`.execute(db);
+        await sql`drop function if exists test_reject_heartbeat_monitor_update()`.execute(db);
+      }
     });
   });
 
@@ -6465,7 +7828,8 @@ describe("repositories", () => {
         environmentId: environment.id,
         name: "prod key",
         prefix: "sh_abc123456",
-        hash: "hash"
+        hash: "hash",
+        capability: "browser"
       });
 
       expect(apiKey.revokedAt).toBeNull();
@@ -6921,6 +8285,43 @@ describe("repositories", () => {
     });
   });
 
+  it("migrates and creates keys with explicit capabilities", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Capability Project" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      await db
+        .insertInto("api_keys")
+        .values({
+          id: "key_legacy",
+          project_id: project.id,
+          environment_id: environment.id,
+          name: "legacy browser key",
+          prefix: "sh_legacy001",
+          hash: "legacy-hash"
+        })
+        .execute();
+
+      const created = await createApiKeyRecord(db, {
+        projectId: project.id,
+        environmentId: environment.id,
+        name: "backend",
+        prefix: "sh_live_ab",
+        hash: "hash",
+        capability: "server"
+      });
+
+      expect(created.capability).toBe("server");
+      await expect(listApiKeys(db, project.id)).resolves.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: "key_legacy", capability: "browser" }),
+          expect.objectContaining({ id: created.id, capability: "server" })
+        ])
+      );
+    });
+  });
+
   it("supports runtime admin resource and user management helpers", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -6960,9 +8361,12 @@ describe("repositories", () => {
         environmentId: environment.id,
         name: "runtime key",
         prefix: "sh_runtime12",
-        hash: "runtime-hash"
+        hash: "runtime-hash",
+        capability: "server"
       });
-      await expect(listApiKeys(db, project.id)).resolves.toEqual([expect.objectContaining({ id: apiKey.id })]);
+      await expect(listApiKeys(db, project.id)).resolves.toEqual([
+        expect.objectContaining({ id: apiKey.id, capability: "server" })
+      ]);
       await expect(updateApiKeyRecord(db, apiKey.id, { name: "runtime key renamed" })).resolves.toMatchObject({
         id: apiKey.id,
         name: "runtime key renamed"
@@ -6980,7 +8384,11 @@ describe("repositories", () => {
           origin: "https://app.example.com"
         })
       ]);
-      await archiveProjectBrowserOrigin(db, browserOrigin.id);
+      await expect(archiveProjectBrowserOrigin(db, browserOrigin.id)).resolves.toMatchObject({
+        id: browserOrigin.id,
+        origin: "https://app.example.com",
+        archivedAt: expect.any(Date)
+      });
       await expect(listProjectBrowserOrigins(db, project.id)).resolves.toEqual([]);
 
       const archivedProject = await createProject(db, { name: "Archived Key Project" });
@@ -6993,7 +8401,8 @@ describe("repositories", () => {
         environmentId: archivedProjectEnvironment.id,
         name: "archived project key",
         prefix: "sh_archproj1",
-        hash: "archived-project-hash"
+        hash: "archived-project-hash",
+        capability: "browser"
       });
       await archiveProject(db, archivedProject.id);
       await expect(findApiKeyByPrefix(db, "sh_archproj1")).resolves.toBeUndefined();
@@ -7004,7 +8413,8 @@ describe("repositories", () => {
         environmentId: archivedEnvironment.id,
         name: "archived environment key",
         prefix: "sh_archenv12",
-        hash: "archived-environment-hash"
+        hash: "archived-environment-hash",
+        capability: "browser"
       });
       await archiveEnvironment(db, archivedEnvironment.id);
       await expect(findApiKeyByPrefix(db, "sh_archenv12")).resolves.toBeUndefined();
@@ -7021,6 +8431,27 @@ describe("repositories", () => {
       await expect(listEnvironments(db, project.id)).resolves.toEqual([]);
       await archiveProject(db, project.id);
       await expect(getProject(db, project.id)).resolves.toBeUndefined();
+    });
+  });
+
+  it("creates an origin-leading partial index for active browser-origin lookups", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const index = await sql<{ definition: string }>`
+        select indexdef as definition
+        from pg_indexes
+        where schemaname = 'public'
+          and tablename = 'project_browser_origins'
+          and indexname = 'project_browser_origins_origin_active_idx'
+      `.execute(db);
+
+      expect(index.rows).toEqual([
+        {
+          definition:
+            "CREATE INDEX project_browser_origins_origin_active_idx ON public.project_browser_origins USING btree (origin) WHERE (archived_at IS NULL)"
+        }
+      ]);
     });
   });
 
@@ -7053,6 +8484,141 @@ describe("repositories", () => {
       await expect(archiveUserAsAdmin(db, actor.id, actor.id))
         .rejects.toMatchObject({ code: "cannot_archive_current_admin" });
       await expect(findUserById(db, actor.id)).resolves.toMatchObject({ id: actor.id, isAdmin: true });
+    });
+  });
+
+  it("revokes every session when an administrator changes a password", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const actor = await createUser(db, {
+        email: "password-session-admin@example.com",
+        passwordHash: "old-hash",
+        isAdmin: true
+      });
+      const now = new Date("2026-09-01T12:00:00.000Z");
+      await createAuthSession(db, {
+        userId: actor.id,
+        tokenHash: "password-session-hash",
+        now,
+        expiresAt: new Date("2026-09-02T12:00:00.000Z")
+      });
+
+      await expect(
+        updateUserAsAdmin(db, actor.id, actor.id, { passwordHash: "replacement-hash" })
+      ).resolves.toMatchObject({ passwordHash: "replacement-hash" });
+      await expect(
+        findActiveSessionUser(db, { tokenHash: "password-session-hash", now })
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  it("keeps sessions active for profile-only administrator updates", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const actor = await createUser(db, {
+        email: "profile-session-admin@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const now = new Date("2026-09-01T12:00:00.000Z");
+      await createAuthSession(db, {
+        userId: actor.id,
+        tokenHash: "profile-session-hash",
+        now,
+        expiresAt: new Date("2026-09-02T12:00:00.000Z")
+      });
+
+      await updateUserAsAdmin(db, actor.id, actor.id, { email: "profile-session-renamed@example.com" });
+
+      await expect(
+        findActiveSessionUser(db, { tokenHash: "profile-session-hash", now })
+      ).resolves.toMatchObject({ id: actor.id, email: "profile-session-renamed@example.com" });
+    });
+  });
+
+  it("revokes every session when an administrator archives a user", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const actor = await createUser(db, {
+        email: "archive-session-actor@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const target = await createUser(db, {
+        email: "archive-session-target@example.com",
+        passwordHash: "hash",
+        isAdmin: true
+      });
+      const now = new Date("2026-09-01T12:00:00.000Z");
+      await createAuthSession(db, {
+        userId: target.id,
+        tokenHash: "archive-session-hash",
+        now,
+        expiresAt: new Date("2026-09-02T12:00:00.000Z")
+      });
+
+      await archiveUserAsAdmin(db, actor.id, target.id);
+
+      const session = await db
+        .selectFrom("auth_sessions")
+        .select("revoked_at")
+        .where("token_hash", "=", "archive-session-hash")
+        .executeTakeFirstOrThrow();
+      expect(session.revoked_at).not.toBeNull();
+    });
+  });
+
+  it("rolls back password and archive changes when session revocation fails", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+      const actor = await createUser(db, {
+        email: "rollback-session-actor@example.com",
+        passwordHash: "old-hash",
+        isAdmin: true
+      });
+      const target = await createUser(db, {
+        email: "rollback-session-target@example.com",
+        passwordHash: "target-hash",
+        isAdmin: true
+      });
+      const now = new Date("2026-09-01T12:00:00.000Z");
+      await createAuthSession(db, {
+        userId: actor.id,
+        tokenHash: "rollback-password-session-hash",
+        now,
+        expiresAt: new Date("2026-09-02T12:00:00.000Z")
+      });
+      await createAuthSession(db, {
+        userId: target.id,
+        tokenHash: "rollback-archive-session-hash",
+        now,
+        expiresAt: new Date("2026-09-02T12:00:00.000Z")
+      });
+      await sql`
+        create function reject_auth_session_revocation() returns trigger as $$
+        begin
+          raise exception 'session revocation failed';
+        end;
+        $$ language plpgsql
+      `.execute(db);
+      await sql`
+        create trigger reject_auth_session_revocation
+        before update of revoked_at on auth_sessions
+        for each row execute function reject_auth_session_revocation()
+      `.execute(db);
+
+      try {
+        await expect(
+          updateUserAsAdmin(db, actor.id, actor.id, { passwordHash: "replacement-hash" })
+        ).rejects.toThrow("session revocation failed");
+        await expect(findUserById(db, actor.id)).resolves.toMatchObject({ passwordHash: "old-hash" });
+
+        await expect(archiveUserAsAdmin(db, actor.id, target.id)).rejects.toThrow("session revocation failed");
+        await expect(findUserById(db, target.id)).resolves.toMatchObject({ id: target.id, archivedAt: null });
+      } finally {
+        await sql`drop trigger if exists reject_auth_session_revocation on auth_sessions`.execute(db);
+        await sql`drop function if exists reject_auth_session_revocation()`.execute(db);
+      }
     });
   });
 
@@ -7115,7 +8681,8 @@ describe("repositories", () => {
           environmentId: archivedProjectEnvironment.id,
           name: "archived project key",
           prefix: "sh_rejectp1",
-          hash: "hash"
+          hash: "hash",
+          capability: "browser"
         })
       ).rejects.toThrow("active_api_key_scope_not_found");
 
@@ -7127,7 +8694,8 @@ describe("repositories", () => {
           environmentId: archivedEnvironment.id,
           name: "archived environment key",
           prefix: "sh_rejecte1",
-          hash: "hash"
+          hash: "hash",
+          capability: "browser"
         })
       ).rejects.toThrow("active_api_key_scope_not_found");
 
@@ -7137,7 +8705,8 @@ describe("repositories", () => {
           environmentId: environment.id,
           name: "cross project key",
           prefix: "sh_rejectx1",
-          hash: "hash"
+          hash: "hash",
+          capability: "browser"
         })
       ).rejects.toThrow("active_api_key_scope_not_found");
     });
@@ -11512,9 +13081,8 @@ describe("repositories", () => {
   });
 
   // PER-451 (V1): in rollup mode the entry_event eligibility filter must be resolved against
-  // event_actor_daily, not raw `events` -- `events` is purged by the same retentionEventsDays
-  // horizon that flips the query into rollup mode, so in steady state the raw table never has
-  // rows old enough for a long-range rollup query to see. Regression test for
+  // event_actor_daily, not raw `events`, because the scope's effective events policy may have
+  // deleted historical raw rows independently of the installation routing threshold. Regression test for
   // .claude/docs/AUDIT-2026-07-26/findings/PER-440.md (finding V1).
   it("resolves entry-event eligibility against the rollup once raw events are purged", async () => {
     await withDb(async (db) => {
@@ -11548,9 +13116,8 @@ describe("repositories", () => {
         to: new Date("2025-12-03T00:00:00.000Z")
       });
 
-      // Simulate steady-state retention: purge raw `events` older than retentionEventsDays,
-      // exactly like the real background job. old_user's entry/return events are ~180 days old,
-      // well past a 90-day cutoff, so both rows are deleted here.
+      // Simulate a scope with no events override: its installation-default cutoff is 90 days.
+      // old_user's entry/return events are ~180 days old, so both rows are deleted here.
       await deleteExpiredTelemetry(db, {
         eventsDays: 90,
         errorsDays: 9999,
@@ -12798,6 +14365,48 @@ describe("repositories", () => {
     });
   });
 
+  it("redacts legacy feedback URL values when feedback items are read", async () => {
+    await withDb(async (db) => {
+      await migrate(db);
+
+      const project = await createProject(db, { name: "Feedback Legacy URL Reads" });
+      const environment = await createEnvironment(db, { projectId: project.id, name: "production" });
+      const item = await recordFeedbackItem(db, {
+        id: "fbk_legacy_url_1",
+        projectId: project.id,
+        environmentId: environment.id,
+        message: "Legacy feedback"
+      });
+      await db
+        .updateTable("feedback_items")
+        .set({
+          page_url: "https://app.test/reports?tab=exports#details",
+          path: "/reports?tab=exports#details"
+        })
+        .where("id", "=", item.id)
+        .execute();
+
+      await expect(listFeedbackItems(db, { projectId: project.id, environmentId: environment.id })).resolves.toEqual([
+        expect.objectContaining({
+          id: item.id,
+          pageUrl: "https://app.test/reports?tab=%5BREDACTED%5D",
+          path: "/reports?tab=%5BREDACTED%5D"
+        })
+      ]);
+      await expect(
+        updateFeedbackItemStatus(db, {
+          id: item.id,
+          projectId: project.id,
+          environmentId: environment.id,
+          status: "reviewed"
+        })
+      ).resolves.toMatchObject({
+        pageUrl: "https://app.test/reports?tab=%5BREDACTED%5D",
+        path: "/reports?tab=%5BREDACTED%5D"
+      });
+    });
+  });
+
   it("manages feature flags with audit history and safe evaluation fallback", async () => {
     await withDb(async (db) => {
       await migrate(db);
@@ -13279,7 +14888,8 @@ describe("repositories", () => {
         environmentId: environment.id,
         name: "first key",
         prefix: "sh_duplicate",
-        hash: "hash-1"
+        hash: "hash-1",
+        capability: "browser"
       });
 
       await expect(
@@ -13288,7 +14898,8 @@ describe("repositories", () => {
           environmentId: environment.id,
           name: "second key",
           prefix: "sh_duplicate",
-          hash: "hash-2"
+          hash: "hash-2",
+          capability: "browser"
         })
       ).rejects.toThrow();
     });

@@ -287,12 +287,40 @@ describe("admin monitor routes", () => {
 });
 
 describe("heartbeat monitor ingestion", () => {
+  it.each(["monitor", "environment", "project"])(
+    "returns the not-found contract without verifying the secret when the %s is archived",
+    async () => {
+      let secretVerifications = 0;
+      app = await buildApp({
+        readiness,
+        monitors: {
+          getActiveHeartbeatMonitor: async () => undefined,
+          verifyHeartbeatSecret: async () => {
+            secretVerifications += 1;
+            return true;
+          },
+          recordHeartbeatCheckIn: async () => monitor({ kind: "heartbeat" })
+        }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/heartbeats/mon_archived",
+        headers: { authorization: "Bearer shhb_valid" }
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({ error: "heartbeat_monitor_not_found" });
+      expect(secretVerifications).toBe(0);
+    }
+  );
+
   it("records heartbeat check-ins with a valid bearer secret", async () => {
     const receivedCheckIns: unknown[] = [];
     app = await buildApp({
       readiness,
       monitors: {
-        getMonitor: async (id) =>
+        getActiveHeartbeatMonitor: async (id) =>
           monitor({
             id,
             kind: "heartbeat",
@@ -333,7 +361,7 @@ describe("heartbeat monitor ingestion", () => {
     app = await buildApp({
       readiness,
       monitors: {
-        getMonitor: async (id) =>
+        getActiveHeartbeatMonitor: async (id) =>
           monitor({
             id,
             kind: "heartbeat",
@@ -360,4 +388,79 @@ describe("heartbeat monitor ingestion", () => {
     expect(response.statusCode).toBe(401);
     expect(response.json()).toEqual({ error: "invalid_heartbeat_secret" });
   });
+
+  it("returns the not-found contract when archival wins after route lookup", async () => {
+    app = await buildApp({
+      readiness,
+      monitors: {
+        getActiveHeartbeatMonitor: async (id) =>
+          monitor({
+            id,
+            kind: "heartbeat",
+            secretHash: "hashed-secret",
+            url: null,
+            method: null,
+            expectedStatus: null,
+            timeoutMs: null,
+            intervalMinutes: null,
+            expectedIntervalMinutes: 5,
+            graceMinutes: 2
+          }),
+        verifyHeartbeatSecret: async (hash, secret) => hash === "hashed-secret" && secret === "shhb_valid",
+        recordHeartbeatCheckIn: async () => null
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/heartbeats/mon_1",
+      headers: { authorization: "Bearer shhb_valid" }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "heartbeat_monitor_not_found" });
+  });
+
+  it.each(["lookup", "secret verification", "persistence"] as const)(
+    "returns only the sanitized unavailable contract when heartbeat %s rejects",
+    async (failureStage) => {
+      const activeHeartbeat = monitor({
+        kind: "heartbeat",
+        secretHash: "hashed-secret",
+        url: null,
+        method: null,
+        expectedStatus: null,
+        timeoutMs: null,
+        intervalMinutes: null,
+        expectedIntervalMinutes: 5,
+        graceMinutes: 2
+      });
+      app = await buildApp({
+        readiness,
+        monitors: {
+          getActiveHeartbeatMonitor: async () => {
+            if (failureStage === "lookup") throw new Error("database credentials leaked here");
+            return activeHeartbeat;
+          },
+          verifyHeartbeatSecret: async () => {
+            if (failureStage === "secret verification") throw new Error("hash details leaked here");
+            return true;
+          },
+          recordHeartbeatCheckIn: async () => {
+            if (failureStage === "persistence") throw new Error("transaction details leaked here");
+            return activeHeartbeat;
+          }
+        }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/heartbeats/mon_1",
+        headers: { authorization: "Bearer shhb_valid" }
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({ error: "monitors_unavailable" });
+    }
+  );
 });

@@ -3,10 +3,20 @@ import { createReadStream } from "node:fs";
 import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { execFile } from "node:child_process";
+import { Agent as HttpAgent } from "node:http";
+import { Agent as HttpsAgent } from "node:https";
+import type { LookupFunction } from "node:net";
 import type { Readable } from "node:stream";
 import { promisify } from "node:util";
 import { PutObjectCommand, S3Client, type S3ClientConfig } from "@aws-sdk/client-s3";
+import { NodeHttpHandler } from "@smithy/node-http-handler";
+import {
+  createSafeLookup,
+  OutboundPolicy,
+  validateOutboundHttpTransport
+} from "@sigmon/config";
 import { sanitizePreviewText } from "@sigmon/telemetry/sanitization";
+import { buildLibpqSubprocess } from "./libpq-subprocess.js";
 
 const execFileAsync = promisify(execFile);
 const backupFilenamePattern = /^sigmon-\d{8}T\d{6}Z\.dump$/;
@@ -63,25 +73,37 @@ export type UploadBackupInput = {
   filePath: string;
   key: string;
   s3: BackupS3Config;
-  createClient?: (config: S3ClientConfig) => { send: (command: PutObjectCommand) => Promise<unknown> };
+  outboundPolicy?: OutboundPolicy;
+  lookup?: LookupFunction;
+  timeoutMs?: number;
+  createClient?: (config: S3ClientConfig) => BackupS3Client;
   createReadStreamFn?: (path: string) => BackupReadStream;
+  statFn?: typeof stat;
 };
 
 export type RunBackupOnceInput = {
   now: () => Date;
   trigger: BackupTrigger;
+  throwOnFailure?: boolean;
   config: BackupRuntimeConfig;
   withLock: <T>(run: () => Promise<T>) => Promise<{ locked: false } | { locked: true; result: T }>;
   dumpDatabase?: (input: DumpDatabaseInput) => Promise<void>;
   uploadBackup?: (input: UploadBackupInput) => Promise<{ bucket: string; key: string }>;
   pruneBackups?: typeof pruneLocalBackups;
   recordBackupRun: (input: BackupRunInput) => Promise<unknown>;
+  outboundPolicy?: OutboundPolicy;
 };
 
 export type BackupConfig = BackupRuntimeConfig;
 export type BackupRuntime = RunBackupOnceInput;
 
-type BackupS3Client = { send: (command: PutObjectCommand) => Promise<unknown> };
+type BackupS3Client = {
+  send: (command: PutObjectCommand, options?: { abortSignal?: AbortSignal }) => Promise<unknown>;
+  destroy?: () => void;
+};
+
+const DEFAULT_S3_OPERATION_TIMEOUT_MS = 30_000;
+const MAX_S3_SOCKETS = 4;
 
 export function createBackupFilename(now: Date): string {
   const year = now.getUTCFullYear().toString().padStart(4, "0");
@@ -119,38 +141,27 @@ export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<vo
       await execFileAsync(file, args, options);
     });
   const timeoutMs = input.timeoutMs ?? 300_000;
-  const databaseUrl = new URL(input.databaseUrl);
-  const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\//, ""));
-  const username = decodeURIComponent(databaseUrl.username);
-  const password = decodeURIComponent(databaseUrl.password);
-  const sanitizedConnectionUrl = new URL(databaseUrl);
-  sanitizedConnectionUrl.password = "";
+  let connection;
+  try {
+    connection = buildLibpqSubprocess(input.databaseUrl);
+  } catch {
+    await unlinkIfExists(input.outputPath);
+    throw new Error("database_url_invalid");
+  }
   const args = [
     "--format=custom",
     "--no-owner",
     "--no-privileges",
+    "--no-password",
     "--file",
     input.outputPath,
-    "--dbname"
+    "--dbname",
+    connection.argsConnection
   ];
-
-  if (databaseUrl.search !== "") {
-    args.push(sanitizedConnectionUrl.toString());
-  } else {
-    args.push(databaseName, "--host", databaseUrl.hostname);
-
-    if (databaseUrl.port !== "") {
-      args.push("--port", databaseUrl.port);
-    }
-
-    if (username !== "") {
-      args.push("--username", username);
-    }
-  }
 
   const options = {
     timeout: timeoutMs,
-    ...(password === "" ? {} : { env: { ...process.env, PGPASSWORD: password } })
+    env: connection.env
   };
 
   try {
@@ -162,38 +173,110 @@ export async function dumpPostgresDatabase(input: DumpDatabaseInput): Promise<vo
 }
 
 export async function uploadBackupToS3(input: UploadBackupInput): Promise<{ bucket: string; key: string }> {
+  const policy = input.outboundPolicy ?? new OutboundPolicy();
+  try {
+    validateOutboundHttpTransport(input.s3.endpoint, policy, { requireHttps: true });
+  } catch (error) {
+    if (error instanceof Error && error.message === "outbound_https_required") {
+      throw new Error("backup_s3_https_required");
+    }
+    throw new Error("backup_s3_endpoint_forbidden");
+  }
+
+  const timeoutMs = input.timeoutMs ?? DEFAULT_S3_OPERATION_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("backup_s3_timeout_invalid");
+  }
+  const lookup = createSafeLookup(policy, input.lookup);
+  const httpAgent = new HttpAgent({ keepAlive: false, maxSockets: MAX_S3_SOCKETS, lookup });
+  const httpsAgent = new HttpsAgent({
+    keepAlive: false,
+    maxSockets: MAX_S3_SOCKETS,
+    lookup,
+    rejectUnauthorized: true
+  });
+  const requestHandler = new NodeHttpHandler({
+    httpAgent,
+    httpsAgent,
+    connectionTimeout: Math.min(5_000, timeoutMs),
+    requestTimeout: timeoutMs,
+    throwOnRequestTimeout: true,
+    socketTimeout: timeoutMs
+  });
   const createClient = input.createClient ?? ((config: S3ClientConfig) => new S3Client(config));
   const createReadStreamFn = input.createReadStreamFn ?? ((path: string) => createReadStream(path));
+  const statFn = input.statFn ?? stat;
   const sidecarPath = `${input.filePath}.sha256`;
-  const client = createClient({
-    endpoint: input.s3.endpoint,
-    region: input.s3.region,
-    credentials: {
-      accessKeyId: input.s3.accessKeyId,
-      secretAccessKey: input.s3.secretAccessKey
-    },
-    forcePathStyle: true
-  });
-  await stat(sidecarPath);
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), timeoutMs);
+  let client: BackupS3Client | undefined;
+  let primaryError: unknown;
+  let stage: "client" | "sidecar" | "upload" = "client";
+  try {
+    client = createClient({
+      endpoint: input.s3.endpoint,
+      region: input.s3.region,
+      credentials: {
+        accessKeyId: input.s3.accessKeyId,
+        secretAccessKey: input.s3.secretAccessKey
+      },
+      forcePathStyle: true,
+      maxAttempts: 1,
+      requestHandler
+    });
+    stage = "sidecar";
+    await settleBeforeAbort(statFn(sidecarPath), controller.signal);
 
-  await uploadObjectToS3WithRetry({
-    client,
-    bucket: input.s3.bucket,
-    key: input.key,
-    filePath: input.filePath,
-    contentType: "application/octet-stream",
-    createReadStreamFn
-  });
-  await uploadObjectToS3WithRetry({
-    client,
-    bucket: input.s3.bucket,
-    key: `${input.key}.sha256`,
-    filePath: sidecarPath,
-    contentType: "text/plain",
-    createReadStreamFn
-  });
+    stage = "upload";
+    await uploadObjectToS3WithRetry({
+      client,
+      bucket: input.s3.bucket,
+      key: input.key,
+      filePath: input.filePath,
+      contentType: "application/octet-stream",
+      createReadStreamFn,
+      abortSignal: controller.signal
+    });
+    await uploadObjectToS3WithRetry({
+      client,
+      bucket: input.s3.bucket,
+      key: `${input.key}.sha256`,
+      filePath: sidecarPath,
+      contentType: "text/plain",
+      createReadStreamFn,
+      abortSignal: controller.signal
+    });
 
-  return { bucket: input.s3.bucket, key: input.key };
+    return { bucket: input.s3.bucket, key: input.key };
+  } catch {
+    primaryError = controller.signal.aborted
+      ? new Error("backup_s3_timeout")
+      : new Error(
+          stage === "client"
+            ? "backup_s3_client_failed"
+            : stage === "sidecar"
+              ? "backup_s3_sidecar_unavailable"
+              : "backup_s3_upload_failed"
+        );
+    throw primaryError;
+  } finally {
+    clearTimeout(deadline);
+    controller.abort();
+    let cleanupError: unknown;
+    try {
+      client?.destroy?.();
+    } catch (error) {
+      cleanupError = error;
+    }
+    try {
+      requestHandler.destroy();
+    } catch (error) {
+      cleanupError ??= error;
+    }
+    if (primaryError === undefined && cleanupError !== undefined) {
+      throw new Error("backup_s3_cleanup_failed");
+    }
+  }
 }
 
 async function uploadObjectToS3WithRetry(input: {
@@ -203,6 +286,7 @@ async function uploadObjectToS3WithRetry(input: {
   filePath: string;
   contentType: string;
   createReadStreamFn: (path: string) => BackupReadStream;
+  abortSignal: AbortSignal;
   attempts?: number;
   baseDelayMs?: number;
 }): Promise<void> {
@@ -211,15 +295,20 @@ async function uploadObjectToS3WithRetry(input: {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (input.abortSignal.aborted) throw new Error("backup_s3_timeout");
     const body = input.createReadStreamFn(input.filePath);
     try {
-      await input.client.send(
-        new PutObjectCommand({
-          Bucket: input.bucket,
-          Key: input.key,
-          Body: body,
-          ContentType: input.contentType
-        })
+      await settleBeforeAbort(
+        input.client.send(
+          new PutObjectCommand({
+            Bucket: input.bucket,
+            Key: input.key,
+            Body: body,
+            ContentType: input.contentType
+          }),
+          { abortSignal: input.abortSignal }
+        ),
+        input.abortSignal
       );
       return;
     } catch (error) {
@@ -227,7 +316,7 @@ async function uploadObjectToS3WithRetry(input: {
       if (attempt === attempts || !isRetryableS3Error(error)) {
         throw error;
       }
-      await sleep(Math.min(baseDelayMs * attempt, 1_000));
+      await abortableSleep(Math.min(baseDelayMs * attempt, 1_000), input.abortSignal);
     } finally {
       body.destroy();
     }
@@ -249,8 +338,37 @@ function readS3StatusCode(error: unknown): number | null {
   return metadata.httpStatusCode;
 }
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
+async function settleBeforeAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) throw new Error("backup_s3_timeout");
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new Error("backup_s3_timeout"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      }
+    );
+  });
+}
+
+async function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) throw new Error("backup_s3_timeout");
+  await new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(new Error("backup_s3_timeout"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export async function pruneLocalBackups(input: {
@@ -304,7 +422,12 @@ export async function runBackupOnce(runtime: RunBackupOnceInput): Promise<{ ran:
 
       if (runtime.config.s3.enabled) {
         const key = createBackupS3Key(runtime.config.s3.prefix, filename);
-        const uploaded = await uploadBackup({ filePath: localPath, key, s3: runtime.config.s3 });
+        const uploaded = await uploadBackup({
+          filePath: localPath,
+          key,
+          s3: runtime.config.s3,
+          outboundPolicy: runtime.outboundPolicy
+        });
         s3Bucket = uploaded.bucket;
         s3Key = uploaded.key;
       }
@@ -346,6 +469,10 @@ export async function runBackupOnce(runtime: RunBackupOnceInput): Promise<{ ran:
       s3Key: null,
       errorMessage: sanitizeBackupError(error)
     });
+
+    if (runtime.throwOnFailure) {
+      throw new Error("backup_failed");
+    }
 
     return { ran: true, skipped: false };
   }

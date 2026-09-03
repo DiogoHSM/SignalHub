@@ -119,28 +119,31 @@ function TraceListRow({ trace, onOpen }: { trace: TraceListItemVM; onOpen: () =>
       }}
       onClick={onOpen}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+      <div className="sh-cluster-10 sh-cluster-wrap" style={{ marginBottom: 6 }}>
         {trace.hasError ? (
           <span className="sh-tag critical">● Has error</span>
         ) : (
           <span className="sh-tag ok">{trace.status}</span>
         )}
         <span className="sh-tag mono">{trace.traceId}</span>
-        <span className="sh-faint sh-mono" style={{ fontSize: 11 }}>
+        <span className="sh-faint sh-mono sh-copy-11">
           {(trace.userId ?? "—")} · {(trace.tenantId ?? "—")}
         </span>
-        <div style={{ flex: 1 }} />
-        <span className="sh-faint sh-mono" style={{ fontSize: 11 }}>{relativeTime(trace.startedAt)}</span>
+        <div className="sh-grow" />
+        <span className="sh-faint sh-mono sh-copy-11">{relativeTime(trace.startedAt)}</span>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-        <span className="sh-mono" style={{ fontSize: 13, color: "var(--fg)" }}>{trace.name}</span>
-        <div style={{ flex: 1 }} />
-        <span className="sh-mono sh-muted" style={{ fontSize: 12 }}>{formatLatency(trace.durationMs)}</span>
+      <div className="sh-cluster-16">
+        <span className="sh-mono sh-copy-13" style={{ color: "var(--fg)" }}>{trace.name}</span>
+        <div className="sh-grow" />
+        <span className="sh-mono sh-muted sh-copy-12">{formatLatency(trace.durationMs)}</span>
         <Icon name="arrow" size={12} style={{ color: "var(--fg-faint)" }} />
       </div>
     </button>
   );
 }
+
+const ENDPOINT_GRID = "minmax(220px, 1.4fr) repeat(7, minmax(82px, .55fr))";
+const WATERFALL_GRID = "280px 60px 1fr";
 
 function EndpointRow({
   endpoint,
@@ -156,13 +159,13 @@ function EndpointRow({
     <button
       className={`sh-row sh-row--btn ${active ? "is-active" : ""}`}
       style={{
-        gridTemplateColumns: "minmax(220px, 1.4fr) repeat(7, minmax(82px, .55fr))",
+        gridTemplateColumns: ENDPOINT_GRID,
         alignItems: "center",
         width: "100%",
         textAlign: "left",
         border: "none",
         borderBottom: "1px solid var(--border-subtle)",
-        background: active ? "rgba(87, 242, 135, 0.12)" : "transparent",
+        background: active ? "var(--interactive-selected-bg)" : "transparent",
         cursor: "pointer",
       }}
       onClick={onSelect}
@@ -191,44 +194,48 @@ function EndpointTable({
   onSelect: (name: string) => void;
 }) {
   return (
-    <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <div className="sh-card sh-card-fill">
       <div className="sh-card__head">
         <h2 className="sh-h2">APM endpoints</h2>
         <span className="sh-tag">slowest by p95</span>
       </div>
-      <div
-        className="sh-row"
-        style={{
-          gridTemplateColumns: "minmax(220px, 1.4fr) repeat(7, minmax(82px, .55fr))",
-          padding: "8px 18px",
-          borderBottom: "1px solid var(--border-subtle)",
-          color: "var(--fg-faint)",
-          fontSize: 11,
-          fontWeight: 700,
-        }}
-      >
-        <span>Endpoint</span>
-        <span>Req</span>
-        <span>Errors</span>
-        <span>Error rate</span>
-        <span>p50</span>
-        <span>p95</span>
-        <span>p99</span>
-        <span>Apdex</span>
-      </div>
-      <div style={{ overflow: "auto", maxHeight: 260 }}>
-        {endpoints.length === 0 ? (
-          <EmptyHint icon="waterfall" title="No APM data yet" sub="Trace endpoints will appear here as traffic arrives." />
-        ) : (
-          endpoints.map((endpoint) => (
-            <EndpointRow
-              key={endpoint.name}
-              endpoint={endpoint}
-              active={endpoint.name === activeEndpoint}
-              onSelect={() => onSelect(endpoint.name)}
-            />
-          ))
-        )}
+      <div className="sh-wide-table-scroll">
+        <div className="sh-wide-table">
+          <div
+            className="sh-row"
+            style={{
+              gridTemplateColumns: ENDPOINT_GRID,
+              padding: "8px 16px",
+              borderBottom: "1px solid var(--border-subtle)",
+              color: "var(--fg-faint)",
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            <span>Endpoint</span>
+            <span>Req</span>
+            <span>Errors</span>
+            <span>Error rate</span>
+            <span>p50</span>
+            <span>p95</span>
+            <span>p99</span>
+            <span>Apdex</span>
+          </div>
+          <div className="sh-wide-table__body" style={{ maxHeight: 260 }}>
+            {endpoints.length === 0 ? (
+              <EmptyHint icon="waterfall" title="No APM data yet" sub="Trace endpoints will appear here as traffic arrives." />
+            ) : (
+              endpoints.map((endpoint) => (
+                <EndpointRow
+                  key={endpoint.name}
+                  endpoint={endpoint}
+                  active={endpoint.name === activeEndpoint}
+                  onSelect={() => onSelect(endpoint.name)}
+                />
+              ))
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -241,7 +248,7 @@ function ServiceMapPanel({ serviceMap }: { serviceMap: UseTracesResult["serviceM
       <div className="sh-card__head">
         <div>
           <h2 className="sh-h2">Service map</h2>
-          <p className="sh-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+          <p className="sh-muted sh-subtitle">
             Span dependencies inferred from service, peer, target and operation metadata.
           </p>
         </div>
@@ -252,7 +259,7 @@ function ServiceMapPanel({ serviceMap }: { serviceMap: UseTracesResult["serviceM
       {edges.length === 0 ? (
         <EmptyHint icon="waterfall" title="No service dependencies yet" sub="Add span metadata such as service and target_service to build the map." />
       ) : (
-        <div style={{ display: "grid", gap: 8, padding: "0 18px 18px" }}>
+        <div className="sh-table-scroll sh-grid-8" style={{ padding: "0 18px 18px" }}>
           {edges.map((edge) => (
             <ServiceMapEdgeRow edge={edge} key={`${edge.source}:${edge.target}:${edge.dependencyType}`} />
           ))}
@@ -273,7 +280,7 @@ function ServiceMapEdgeRow({ edge }: { edge: ServiceMapEdgeVM }) {
         padding: "10px 12px",
         border: "1px solid var(--border-subtle)",
         borderRadius: 10,
-        background: "rgba(255,255,255,0.015)",
+        background: "var(--row-highlight-subtle)",
       }}
     >
       <span className="sh-mono" style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -296,11 +303,11 @@ function WebVitalsPanel({ webVitals }: { webVitals: UseTracesResult["webVitals"]
   const totals = webVitals.totals;
   const metrics = webVitals.metrics.slice(0, 8);
   return (
-    <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <div className="sh-card sh-card-fill">
       <div className="sh-card__head">
         <div>
           <h2 className="sh-h2">Web vitals</h2>
-          <p className="sh-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+          <p className="sh-muted sh-subtitle">
             Browser experience p75 by route, metric and release.
           </p>
         </div>
@@ -308,8 +315,8 @@ function WebVitalsPanel({ webVitals }: { webVitals: UseTracesResult["webVitals"]
           {totals?.samples ?? 0} samples · {totals?.routes ?? 0} routes
         </span>
       </div>
-      <div className="sh-card__body" style={{ display: "grid", gap: 14 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+      <div className="sh-card__body sh-grid-14">
+        <div className="traces-kpi-grid sh-investigation-grid sh-grid-10">
           <SummaryStat label="LCP p75" value={formatWebVitalValue("LCP", totals?.p75LcpMs ?? null)} />
           <SummaryStat label="INP p75" value={formatWebVitalValue("INP", totals?.p75InpMs ?? null)} />
           <SummaryStat label="CLS p75" value={formatWebVitalValue("CLS", totals?.p75Cls ?? null)} mono />
@@ -322,7 +329,7 @@ function WebVitalsPanel({ webVitals }: { webVitals: UseTracesResult["webVitals"]
         {metrics.length === 0 ? (
           <EmptyHint icon="activity" title="No Web Vitals yet" sub="Install browser Web Vitals capture to see route-level UX regressions." />
         ) : (
-          <div style={{ display: "grid", gap: 8 }}>
+          <div className="sh-table-scroll sh-grid-8">
             {metrics.map((metric) => {
               const tone = webVitalTone(metric);
               return (
@@ -335,7 +342,7 @@ function WebVitalsPanel({ webVitals }: { webVitals: UseTracesResult["webVitals"]
                     padding: "10px 12px",
                     border: "1px solid var(--border-subtle)",
                     borderRadius: 10,
-                    background: "rgba(255,255,255,0.015)",
+                    background: "var(--row-highlight-subtle)",
                   }}
                 >
                   <span className={`sh-tag ${tone}`}>{metric.name}</span>
@@ -365,11 +372,11 @@ function RuntimeProfilesPanel({ runtimeProfiles }: { runtimeProfiles: UseTracesR
   const profiles = runtimeProfiles.profiles.slice(0, 6);
 
   return (
-    <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <div className="sh-card sh-card-fill">
       <div className="sh-card__head">
         <div>
           <h2 className="sh-h2">Runtime profiles</h2>
-          <p className="sh-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+          <p className="sh-muted sh-subtitle">
             Opt-in CPU and memory snapshots from Node.js workers, jobs and route handlers.
           </p>
         </div>
@@ -377,8 +384,8 @@ function RuntimeProfilesPanel({ runtimeProfiles }: { runtimeProfiles: UseTracesR
           {totals?.profiles ?? 0} profiles · {totals?.samples ?? 0} samples
         </span>
       </div>
-      <div className="sh-card__body" style={{ display: "grid", gap: 14 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 10 }}>
+      <div className="sh-card__body sh-grid-14">
+        <div className="traces-kpi-grid sh-investigation-grid sh-grid-10">
           <SummaryStat label="CPU profiles" value={String(totals?.cpuProfiles ?? 0)} />
           <SummaryStat label="Memory snapshots" value={String(totals?.memoryProfiles ?? 0)} />
           <SummaryStat label="Avg CPU" value={formatPercent(totals?.avgCpuUsagePercent ?? null)} />
@@ -387,8 +394,8 @@ function RuntimeProfilesPanel({ runtimeProfiles }: { runtimeProfiles: UseTracesR
         {hotFunctions.length === 0 && profiles.length === 0 ? (
           <EmptyHint icon="activity" title="No runtime profiles yet" sub="Use @sigmon/sdk/node to capture targeted CPU windows or memory snapshots." />
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, .9fr)", gap: 12 }}>
-            <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+          <div className="traces-profile-grid sh-investigation-grid sh-grid-12">
+            <div className="sh-table-scroll sh-grid-8 sh-min-w-0">
               <h3 className="sh-h3">Hot functions</h3>
               {hotFunctions.length === 0 ? (
                 <EmptyHint icon="activity" title="No CPU hotspots" sub="CPU profiles will show aggregated self time here." />
@@ -403,10 +410,10 @@ function RuntimeProfilesPanel({ runtimeProfiles }: { runtimeProfiles: UseTracesR
                       padding: "10px 12px",
                       border: "1px solid var(--border-subtle)",
                       borderRadius: 10,
-                      background: "rgba(255,255,255,0.015)",
+                      background: "var(--row-highlight-subtle)",
                     }}
                   >
-                    <div style={{ minWidth: 0 }}>
+                    <div className="sh-min-w-0">
                       <div className="sh-mono" style={{ color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis" }}>
                         {frame.functionName}
                       </div>
@@ -421,7 +428,7 @@ function RuntimeProfilesPanel({ runtimeProfiles }: { runtimeProfiles: UseTracesR
                 ))
               )}
             </div>
-            <div style={{ display: "grid", gap: 8, minWidth: 0 }}>
+            <div className="sh-grid-8 sh-min-w-0">
               <h3 className="sh-h3">Recent profiles</h3>
               {profiles.length === 0 ? (
                 <EmptyHint icon="waterfall" title="No recent snapshots" sub="Captured profiles will appear here with route and trace context." />
@@ -433,7 +440,7 @@ function RuntimeProfilesPanel({ runtimeProfiles }: { runtimeProfiles: UseTracesR
                       padding: "10px 12px",
                       border: "1px solid var(--border-subtle)",
                       borderRadius: 10,
-                      background: "rgba(255,255,255,0.015)",
+                      background: "var(--row-highlight-subtle)",
                       minWidth: 0,
                     }}
                   >
@@ -526,7 +533,7 @@ function TraceListView({
           </>
         }
       />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 12 }}>
+      <div className="traces-kpi-grid sh-investigation-grid sh-grid-12">
         <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Endpoints" value={String(totals?.endpoints ?? endpoints.length)} /></div></div>
         <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Requests" value={String(totals?.requests ?? 0)} /></div></div>
         <div className="sh-card"><div className="sh-card__body"><SummaryStat label="Errors" value={String(totals?.errors ?? 0)} tone={(totals?.errors ?? 0) > 0 ? "danger" : undefined} /></div></div>
@@ -536,12 +543,12 @@ function TraceListView({
       <WebVitalsPanel webVitals={webVitals} />
       <RuntimeProfilesPanel runtimeProfiles={runtimeProfiles} />
       <ServiceMapPanel serviceMap={serviceMap} />
-      <div className="sh-card" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <div className="sh-card sh-card-grow">
         <div className="sh-card__head">
           <h2 className="sh-h2">{activeEndpoint ? `Recent traces · ${activeEndpoint}` : "Recent traces"}</h2>
           <span className="sh-tag">latest 25</span>
         </div>
-        <div style={{ overflow: "auto", flex: 1 }}>
+        <div className="sh-scroll-fill">
           {traces.length === 0 ? (
             <EmptyHint icon="waterfall" title="No traces in this project" sub="Traces will appear here as they are ingested." />
           ) : (
@@ -589,22 +596,35 @@ function WaterfallRow({ span, totalMs, treeMode, isCollapsed, isActive, onSelect
   const showToggle = treeMode && span.hasChildren;
   return (
     <div
-      className={`sh-row span-row ${isActive ? "is-active" : ""}`}
-      style={{ gridTemplateColumns: "280px 60px 1fr", padding: "9px 16px", cursor: "pointer" }}
+      className={`sh-row span-row sh-hit-target ${isActive ? "is-active" : ""}`}
+      style={{ gridTemplateColumns: WATERFALL_GRID, padding: "9px 16px", cursor: "pointer" }}
+      role="button"
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 5, paddingLeft: span.level * 16, minWidth: 0 }}>
-        {showToggle ? (
-          <button
-            className="span-toggle"
-            onClick={(e) => { e.stopPropagation(); onToggle(); }}
-            aria-label={isCollapsed ? "Expand" : "Collapse"}
-          >
-            <Icon name="chevd" size={12} style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform .2s" }} />
-          </button>
-        ) : (
-          <span style={{ width: 16, display: "inline-block", textAlign: "center", color: "var(--fg-faint)" }}>·</span>
-        )}
+        <span className="span-toggle-slot">
+          {showToggle ? (
+            <button
+              className="span-toggle sh-hit-target"
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onToggle(); }}
+              onKeyDown={(e) => e.stopPropagation()}
+              aria-label={isCollapsed ? "Expand" : "Collapse"}
+            >
+              <Icon name="chevd" size={12} style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform .2s" }} />
+            </button>
+          ) : (
+            <span className="span-toggle-placeholder" aria-hidden="true">·</span>
+          )}
+        </span>
         <span style={{ width: 8, height: 8, borderRadius: 2, background: SPAN_KIND_COLOR[span.kind], flex: "0 0 auto" }} />
         <span className="sh-mono" style={{ fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {span.name}
@@ -645,12 +665,12 @@ function SpanDetailPanel({ span, traceIdLabel, ctx }: { span: SpanNodeVM; traceI
     ctx.pushToast("Trace ID copied");
   };
   return (
-    <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <div className="sh-card sh-card-fill">
       <div className="sh-card__head">
         <h2 className="sh-h2">Span detail</h2>
         {span.errored ? <span className="sh-tag critical">error</span> : <span className="sh-tag ok">{span.kind}</span>}
       </div>
-      <div className="sh-card__body" style={{ overflow: "auto", flex: 1, display: "grid", gap: 16, alignContent: "start" }}>
+      <div className="sh-card__body sh-scroll-fill sh-grid-16" style={{ alignContent: "start" }}>
         <div>
           <div className="sh-eyebrow" style={{ marginBottom: 6 }}>Name</div>
           <div className="sh-mono" style={{ fontSize: 13, color: "var(--fg)" }}>{span.name}</div>
@@ -674,10 +694,6 @@ function SpanDetailPanel({ span, traceIdLabel, ctx }: { span: SpanNodeVM; traceI
           <div className="sh-code" style={{ maxHeight: 130, overflow: "auto", whiteSpace: "pre-wrap" }}>{spanAttributes(span)}</div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="sh-btn primary" onClick={() => ctx.pushToast("Linking spans to incidents is not yet available")}>
-            <Icon name="error" size={13} />
-            Open incident
-          </button>
           <button className="sh-btn" onClick={copyId}>
             <Icon name="copy" size={13} />
             Copy ID
@@ -769,8 +785,8 @@ function TraceDetailView({ ctx, trace, onBack }: { ctx: ScreenCtx; trace: TraceL
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.7fr 1fr", gap: 16, flex: 1, minHeight: 0 }}>
-        <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div className="traces-detail-grid sh-investigation-grid sh-grid-16 sh-grow" style={{ minHeight: 0 }}>
+        <div className="sh-card sh-card-fill">
           <div className="sh-card__head">
             <h2 className="sh-h2">Waterfall</h2>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -788,48 +804,50 @@ function TraceDetailView({ ctx, trace, onBack }: { ctx: ScreenCtx; trace: TraceL
           ) : spans.length === 0 ? (
             <EmptyHint icon="waterfall" title="No spans for this trace" />
           ) : (
-            <>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "280px 60px 1fr",
-                  borderBottom: "1px solid var(--border-subtle)",
-                  padding: "8px 16px",
-                  fontSize: 10.5,
-                  color: "var(--fg-faint)",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                <span>Span</span>
-                <span>Dur</span>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  {rulerLabels(Math.max(totalMs, 1)).map((label, i) => (
-                    <span key={i}>{label}</span>
+            <div className="sh-wide-table-scroll sh-wide-table-scroll--fill">
+              <div className="sh-wide-table">
+                <div
+                  className="sh-row"
+                  style={{
+                    gridTemplateColumns: WATERFALL_GRID,
+                    borderBottom: "1px solid var(--border-subtle)",
+                    padding: "8px 16px",
+                    fontSize: 10.5,
+                    color: "var(--fg-faint)",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                >
+                  <span>Span</span>
+                  <span>Dur</span>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    {rulerLabels(Math.max(totalMs, 1)).map((label, i) => (
+                      <span key={i}>{label}</span>
+                    ))}
+                  </div>
+                </div>
+                <div className="sh-wide-table__body sh-wide-table__body--fill">
+                  {visible.map((s) => (
+                    <WaterfallRow
+                      key={s.id}
+                      span={s}
+                      totalMs={Math.max(totalMs, 1)}
+                      treeMode={filter === "All"}
+                      isCollapsed={collapsed.has(s.id)}
+                      isActive={s.id === selectedSpanId}
+                      onSelect={() => setSelectedSpanId(s.id)}
+                      onToggle={() => toggle(s.id)}
+                    />
                   ))}
                 </div>
               </div>
-              <div style={{ overflow: "auto", flex: 1 }}>
-                {visible.map((s) => (
-                  <WaterfallRow
-                    key={s.id}
-                    span={s}
-                    totalMs={Math.max(totalMs, 1)}
-                    treeMode={filter === "All"}
-                    isCollapsed={collapsed.has(s.id)}
-                    isActive={s.id === selectedSpanId}
-                    onSelect={() => setSelectedSpanId(s.id)}
-                    onToggle={() => toggle(s.id)}
-                  />
-                ))}
-              </div>
-            </>
+            </div>
           )}
         </div>
 
         {selectedSpan ? (
           <SpanDetailPanel span={selectedSpan} traceIdLabel={trace.traceId} ctx={ctx} />
         ) : (
-          <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div className="sh-card sh-card-fill">
             <div className="sh-card__head"><h2 className="sh-h2">Span detail</h2></div>
             <EmptyHint icon="waterfall" title="Select a span" sub="Pick a span in the waterfall to inspect it." />
           </div>
@@ -879,7 +897,7 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
 
   if (!ctx.project || !ctx.environment) {
     return (
-      <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+      <div className="sh-empty-region">
         <EmptyHint icon="waterfall" title="No project selected" sub="Select a project and environment to view traces." />
       </div>
     );
@@ -887,7 +905,7 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
 
   if (status === "loading" && !data) {
     return (
-      <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+      <div className="sh-empty-region">
         <EmptyHint icon="waterfall" title="Loading…" sub="Fetching recent traces." />
       </div>
     );
@@ -895,7 +913,7 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
 
   if (status === "error" || !data) {
     return (
-      <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
+      <div className="sh-empty-region">
         <EmptyHint icon="alert" title="Could not load traces" sub="Check your connection or try again." />
       </div>
     );

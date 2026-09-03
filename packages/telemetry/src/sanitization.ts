@@ -1,3 +1,6 @@
+import { generalTelemetryJsonBounds, inspectJsonBounds } from "./json-bounds.js";
+export { sanitizeTelemetryUrl } from "./url-sanitization.js";
+
 export type SanitizedValue =
   | string
   | number
@@ -43,7 +46,6 @@ const PREVIEW_CREDENTIAL_PATTERNS: Array<[RegExp, string]> = [
   [/\b(api[_-]?key)\s*[:=]\s*[^\s,;'"})\]]+/gi, "$1: [REDACTED]"],
   [/\b(secret)\s*[:=]\s*[^\s,;'"})\]]+/gi, "$1=[REDACTED]"]
 ];
-
 function normalizeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
 }
@@ -75,19 +77,69 @@ function isSensitiveKey(key: string): boolean {
 }
 
 export function sanitizeValue(value: unknown): SanitizedValue {
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeValue(item));
+  const inspection = inspectJsonBounds(value, generalTelemetryJsonBounds);
+  if (!inspection.ok) {
+    throw new Error(`unsafe_recursive_value:${inspection.violation}`);
   }
+  if (value === null || typeof value !== "object") return value as SanitizedValue;
 
-  if (value && typeof value === "object") {
-    const output: Record<string, SanitizedValue> = {};
-    for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-      output[key] = isSensitiveKey(key) ? "[REDACTED]" : sanitizeValue(nestedValue);
+  const outputs = new WeakMap<object, SanitizedValue[] | Record<string, SanitizedValue>>();
+  const root = Array.isArray(value) ? [] : {};
+  outputs.set(value, root);
+  const pending: object[] = [value];
+
+  while (pending.length > 0) {
+    const source = pending.pop();
+    if (!source) continue;
+    const output = outputs.get(source);
+    if (!output) continue;
+
+    if (Array.isArray(source)) {
+      const arrayOutput = output as SanitizedValue[];
+      arrayOutput.length = source.length;
+      for (let index = 0; index < source.length; index += 1) {
+        if (!(index in source)) continue;
+        const nestedValue = source[index];
+        if (nestedValue !== null && typeof nestedValue === "object") {
+          const existing = outputs.get(nestedValue);
+          if (existing) {
+            arrayOutput[index] = existing;
+          } else {
+            const nestedOutput = Array.isArray(nestedValue) ? [] : {};
+            outputs.set(nestedValue, nestedOutput);
+            arrayOutput[index] = nestedOutput;
+            pending.push(nestedValue);
+          }
+        } else {
+          arrayOutput[index] = nestedValue as SanitizedValue;
+        }
+      }
+      continue;
     }
-    return output;
+
+    const objectOutput = output as Record<string, SanitizedValue>;
+    for (const [key, nestedValue] of Object.entries(source)) {
+      if (isSensitiveKey(key)) {
+        objectOutput[key] = "[REDACTED]";
+        continue;
+      }
+      if (nestedValue !== null && typeof nestedValue === "object") {
+        const existing = outputs.get(nestedValue);
+        if (existing) {
+          objectOutput[key] = existing;
+        } else {
+          const nestedOutput = Array.isArray(nestedValue) ? [] : {};
+          outputs.set(nestedValue, nestedOutput);
+          objectOutput[key] = nestedOutput;
+          pending.push(nestedValue);
+        }
+      } else {
+        objectOutput[key] = nestedValue as SanitizedValue;
+      }
+    }
   }
 
-  return value as SanitizedValue;
+  return root;
 }
 
 export function sanitizePreviewText(value: string | undefined): string | undefined {

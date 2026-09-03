@@ -1,8 +1,10 @@
-import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { LookupFunction } from "node:net";
+import type { AddressInfo, LookupFunction } from "node:net";
+import { OutboundPolicy } from "@sigmon/config";
 import type { TelemetryJobPayload } from "@sigmon/queues";
 import {
   deliverNotification,
@@ -19,6 +21,10 @@ import { startHeartbeat } from "../src/heartbeat.js";
 import { checkHttpMonitor, runMonitorEvaluationOnce, startMonitorScheduler } from "../src/monitors.js";
 import { runRetentionOnce, startRetentionScheduler } from "../src/retention.js";
 import { deleteExpiredSourceMapArtifacts, SourceMapRetentionError } from "../src/source-map-retention.js";
+import {
+  openSourceMapStorageSession,
+  type SourceMapStorageSession
+} from "../../api/src/source-maps/storage-root.js";
 import type { MonitorRecord } from "@sigmon/db/repositories/monitors.js";
 import {
   backfillErrorGroupsUntilDrained,
@@ -26,6 +32,17 @@ import {
   processTelemetryJob,
   type TelemetryWriter
 } from "../src/telemetry-worker.js";
+
+const SOURCE_MAP_STORAGE_MARKER_NAME = ".sigmon-source-map-storage";
+const SOURCE_MAP_STORAGE_MARKER_CONTENT = "sigmon-source-map-storage-v1\n";
+
+async function acquireSourceMapStorageLock<T>(run: () => Promise<T>) {
+  return { locked: true as const, result: await run() };
+}
+
+async function markSourceMapStorageRoot(root: string): Promise<void> {
+  await writeFile(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME), SOURCE_MAP_STORAGE_MARKER_CONTENT);
+}
 
 function createWriter(): TelemetryWriter {
   return {
@@ -48,7 +65,365 @@ function createWriter(): TelemetryWriter {
     insertSessionReplay: vi.fn(async () => undefined),
     insertProfile: vi.fn(async () => undefined),
     insertSurveyResponse: vi.fn(async () => undefined),
+    insertFeedbackItem: vi.fn(async () => undefined),
     insertBreadcrumb: vi.fn(async () => undefined)
+  };
+}
+
+describe("Task 4 privileged HTTP transport", () => {
+  const now = new Date("2026-05-06T12:00:00.000Z");
+  const payload = {
+    alertEventId: "evt_task4",
+    ruleId: "rule_task4",
+    ruleName: "Task 4",
+    ruleType: "error_count" as const,
+    severity: "warning" as const,
+    projectId: "prj_1",
+    environmentId: "env_1",
+    triggeredAt: now.toISOString(),
+    window: { from: now.toISOString(), to: now.toISOString(), minutes: 1 },
+    observedValue: "2",
+    threshold: "1",
+    message: "alert",
+    sigmon: { source: "sigmon" as const }
+  };
+
+  function webhookChannel(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "chn_task4",
+      name: "Webhook",
+      type: "webhook" as const,
+      url: "https://hooks.example.test/deliver",
+      secretHeaderName: null,
+      secretHeaderValue: null,
+      hasSecret: false,
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      ...overrides
+    };
+  }
+
+  function task4HttpMonitor(overrides: Partial<MonitorRecord> = {}): MonitorRecord {
+    return {
+      id: "mon_task4",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      notificationChannelId: null,
+      kind: "http",
+      name: "Task 4 monitor",
+      enabled: true,
+      status: "unknown",
+      url: "https://public.example.test/health",
+      method: "GET",
+      expectedStatus: "2xx",
+      bodyContains: "ok",
+      timeoutMs: 500,
+      intervalMinutes: 5,
+      failureThreshold: 2,
+      recoveryThreshold: 1,
+      consecutiveFailures: 0,
+      consecutiveSuccesses: 0,
+      expectedIntervalMinutes: null,
+      graceMinutes: null,
+      secretHash: null,
+      lastCheckedAt: null,
+      lastCheckStatus: null,
+      lastCheckLatencyMs: null,
+      lastCheckResponseStatus: null,
+      lastCheckErrorMessage: null,
+      lastHeartbeatAt: null,
+      createdAt: now,
+      updatedAt: now,
+      archivedAt: null,
+      ...overrides
+    };
+  }
+
+  it("rejects plaintext Slack, Discord, and secret-bearing custom webhook delivery", async () => {
+    for (const channel of [
+      webhookChannel({ type: "slack", url: "http://hooks.slack.test/token" }),
+      webhookChannel({ type: "discord", url: "http://discord.test/token" }),
+      webhookChannel({
+        url: "http://hooks.example.test/deliver",
+        secretHeaderName: "X-Sigmon-Secret",
+        secretHeaderValue: null,
+        hasSecret: false
+      }),
+      webhookChannel({
+        url: "http://hooks.example.test/deliver",
+        secretHeaderName: "X-Sigmon-Secret",
+        secretHeaderValue: "header-secret",
+        hasSecret: true
+      })
+    ]) {
+      const requestImpl = vi.fn(async () => ({ status: 204 }));
+      const result = await deliverWebhook({
+        channel: channel as never,
+        payload,
+        timeoutMs: 500,
+        nodeEnv: "production",
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+        requestImpl
+      } as never);
+
+      expect(result, channel.type).toEqual({
+        status: "failed",
+        responseStatus: null,
+        errorMessage: "Webhook HTTPS is required"
+      });
+      expect(requestImpl).not.toHaveBeenCalled();
+    }
+  });
+
+  it("allows plaintext secret-bearing delivery only to explicit non-production loopback", async () => {
+    const requestImpl = vi.fn(async () => ({ status: 204 }));
+    const result = await deliverWebhook({
+      channel: webhookChannel({
+        url: "http://127.0.0.1:3000/deliver",
+        secretHeaderName: "X-Sigmon-Secret",
+        secretHeaderValue: "header-secret",
+        hasSecret: true
+      }),
+      payload,
+      timeoutMs: 500,
+      nodeEnv: "test",
+      outboundPolicy: new OutboundPolicy({ nodeEnv: "test", allowLoopback: true }),
+      requestImpl
+    } as never);
+
+    expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
+    expect(requestImpl).toHaveBeenCalledOnce();
+  });
+
+  it("uses one webhook delivery budget across attempts and retry delays", async () => {
+    const requestImpl = vi.fn(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return { status: 503 };
+    });
+
+    const result = await deliverWebhook({
+      channel: webhookChannel(),
+      payload,
+      timeoutMs: 50,
+      nodeEnv: "production",
+      outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+      requestImpl,
+      attempts: 3,
+      retryDelayMs: 30
+    } as never);
+
+    expect(result).toEqual({ status: "failed", responseStatus: null, errorMessage: "Webhook delivery timed out" });
+    expect(requestImpl).toHaveBeenCalledOnce();
+  });
+
+  it("redacts URL and header secrets from webhook connector failures", async () => {
+    const requestImpl = vi.fn(async () => {
+      throw new Error("connect https://hooks.example.test/private?token=url-secret X-Sigmon-Secret=header-secret");
+    });
+
+    const result = await deliverWebhook({
+      channel: webhookChannel({
+        secretHeaderName: "X-Sigmon-Secret",
+        secretHeaderValue: "header-secret",
+        hasSecret: true
+      }),
+      payload,
+      timeoutMs: 500,
+      nodeEnv: "production",
+      outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+      requestImpl
+    } as never);
+
+    expect(result.errorMessage).toBe("Webhook request failed");
+    expect(result.errorMessage).not.toContain("private");
+    expect(result.errorMessage).not.toContain("url-secret");
+    expect(result.errorMessage).not.toContain("header-secret");
+  });
+
+  it("routes monitors through the shared bounded connector without a DNS preflight", async () => {
+    const resolveHostname = vi.fn(async () => {
+      throw new Error("preflight must not run");
+    });
+    const requestImpl = vi.fn(async () => ({ status: 200, body: "ok", latencyMs: 12 }));
+    const policy = new OutboundPolicy({ nodeEnv: "production" });
+
+    const result = await checkHttpMonitor({
+      monitor: task4HttpMonitor({ url: "http://public.example.test/health" }),
+      timeoutMs: 500,
+      outboundPolicy: policy,
+      resolveHostname,
+      requestImpl
+    } as never);
+
+    expect(result).toEqual({ status: "success", latencyMs: 12, responseStatus: 200, errorMessage: null });
+    expect(resolveHostname).not.toHaveBeenCalled();
+    expect(requestImpl).toHaveBeenCalledWith(
+      expect.objectContaining({ policy, maxResponseBytes: 65_536, redirectLimit: 0 })
+    );
+  });
+
+  it("retries a transient resolver failure through the actual connector without exposing resolver text", async () => {
+    const server = await startTask4Server((_request, response) => response.writeHead(204).end());
+    let lookups = 0;
+    const requestLookup: LookupFunction = (_hostname, _options, callback) => {
+      lookups += 1;
+      if (lookups === 1) {
+        callback(Object.assign(new Error("resolver leaked private.retry.test"), { code: "EAI_AGAIN" }), [], 0);
+        return;
+      }
+      callback(null, [{ address: "127.0.0.1", family: 4 }], 4);
+    };
+
+    try {
+      const result = await deliverWebhook({
+        channel: webhookChannel({ url: `http://retry.example.test:${server.port}/deliver` }),
+        payload,
+        timeoutMs: 1_000,
+        nodeEnv: "test",
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "test", allowLoopback: true }),
+        requestLookup,
+        attempts: 2,
+        retryDelayMs: 0
+      } as never);
+
+      expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
+      expect(lookups).toBe(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("retries an actual reset socket and succeeds on a fresh connection", async () => {
+    let connections = 0;
+    const server = await startTask4Server((_request, response) => response.writeHead(204).end(), (socket) => {
+      connections += 1;
+      if (connections === 1) socket.destroy();
+    });
+
+    try {
+      const result = await deliverWebhook({
+        channel: webhookChannel({ url: `http://127.0.0.1:${server.port}/deliver` }),
+        payload,
+        timeoutMs: 1_000,
+        nodeEnv: "test",
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "test", allowLoopback: true }),
+        attempts: 2,
+        retryDelayMs: 0
+      } as never);
+
+      expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
+      expect(connections).toBe(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("retries when a response socket resets after headers and a partial declared body", async () => {
+    let requests = 0;
+    const server = await startTask4Server((_request, response) => {
+      requests += 1;
+      if (requests === 1) {
+        response.writeHead(200, { "content-length": "10" });
+        response.flushHeaders();
+        response.write("part");
+        setTimeout(() => response.socket?.destroy(), 20);
+        return;
+      }
+      response.writeHead(204).end();
+    });
+
+    try {
+      const result = await deliverWebhook({
+        channel: webhookChannel({ url: `http://127.0.0.1:${server.port}/deliver` }),
+        payload,
+        timeoutMs: 1_000,
+        nodeEnv: "test",
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "test", allowLoopback: true }),
+        attempts: 2,
+        retryDelayMs: 0
+      } as never);
+
+      expect(result).toEqual({ status: "success", responseStatus: 204, errorMessage: null });
+      expect(requests).toBe(2);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("does not retry permanent DNS or forbidden-address failures from the actual connector", async () => {
+    for (const scenario of ["permanent-dns", "forbidden-address"] as const) {
+      let lookups = 0;
+      const requestLookup: LookupFunction = (_hostname, _options, callback) => {
+        lookups += 1;
+        if (scenario === "permanent-dns") {
+          callback(Object.assign(new Error("permanent lookup secret"), { code: "ENOTFOUND" }), [], 0);
+          return;
+        }
+        callback(null, [{ address: "127.0.0.1", family: 4 }], 4);
+      };
+
+      const result = await deliverWebhook({
+        channel: webhookChannel({ url: "http://failure.example.test/deliver" }),
+        payload,
+        timeoutMs: 1_000,
+        nodeEnv: "production",
+        outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+        requestLookup,
+        attempts: 3,
+        retryDelayMs: 0
+      } as never);
+
+      expect(result, scenario).toEqual({
+        status: "failed",
+        responseStatus: null,
+        errorMessage: scenario === "permanent-dns" ? "Webhook DNS resolution failed" : "unsafe webhook target"
+      });
+      expect(lookups, scenario).toBe(1);
+    }
+  });
+
+  it("does not retry when the actual connector exhausts the operation budget during DNS", async () => {
+    let lookups = 0;
+    const requestLookup: LookupFunction = () => {
+      lookups += 1;
+    };
+
+    const result = await deliverWebhook({
+      channel: webhookChannel({ url: "http://retry.example.test/deliver" }),
+      payload,
+      timeoutMs: 25,
+      nodeEnv: "production",
+      outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+      requestLookup,
+      attempts: 3,
+      retryDelayMs: 0
+    } as never);
+
+    expect(result).toEqual({ status: "failed", responseStatus: null, errorMessage: "Webhook delivery timed out" });
+    expect(lookups).toBe(1);
+  });
+});
+
+async function startTask4Server(
+  handler: (request: IncomingMessage, response: ServerResponse) => void,
+  onConnection?: (socket: import("node:net").Socket) => void
+): Promise<{ port: number; close: () => Promise<void> }> {
+  const server = createServer(handler);
+  if (onConnection) server.on("connection", onConnection);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const port = (server.address() as AddressInfo).port;
+  return {
+    port,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.closeAllConnections();
+        server.close((error) => (error ? reject(error) : resolve()));
+      })
   };
 }
 
@@ -62,6 +437,31 @@ function createDeferred() {
 }
 
 describe("processTelemetryJob", () => {
+  it("redacts feedback URLs from a raw queued payload created by an old SDK", async () => {
+    const writer = createWriter();
+    const job: TelemetryJobPayload = {
+      kind: "feedback",
+      id: "fbk_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        message: "Export wording is unclear",
+        page_url: "https://app.test/reports?tab=exports#details",
+        path: "/reports?tab=exports#details"
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertFeedbackItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "fbk_1",
+        pageUrl: "https://app.test/reports?tab=%5BREDACTED%5D",
+        path: "/reports?tab=%5BREDACTED%5D"
+      })
+    );
+  });
+
   it("sanitizes and persists event jobs", async () => {
     const writer = createWriter();
     const job: TelemetryJobPayload = {
@@ -451,6 +851,38 @@ describe("processTelemetryJob", () => {
     );
   });
 
+  it.each([
+    ["omitted", undefined, undefined],
+    ["null", null, null],
+    ["string", "visible", "visible"],
+    ["number", 42, 42],
+    ["boolean", false, false],
+    ["array", [{ password: "secret", keep: true }], [{ password: "[REDACTED]", keep: true }]],
+    ["object", { password: "secret", keep: true }, { password: "[REDACTED]", keep: true }]
+  ])("preserves %s optional span payload roots through the persistence boundary", async (_label, value, expected) => {
+    const writer = createWriter();
+    const optionalPayload = value === undefined ? {} : { input: value, output: value, error: value };
+    const job: TelemetryJobPayload = {
+      kind: "span",
+      id: "spn_optional",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      payload: {
+        trace_id: "trc_1",
+        name: "optional.payload",
+        status: "success",
+        started_at: "2026-01-01T00:00:01.000Z",
+        ...optionalPayload
+      }
+    };
+
+    await processTelemetryJob(job, writer);
+
+    expect(writer.insertSpan).toHaveBeenCalledWith(
+      expect.objectContaining({ input: expected, output: expected, error: expected })
+    );
+  });
+
   it("persists sanitized breadcrumb jobs", async () => {
     const writer = createWriter();
     const job: TelemetryJobPayload = {
@@ -767,10 +1199,220 @@ describe("backup scheduler integration helpers", () => {
 });
 
 describe("deleteExpiredSourceMapArtifacts", () => {
+  it("reports storage-lock contention without mutation so the scheduler can continue", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-lock-"));
+    let storage: SourceMapStorageSession | undefined;
+    try {
+      await markSourceMapStorageRoot(root);
+      storage = await openSourceMapStorageSession({ localDir: root, mode: "require", nodeEnv: "test" });
+      const listExpiredArtifacts = vi.fn(async () => []);
+      const softDeleteArtifact = vi.fn(async () => null);
+
+      const result = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        storage,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        withStorageLock: async () => ({ locked: false }),
+        listExpiredArtifacts,
+        softDeleteArtifact
+      });
+
+      expect(result).toEqual({ sourceMapArtifacts: 0, sourceMapFiles: 0, skipped: true });
+      expect(listExpiredArtifacts).not.toHaveBeenCalled();
+      expect(softDeleteArtifact).not.toHaveBeenCalled();
+    } finally {
+      await storage?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("reasserts marker authority inside retention before each destructive file operation", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-marker-race-"));
+    const filePath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
+    let storage: SourceMapStorageSession | undefined;
+    try {
+      await markSourceMapStorageRoot(root);
+      await writeFile(filePath, "retained");
+      storage = await openSourceMapStorageSession({
+        localDir: root,
+        mode: "require",
+        nodeEnv: "test",
+        hooks: {
+          afterParentPinned: () => rm(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME))
+        }
+      });
+      const softDeleteArtifact = vi.fn(async () => null);
+      let released = false;
+
+      const error = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        storage,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        withStorageLock: async (run) => {
+          try {
+            return { locked: true, result: await run() };
+          } finally {
+            released = true;
+          }
+        },
+        listExpiredArtifacts: async () => [{
+          id: "smap_marker_race",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "web@1",
+          minifiedFile: "app.js",
+          originalFilename: "app.js.map",
+          contentType: "application/json",
+          byteSize: 8,
+          sha256: "sha",
+          storagePath: filePath,
+          uploadedByUserId: "usr_1",
+          uploadedByTokenId: null,
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          deletedAt: null
+        }],
+        softDeleteArtifact
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(SourceMapRetentionError);
+      expect(error).toMatchObject({
+        message: "source_map_storage_unavailable",
+        deleted: { sourceMapArtifacts: 0, sourceMapFiles: 0 }
+      });
+      expect(softDeleteArtifact).not.toHaveBeenCalled();
+      expect(released).toBe(true);
+      await expect(readFile(filePath, "utf8")).resolves.toBe("retained");
+    } finally {
+      await storage?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed before listing metadata for every unavailable storage authority state", async () => {
+    const parent = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-unavailable-"));
+    const outsideMarker = path.join(parent, "outside-marker");
+    const cases: Array<{ name: string; localDir: string; prepare: () => Promise<void> }> = [
+      { name: "absent root", localDir: path.join(parent, "absent"), prepare: async () => undefined },
+      {
+        name: "file root",
+        localDir: path.join(parent, "file-root"),
+        prepare: async () => writeFile(path.join(parent, "file-root"), "not-a-directory")
+      },
+      {
+        name: "missing marker",
+        localDir: path.join(parent, "missing-marker"),
+        prepare: async () => mkdir(path.join(parent, "missing-marker"))
+      },
+      {
+        name: "wrong marker",
+        localDir: path.join(parent, "wrong-marker"),
+        prepare: async () => {
+          const root = path.join(parent, "wrong-marker");
+          await mkdir(root);
+          await writeFile(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME), "wrong\n");
+        }
+      },
+      {
+        name: "partial marker",
+        localDir: path.join(parent, "partial-marker"),
+        prepare: async () => {
+          const root = path.join(parent, "partial-marker");
+          await mkdir(root);
+          await writeFile(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME), "sigmon-source-map-storage-v1");
+        }
+      },
+      {
+        name: "special marker",
+        localDir: path.join(parent, "special-marker"),
+        prepare: async () => {
+          const root = path.join(parent, "special-marker");
+          await mkdir(root);
+          await mkdir(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME));
+        }
+      },
+      {
+        name: "symlink marker",
+        localDir: path.join(parent, "symlink-marker"),
+        prepare: async () => {
+          const root = path.join(parent, "symlink-marker");
+          await mkdir(root);
+          await writeFile(outsideMarker, SOURCE_MAP_STORAGE_MARKER_CONTENT);
+          await symlink(outsideMarker, path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME));
+        }
+      }
+    ];
+
+    try {
+      for (const testCase of cases) {
+        await testCase.prepare();
+        const listExpiredArtifacts = vi.fn(async () => []);
+        const softDeleteArtifact = vi.fn(async () => null);
+
+        const error = await deleteExpiredSourceMapArtifacts({
+          localDir: testCase.localDir,
+          now: new Date("2026-05-13T00:00:00.000Z"),
+          retentionDays: 30,
+          batchSize: 10,
+          withStorageLock: acquireSourceMapStorageLock,
+          listExpiredArtifacts,
+          softDeleteArtifact
+        }).catch((caught: unknown) => caught);
+
+        expect(error, testCase.name).toBeInstanceOf(SourceMapRetentionError);
+        expect(error, testCase.name).toMatchObject({
+          message: "source_map_storage_unavailable",
+          deleted: { sourceMapArtifacts: 0, sourceMapFiles: 0 }
+        });
+        expect(listExpiredArtifacts, testCase.name).not.toHaveBeenCalled();
+        expect(softDeleteArtifact, testCase.name).not.toHaveBeenCalled();
+      }
+    } finally {
+      await rm(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("revalidates the marker on a live session before listing retention metadata", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
+    let storage: SourceMapStorageSession | undefined;
+    try {
+      await markSourceMapStorageRoot(root);
+      storage = await openSourceMapStorageSession({ localDir: root, mode: "require", nodeEnv: "test" });
+      await rm(path.join(root, SOURCE_MAP_STORAGE_MARKER_NAME));
+      const listExpiredArtifacts = vi.fn(async () => []);
+      const softDeleteArtifact = vi.fn(async () => null);
+
+      const error = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        storage,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
+        listExpiredArtifacts,
+        softDeleteArtifact
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({
+        message: "source_map_storage_unavailable",
+        deleted: { sourceMapArtifacts: 0, sourceMapFiles: 0 }
+      });
+      expect(listExpiredArtifacts).not.toHaveBeenCalled();
+      expect(softDeleteArtifact).not.toHaveBeenCalled();
+    } finally {
+      await storage?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("deletes expired source-map files before metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
-    const filePath = path.join(root, "artifact.map");
+    const filePath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
     try {
+      await markSourceMapStorageRoot(root);
       await writeFile(filePath, "{}");
       const calls: string[] = [];
 
@@ -779,6 +1421,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts: async () => [
           {
             id: "smap_1",
@@ -820,7 +1463,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
 
       await expect(readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
       expect(calls).toEqual(["smap_1"]);
-      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1 });
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1, skipped: false });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -828,8 +1471,9 @@ describe("deleteExpiredSourceMapArtifacts", () => {
 
   it("tolerates missing source-map files and still removes metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
-    const filePath = path.join(root, "missing.map");
+    const filePath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
     try {
+      await markSourceMapStorageRoot(root);
       const deletedIds: string[] = [];
 
       const result = await deleteExpiredSourceMapArtifacts({
@@ -837,6 +1481,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts: async () => [
           {
             id: "smap_missing",
@@ -877,16 +1522,17 @@ describe("deleteExpiredSourceMapArtifacts", () => {
       });
 
       expect(deletedIds).toEqual(["smap_missing"]);
-      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0 });
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0, skipped: false });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
   });
 
-  it("tolerates missing source-map parent directories and still removes metadata", async () => {
+  it.skipIf(process.platform !== "linux")("tolerates missing legacy source-map parent directories and still removes metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
-    const filePath = path.join(root, "missing-parent", "missing.map");
+    const filePath = path.join(root, "prj_1", "env_1", "release_1", "missing.map");
     try {
+      await markSourceMapStorageRoot(root);
       const deletedIds: string[] = [];
 
       const result = await deleteExpiredSourceMapArtifacts({
@@ -894,6 +1540,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts: async () => [
           {
             id: "smap_missing_parent",
@@ -934,7 +1581,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
       });
 
       expect(deletedIds).toEqual(["smap_missing_parent"]);
-      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0 });
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0, skipped: false });
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -942,16 +1589,26 @@ describe("deleteExpiredSourceMapArtifacts", () => {
 
   it("tolerates source-map files disappearing before removal and still removes metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
-    const filePath = path.join(root, "raced.map");
+    const filePath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
+    let storage: SourceMapStorageSession | undefined;
     try {
+      await markSourceMapStorageRoot(root);
       await writeFile(filePath, "{}");
       const deletedIds: string[] = [];
+      storage = await openSourceMapStorageSession({
+        localDir: root,
+        mode: "require",
+        nodeEnv: "test",
+        hooks: { afterParentPinned: () => rm(filePath, { force: true }) }
+      });
 
       const runtime = {
         localDir: root,
+        storage,
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts: async () => [
           {
             id: "smap_raced",
@@ -988,20 +1645,154 @@ describe("deleteExpiredSourceMapArtifacts", () => {
             createdAt: new Date("2026-01-01T00:00:00.000Z"),
             deletedAt: new Date("2026-05-13T00:00:00.000Z")
           };
-        },
-        removeFile: async (resolvedPath: string) => {
-          await rm(resolvedPath, { force: true });
-          const error = new Error("file disappeared") as Error & { code: string };
-          error.code = "ENOENT";
-          throw error;
         }
       };
 
       const result = await deleteExpiredSourceMapArtifacts(runtime);
 
       expect(deletedIds).toEqual(["smap_raced"]);
-      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0 });
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 0, skipped: false });
     } finally {
+      await storage?.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform !== "linux")("keeps retention deletion bound when a legacy parent is replaced after traversal", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-outside-"));
+    const legacyParent = path.join(root, "prj_1");
+    const movedParent = path.join(root, "moved-prj_1");
+    const filePath = path.join(legacyParent, "env_1", "release_1", "artifact.map");
+    const outsideFile = path.join(outside, "env_1", "release_1", "artifact.map");
+    let storage: SourceMapStorageSession | undefined;
+    try {
+      await markSourceMapStorageRoot(root);
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, "inside");
+      await mkdir(path.dirname(outsideFile), { recursive: true });
+      await writeFile(outsideFile, "outside");
+      storage = await openSourceMapStorageSession({
+        localDir: root,
+        mode: "require",
+        nodeEnv: "test",
+        hooks: {
+          afterParentPinned: async () => {
+            await rename(legacyParent, movedParent);
+            await symlink(outside, legacyParent, "dir");
+          }
+        }
+      });
+
+      const result = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        storage,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
+        listExpiredArtifacts: async () => [{
+          id: "smap_race",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "release_1",
+          minifiedFile: "app.js",
+          originalFilename: "app.js.map",
+          contentType: "application/json",
+          byteSize: 6,
+          sha256: "sha",
+          storagePath: filePath,
+          uploadedByUserId: "usr_1",
+          uploadedByTokenId: null,
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          deletedAt: null
+        }],
+        softDeleteArtifact: async () => ({
+          id: "smap_race",
+          projectId: "prj_1",
+          environmentId: "env_1",
+          release: "release_1",
+          minifiedFile: "app.js",
+          originalFilename: "app.js.map",
+          contentType: "application/json",
+          byteSize: 6,
+          sha256: "sha",
+          storagePath: filePath,
+          uploadedByUserId: "usr_1",
+          uploadedByTokenId: null,
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          deletedAt: new Date("2026-05-13T00:00:00.000Z")
+        })
+      });
+
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1, skipped: false });
+      await expect(readFile(path.join(movedParent, "env_1", "release_1", "artifact.map"))).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(readFile(outsideFile, "utf8")).resolves.toBe("outside");
+    } finally {
+      await storage?.close();
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps metadata active when an individual source-map removal fails", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
+    const filePath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
+    let storage: SourceMapStorageSession | undefined;
+    try {
+      await markSourceMapStorageRoot(root);
+      await writeFile(filePath, "{}");
+      const softDeleteArtifact = vi.fn(async () => null);
+      storage = await openSourceMapStorageSession({
+        localDir: root,
+        mode: "require",
+        nodeEnv: "test",
+        hooks: {
+          afterParentPinned: async () => {
+            const failure = new Error("permission denied") as Error & { code: string };
+            failure.code = "EACCES";
+            throw failure;
+          }
+        }
+      });
+
+      const error = await deleteExpiredSourceMapArtifacts({
+        localDir: root,
+        storage,
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        retentionDays: 30,
+        batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
+        listExpiredArtifacts: async () => [
+          {
+            id: "smap_blocked",
+            projectId: "prj_1",
+            environmentId: "env_1",
+            release: "web@1",
+            minifiedFile: "app.js",
+            originalFilename: "app.js.map",
+            contentType: "application/json",
+            byteSize: 2,
+            sha256: "sha",
+            storagePath: filePath,
+            uploadedByUserId: "usr_1",
+            uploadedByTokenId: null,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            deletedAt: null
+          }
+        ],
+        softDeleteArtifact
+      }).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(SourceMapRetentionError);
+      expect(error).toMatchObject({
+        message: "permission denied",
+        deleted: { sourceMapArtifacts: 0, sourceMapFiles: 0 }
+      });
+      expect(softDeleteArtifact).not.toHaveBeenCalled();
+      await expect(readFile(filePath, "utf8")).resolves.toBe("{}");
+    } finally {
+      await storage?.close();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -1010,6 +1801,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const outside = path.join(tmpdir(), "outside-source-map.map");
     try {
+      await markSourceMapStorageRoot(root);
       await writeFile(outside, "{}");
 
       await expect(
@@ -1018,6 +1810,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
           now: new Date("2026-05-13T00:00:00.000Z"),
           retentionDays: 30,
           batchSize: 10,
+          withStorageLock: acquireSourceMapStorageLock,
           listExpiredArtifacts: async () => [
             {
               id: "smap_outside",
@@ -1052,8 +1845,9 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     const linkPath = path.join(tmpdir(), `sigmon-sourcemaps-link-${process.pid}-${Date.now()}`);
     try {
       const realRoot = await realpath(root);
+      await markSourceMapStorageRoot(realRoot);
       await symlink(realRoot, linkPath, "dir");
-      const filePath = path.join(realRoot, "artifact.map");
+      const filePath = path.join(realRoot, "123e4567-e89b-42d3-a456-426614174000.map");
       await writeFile(filePath, "{}");
       const deletedIds: string[] = [];
 
@@ -1062,6 +1856,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
         now: new Date("2026-05-13T00:00:00.000Z"),
         retentionDays: 30,
         batchSize: 10,
+        withStorageLock: acquireSourceMapStorageLock,
         listExpiredArtifacts: async () => [
           {
             id: "smap_symlink_dir",
@@ -1103,7 +1898,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
 
       await expect(readFile(filePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
       expect(deletedIds).toEqual(["smap_symlink_dir"]);
-      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1 });
+      expect(result).toEqual({ sourceMapArtifacts: 1, sourceMapFiles: 1, skipped: false });
     } finally {
       await rm(linkPath, { force: true });
       await rm(root, { recursive: true, force: true });
@@ -1113,8 +1908,9 @@ describe("deleteExpiredSourceMapArtifacts", () => {
   it("rejects symlink source-map artifact paths without deleting target files or metadata", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     try {
-      const targetPath = path.join(root, "target.map");
-      const linkPath = path.join(root, "artifact.map");
+      await markSourceMapStorageRoot(root);
+      const targetPath = path.join(root, "123e4567-e89b-42d3-a456-426614174001.map");
+      const linkPath = path.join(root, "123e4567-e89b-42d3-a456-426614174000.map");
       await writeFile(targetPath, "{}");
       await symlink(targetPath, linkPath);
       let metadataDeleted = false;
@@ -1125,6 +1921,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
           now: new Date("2026-05-13T00:00:00.000Z"),
           retentionDays: 30,
           batchSize: 10,
+          withStorageLock: acquireSourceMapStorageLock,
           listExpiredArtifacts: async () => [
             {
               id: "smap_symlink_file",
@@ -1157,10 +1954,89 @@ describe("deleteExpiredSourceMapArtifacts", () => {
     }
   });
 
+  it("rejects symlink and special intermediate artifact entries even when they remain inside the root", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
+    try {
+      await markSourceMapStorageRoot(root);
+      const realParent = path.join(root, "real-parent");
+      const linkedParent = path.join(root, "linked-parent");
+      await mkdir(realParent);
+      await symlink(realParent, linkedParent, "dir");
+      const linkedFile = path.join(linkedParent, "artifact.map");
+      await writeFile(path.join(realParent, "artifact.map"), "{}");
+      const softDeleteArtifact = vi.fn(async () => null);
+
+      await expect(
+        deleteExpiredSourceMapArtifacts({
+          localDir: root,
+          now: new Date("2026-05-13T00:00:00.000Z"),
+          retentionDays: 30,
+          batchSize: 10,
+          withStorageLock: acquireSourceMapStorageLock,
+          listExpiredArtifacts: async () => [
+            {
+              id: "smap_intermediate_symlink",
+              projectId: "prj_1",
+              environmentId: "env_1",
+              release: "web@1",
+              minifiedFile: "app.js",
+              originalFilename: "app.js.map",
+              contentType: "application/json",
+              byteSize: 2,
+              sha256: "sha",
+              storagePath: linkedFile,
+              uploadedByUserId: "usr_1",
+              uploadedByTokenId: null,
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              deletedAt: null
+            }
+          ],
+          softDeleteArtifact
+        })
+      ).rejects.toThrow("source_map_storage_path_invalid");
+      expect(softDeleteArtifact).not.toHaveBeenCalled();
+
+      const specialParent = path.join(root, "special-parent");
+      await writeFile(specialParent, "not-a-directory");
+      await expect(
+        deleteExpiredSourceMapArtifacts({
+          localDir: root,
+          now: new Date("2026-05-13T00:00:00.000Z"),
+          retentionDays: 30,
+          batchSize: 10,
+          withStorageLock: acquireSourceMapStorageLock,
+          listExpiredArtifacts: async () => [
+            {
+              id: "smap_intermediate_special",
+              projectId: "prj_1",
+              environmentId: "env_1",
+              release: "web@1",
+              minifiedFile: "app.js",
+              originalFilename: "app.js.map",
+              contentType: "application/json",
+              byteSize: 2,
+              sha256: "sha",
+              storagePath: path.join(specialParent, "artifact.map"),
+              uploadedByUserId: "usr_1",
+              uploadedByTokenId: null,
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              deletedAt: null
+            }
+          ],
+          softDeleteArtifact
+        })
+      ).rejects.toThrow("source_map_storage_path_invalid");
+      expect(softDeleteArtifact).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("rejects missing source-map files under symlink parents outside the local directory", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-"));
     const outsideRoot = await mkdtemp(path.join(tmpdir(), "sigmon-sourcemaps-outside-"));
     try {
+      await markSourceMapStorageRoot(root);
       const linkPath = path.join(root, "linked-parent");
       const filePath = path.join(linkPath, "missing.map");
       await symlink(outsideRoot, linkPath, "dir");
@@ -1172,6 +2048,7 @@ describe("deleteExpiredSourceMapArtifacts", () => {
           now: new Date("2026-05-13T00:00:00.000Z"),
           retentionDays: 30,
           batchSize: 10,
+          withStorageLock: acquireSourceMapStorageLock,
           listExpiredArtifacts: async () => [
             {
               id: "smap_symlink_parent",
@@ -1206,6 +2083,53 @@ describe("deleteExpiredSourceMapArtifacts", () => {
 });
 
 describe("runRetentionOnce", () => {
+  it("surfaces source-map storage-lock contention while completing the scheduler run", async () => {
+    const records: unknown[] = [];
+    const result = await runRetentionOnce({
+      now: () => new Date("2026-05-06T12:00:00.000Z"),
+      policy: {
+        eventsDays: 90,
+        errorsDays: 180,
+        tracesDays: 90,
+        spansDays: 90,
+        llmCallsDays: 180,
+        profilesDays: 30,
+        breadcrumbsDays: 30,
+        deadLetterJobsDays: 30,
+        sourceMapsEnabled: true,
+        sourceMapsDays: 180,
+        sourceMapsBatchSize: 100
+      },
+      withLock: async (run) => ({
+        locked: true,
+        result: await run({
+          deleteExpiredTelemetry: async () => ({
+            events: 0,
+            errors: 0,
+            traces: 0,
+            spans: 0,
+            llmCalls: 0,
+            webVitals: 0,
+            profiles: 0,
+            breadcrumbs: 0,
+            deadLetterJobs: 0,
+            sourceMapArtifacts: 0,
+            sourceMapFiles: 0
+          })
+        })
+      }),
+      deleteExpiredSourceMapArtifacts: async () => ({
+        sourceMapArtifacts: 0,
+        sourceMapFiles: 0,
+        skipped: true
+      }),
+      recordRetentionRun: async (record) => { records.push(record); }
+    });
+
+    expect(result).toEqual({ ran: true, skipped: false, sourceMapsSkipped: true });
+    expect(records).toHaveLength(1);
+  });
+
   it("records successful retention runs", async () => {
     const calls: string[] = [];
     const result = await runRetentionOnce({
@@ -2613,7 +3537,10 @@ describe("deliverWebhook", () => {
 
   it("does not send a production request when a hostname resolves to a private address", async () => {
     for (const address of ["10.0.0.1", "169.254.169.254", "127.0.0.1", "fc00::1", "fe80::1"]) {
-      const requestImpl = vi.fn(async () => ({ status: 204 }));
+      const family = address.includes(":") ? 6 : 4;
+      const requestLookup: LookupFunction = (_hostname, _options, callback) => {
+        callback(null, [{ address, family }], family);
+      };
 
       const result = await deliverWebhook({
         channel: {
@@ -2632,8 +3559,7 @@ describe("deliverWebhook", () => {
         payload,
         timeoutMs: 5000,
         nodeEnv: "production",
-        resolveHostname: async () => [{ address }],
-        requestImpl
+        requestLookup
       });
 
       expect(result, address).toEqual({
@@ -2641,12 +3567,13 @@ describe("deliverWebhook", () => {
         responseStatus: null,
         errorMessage: "unsafe webhook target"
       });
-      expect(requestImpl, address).not.toHaveBeenCalled();
     }
   });
 
   it("does not send a development request when a hostname resolves to a private address", async () => {
-    const requestImpl = vi.fn(async () => ({ status: 204 }));
+    const requestLookup: LookupFunction = (_hostname, _options, callback) => {
+      callback(null, [{ address: "169.254.169.254", family: 4 }], 4);
+    };
 
     const result = await deliverWebhook({
       channel: {
@@ -2665,8 +3592,7 @@ describe("deliverWebhook", () => {
       payload,
       timeoutMs: 5000,
       nodeEnv: "development",
-      resolveHostname: async () => [{ address: "169.254.169.254", family: 4 }],
-      requestImpl
+      requestLookup
     });
 
     expect(result).toEqual({
@@ -2674,12 +3600,12 @@ describe("deliverWebhook", () => {
       responseStatus: null,
       errorMessage: "unsafe webhook target"
     });
-    expect(requestImpl).not.toHaveBeenCalled();
   });
 
   it("does not send a development request when a hostname resolves to an unsafe IPv4-embedded IPv6 address", async () => {
-    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
-    const requestImpl = vi.fn(async () => ({ status: 204 }));
+    const requestLookup: LookupFunction = (_hostname, _options, callback) => {
+      callback(null, [{ address: "64:ff9b::a9fe:a9fe", family: 6 }], 6);
+    };
 
     const result = await deliverWebhook({
       channel: {
@@ -2698,9 +3624,7 @@ describe("deliverWebhook", () => {
       payload,
       timeoutMs: 5000,
       nodeEnv: "development",
-      resolveHostname: async () => [{ address: "64:ff9b::a9fe:a9fe", family: 6 }],
-      fetchImpl,
-      requestImpl
+      requestLookup
     });
 
     expect(result).toEqual({
@@ -2708,12 +3632,13 @@ describe("deliverWebhook", () => {
       responseStatus: null,
       errorMessage: "unsafe webhook target"
     });
-    expect(fetchImpl).not.toHaveBeenCalled();
-    expect(requestImpl).not.toHaveBeenCalled();
   });
 
   it("does not send a production request when hostname DNS resolution fails", async () => {
-    const requestImpl = vi.fn(async () => ({ status: 204 }));
+    const requestLookup: LookupFunction = (_hostname, _options, callback) => {
+      const error = Object.assign(new Error("lookup failed"), { code: "ENOTFOUND" });
+      callback(error, [], 0);
+    };
 
     const result = await deliverWebhook({
       channel: {
@@ -2732,10 +3657,7 @@ describe("deliverWebhook", () => {
       payload,
       timeoutMs: 5000,
       nodeEnv: "production",
-      resolveHostname: async () => {
-        throw new Error("lookup failed");
-      },
-      requestImpl
+      requestLookup
     });
 
     expect(result).toEqual({
@@ -2743,7 +3665,6 @@ describe("deliverWebhook", () => {
       responseStatus: null,
       errorMessage: "Webhook DNS resolution failed"
     });
-    expect(requestImpl).not.toHaveBeenCalled();
   });
 
   it("does not retry permanent connection-time DNS failures", async () => {
@@ -2817,7 +3738,7 @@ describe("deliverWebhook", () => {
     expect(result).toEqual({
       status: "failed",
       responseStatus: null,
-      errorMessage: "Invalid character in header content"
+      errorMessage: "Webhook request failed"
     });
     expect(requestImpl).toHaveBeenCalledTimes(1);
   });
@@ -2826,7 +3747,7 @@ describe("deliverWebhook", () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
     const requestLookup: LookupFunction = (hostname, _options, callback) => {
       expect(hostname).toBe("hooks.example.com");
-      callback(null, "169.254.169.254", 4);
+      callback(null, [{ address: "169.254.169.254", family: 4 }], 4);
     };
 
     const result = await deliverWebhook({
@@ -2863,7 +3784,7 @@ describe("deliverWebhook", () => {
     const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
     const requestLookup: LookupFunction = (hostname, _options, callback) => {
       expect(hostname).toBe("hooks.example.com");
-      callback(null, "127.0.0.1", 4);
+      callback(null, [{ address: "127.0.0.1", family: 4 }], 4);
     };
 
     const result = await deliverWebhook({
@@ -3025,7 +3946,7 @@ describe("deliverWebhook", () => {
     expect(requestImpl).toHaveBeenCalledWith(expect.objectContaining({ body: JSON.stringify(payload) }));
   });
 
-  it("formats the request body as a Slack message for slack channels", async () => {
+  it("uses the explicitly resolved Slack URL only at delivery and formats the message", async () => {
     const requestImpl = vi.fn(async () => ({ status: 204 }));
 
     await deliverWebhook({
@@ -3051,7 +3972,10 @@ describe("deliverWebhook", () => {
     });
 
     expect(requestImpl).toHaveBeenCalledWith(
-      expect.objectContaining({ body: JSON.stringify(toSlackPayload(payload)) })
+      expect.objectContaining({
+        url: new URL("https://hooks.slack.com/services/T0/xyz"),
+        body: JSON.stringify(toSlackPayload(payload))
+      })
     );
   });
 

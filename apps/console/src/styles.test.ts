@@ -1,9 +1,16 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const consoleRoot = process.cwd().endsWith("apps/console") ? process.cwd() : join(process.cwd(), "apps", "console");
-const css = readFileSync(join(consoleRoot, "src", "styles.css"), "utf8");
+function moduleFilename(url: string): string {
+  const parsed = new URL(url);
+  if (parsed.protocol === "file:") return fileURLToPath(parsed);
+  const pathname = decodeURIComponent(parsed.pathname);
+  return process.platform === "win32" && /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
+}
+
+const css = readFileSync(join(dirname(moduleFilename(import.meta.url)), "styles.css"), "utf8");
 
 describe("console CSS shared contract", () => {
   it("keeps the v2 viewport root and dark authentication chrome", () => {

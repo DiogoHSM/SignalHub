@@ -2,6 +2,7 @@ import { readFile, rm } from "node:fs/promises";
 import { parseSmokeArgs } from "./args.js";
 import { cleanupPlan } from "./cleanup.js";
 import { formatCommandFailure, runCommand as runCommandImpl } from "./command.js";
+import { doctorCommand } from "./doctor-command.js";
 import { createSmokePayloads } from "./fixtures.js";
 import {
   createCookieJar,
@@ -186,7 +187,7 @@ async function defaultRunHttpSmoke(input: HttpSmokeInput): Promise<SmokeScope | 
 
   const apiKeyResponse = await postJson<{ apiKey: { secret?: string } }>(
     pathUrl(apiUrl, `/admin/projects/${encodedPath(projectId)}/api-keys`),
-    { environmentId, name: "Phase 6B Smoke Ingestion" },
+    { environmentId, name: "Phase 6B Smoke Ingestion", capability: "server" },
     { cookieJar, redact: input.redact }
   );
   const apiKeySecret = requireString(apiKeyResponse.apiKey.secret, "admin API key secret");
@@ -400,7 +401,7 @@ export async function runSmokeCompose(input: RunSmokeComposeInput): Promise<numb
     const envFile = resources.envFile;
     const run = (command: CommandInput) => assertCommand(command, dependencies.runCommand, redactor.redact);
 
-    await run({ command: "pnpm", args: ["run", "doctor", "--", "--env-file", envFile], timeoutMs: 60_000 });
+    await run(doctorCommand(["--env-file", envFile], { timeoutMs: 60_000 }));
     recorder.pass("doctor", "pre-start checks passed");
 
     await run(composeCommand(input.options.projectName, envFile, ["config", "--quiet"]));
@@ -416,12 +417,10 @@ export async function runSmokeCompose(input: RunSmokeComposeInput): Promise<numb
     recorder.pass("stack", "api and worker started");
 
     await assertCommandEventually(
-      {
-        command: "pnpm",
-        args: ["run", "doctor", "--", "--compose", "--api-url", input.options.apiUrl, "--env-file", envFile],
+      doctorCommand(["--compose", "--api-url", input.options.apiUrl, "--env-file", envFile], {
         env: { COMPOSE_PROJECT_NAME: input.options.projectName },
         timeoutMs: 60_000
-      },
+      }),
       dependencies.runCommand,
       redactor.redact,
       dependencies.wait
@@ -468,12 +467,10 @@ export async function runSmokeCompose(input: RunSmokeComposeInput): Promise<numb
     recorder.pass("restore", "confirmed restore completed");
 
     await assertCommandEventually(
-      {
-        command: "pnpm",
-        args: ["run", "doctor", "--", "--compose", "--api-url", input.options.apiUrl, "--env-file", envFile],
+      doctorCommand(["--compose", "--api-url", input.options.apiUrl, "--env-file", envFile], {
         env: { COMPOSE_PROJECT_NAME: input.options.projectName },
         timeoutMs: 60_000
-      },
+      }),
       dependencies.runCommand,
       redactor.redact,
       dependencies.wait

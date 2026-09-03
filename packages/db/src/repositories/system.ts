@@ -2,27 +2,23 @@ import type { Selectable, Transaction } from "kysely";
 import { sql } from "kysely";
 import type { Db } from "../client.js";
 import type { Database, RetentionRunsTable } from "../schema.js";
-import type { DataGovernanceRetentionCategory } from "./data-governance.js";
+import {
+  normalizeDataGovernanceRetentionPolicy,
+  type DataGovernanceRetentionCategory
+} from "./data-governance.js";
+import {
+  retentionCategorySpecs,
+  type RetentionCategory,
+  type RetentionCategorySpec,
+  type RetentionTable
+} from "./effective-retention.js";
 
 type RetentionRunRow = Selectable<RetentionRunsTable>;
 type SystemDb = Db | Transaction<Database>;
 
 const retentionAdvisoryLockId = 927380402914;
 const defaultMaxBatchesPerTable = 25;
-const retentionTables = [
-  "events",
-  "click_events",
-  "session_replays",
-  "errors",
-  "traces",
-  "spans",
-  "llm_calls",
-  "web_vitals",
-  "profiles",
-  "breadcrumbs"
-] as const;
-type RetentionTable = (typeof retentionTables)[number];
-const retentionTableSet = new Set<string>(retentionTables);
+const retentionTableSet = new Set<string>(retentionCategorySpecs.map((spec) => spec.table));
 
 function assertRetentionTable(tableName: string): asserts tableName is RetentionTable {
   if (!retentionTableSet.has(tableName)) {
@@ -63,6 +59,28 @@ export type RetentionDeletedCounts = {
   sourceMapArtifacts: number;
   sourceMapFiles: number;
 };
+
+export class RetentionDeleteError extends Error {
+  readonly category: RetentionCategory;
+  readonly table: RetentionTable;
+  readonly deleted: RetentionDeletedCounts;
+
+  constructor(
+    category: RetentionCategory,
+    table: RetentionTable,
+    deleted: RetentionDeletedCounts,
+    cause: unknown
+  ) {
+    super(
+      `retention delete failed for ${category}/${table}: ${cause instanceof Error ? cause.message : String(cause)}`,
+      cause instanceof Error ? { cause } : undefined
+    );
+    this.name = "RetentionDeleteError";
+    this.category = category;
+    this.table = table;
+    this.deleted = { ...deleted };
+  }
+}
 
 export type RetentionRunRecord = {
   id: string;
@@ -193,27 +211,48 @@ async function deleteExpiredFromTable(db: SystemDb, tableName: string, cutoff: D
   return Number(result.rows[0]?.deleted_count ?? 0);
 }
 
-async function deleteExpiredFromTableForScope(
+async function deleteExpiredFromTableWithEffectiveCutoff(
   db: SystemDb,
-  tableName: string,
-  cutoff: Date,
+  spec: RetentionCategorySpec,
+  now: Date,
+  defaultDays: number,
   batchSize: number,
-  projectId: string,
-  environmentId: string
 ): Promise<number> {
-  assertRetentionTable(tableName);
+  assertRetentionTable(spec.table);
 
   const result = await sql<{ deleted_count: string }>`
-    with deleted_rows as (
-      delete from ${sql.table(tableName)}
-      where ctid in (
-        select ctid from ${sql.table(tableName)}
-        where project_id = ${projectId}
-          and environment_id = ${environmentId}
-          and timestamp < ${cutoff}
-        order by timestamp asc
-        limit ${batchSize}
+    with candidates as (
+      select telemetry.ctid
+      from ${sql.table(spec.table)} as telemetry
+      left join data_governance_policies as policies
+        on policies.project_id = telemetry.project_id
+       and policies.environment_id = telemetry.environment_id
+      where telemetry.${sql.ref(spec.timestamp)} < ${now}::timestamptz - (
+        case
+          when (
+            jsonb_typeof(policies.retention_policy -> ${spec.category}) = 'number'
+            or (
+              jsonb_typeof(policies.retention_policy -> ${spec.category}) = 'string'
+              and (policies.retention_policy ->> ${spec.category}) ~ '^[1-9][0-9]{0,3}$'
+            )
+          )
+            and pg_input_is_valid(policies.retention_policy ->> ${spec.category}, 'numeric')
+          then case
+            when (policies.retention_policy ->> ${spec.category})::numeric between 1 and 3650
+              and (policies.retention_policy ->> ${spec.category})::numeric =
+                  trunc((policies.retention_policy ->> ${spec.category})::numeric)
+            then ((policies.retention_policy ->> ${spec.category})::numeric)::integer
+            else ${defaultDays}
+          end
+          else ${defaultDays}
+        end * interval '24 hours'
       )
+      order by telemetry.${sql.ref(spec.timestamp)} asc, telemetry.id asc
+      limit ${batchSize}
+    ), deleted_rows as (
+      delete from ${sql.table(spec.table)} as expired
+      using candidates
+      where expired.ctid = candidates.ctid
       returning 1
     )
     select count(*)::text as deleted_count from deleted_rows
@@ -238,37 +277,24 @@ async function deleteExpiredBatchesFromTable(
   return total;
 }
 
-async function deleteExpiredBatchesFromTableForScope(
+async function deleteExpiredBatchesFromTableWithEffectiveCutoff(
   db: SystemDb,
-  tableName: string,
-  cutoff: Date,
+  spec: RetentionCategorySpec,
+  now: Date,
+  defaultDays: number,
   batchSize: number,
   maxBatches: number,
-  projectId: string,
-  environmentId: string
-): Promise<number> {
-  let total = 0;
+  onBatchDeleted: (deleted: number) => void
+): Promise<void> {
   for (let batch = 0; batch < maxBatches; batch += 1) {
-    const deleted = await deleteExpiredFromTableForScope(db, tableName, cutoff, batchSize, projectId, environmentId);
-    total += deleted;
-    if (deleted < batchSize) return total;
+    const deleted = await deleteExpiredFromTableWithEffectiveCutoff(db, spec, now, defaultDays, batchSize);
+    onBatchDeleted(deleted);
+    if (deleted < batchSize) return;
   }
-  return total;
 }
 
-function normalizeGovernanceRetentionPolicy(value: unknown): Partial<Record<DataGovernanceRetentionCategory, number>> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-
-  const policy: Partial<Record<DataGovernanceRetentionCategory, number>> = {};
-  for (const [key, rawValue] of Object.entries(value)) {
-    const days = typeof rawValue === "number" ? rawValue : Number(rawValue);
-    if (Number.isInteger(days) && days >= 1 && days <= 3650) {
-      policy[key as DataGovernanceRetentionCategory] = days;
-    }
-  }
-  return policy;
+export function normalizeGovernanceRetentionPolicy(value: unknown): Partial<Record<DataGovernanceRetentionCategory, number>> {
+  return normalizeDataGovernanceRetentionPolicy(value);
 }
 
 function emptyDeletedCounts(): RetentionDeletedCounts {
@@ -287,149 +313,31 @@ function emptyDeletedCounts(): RetentionDeletedCounts {
   };
 }
 
-function addDeletedCounts(left: RetentionDeletedCounts, right: RetentionDeletedCounts): RetentionDeletedCounts {
-  return {
-    events: left.events + right.events,
-    errors: left.errors + right.errors,
-    traces: left.traces + right.traces,
-    spans: left.spans + right.spans,
-    llmCalls: left.llmCalls + right.llmCalls,
-    webVitals: left.webVitals + right.webVitals,
-    profiles: left.profiles + right.profiles,
-    breadcrumbs: left.breadcrumbs + right.breadcrumbs,
-    deadLetterJobs: left.deadLetterJobs + right.deadLetterJobs,
-    sourceMapArtifacts: left.sourceMapArtifacts + right.sourceMapArtifacts,
-    sourceMapFiles: left.sourceMapFiles + right.sourceMapFiles
-  };
-}
-
-function addDeletedCountsInPlace(target: RetentionDeletedCounts, source: RetentionDeletedCounts): void {
-  target.events += source.events;
-  target.errors += source.errors;
-  target.traces += source.traces;
-  target.spans += source.spans;
-  target.llmCalls += source.llmCalls;
-  target.webVitals += source.webVitals;
-  target.profiles += source.profiles;
-  target.breadcrumbs += source.breadcrumbs;
-  target.deadLetterJobs += source.deadLetterJobs;
-  target.sourceMapArtifacts += source.sourceMapArtifacts;
-  target.sourceMapFiles += source.sourceMapFiles;
-}
-
-async function deleteExpiredTelemetryForGovernancePolicies(
-  db: SystemDb,
-  options: RetentionExecutionOptions
-): Promise<RetentionDeletedCounts> {
-  const rows = await db
-    .selectFrom("data_governance_policies")
-    .select(["project_id", "environment_id", "retention_policy"])
-    .execute();
-  const cutoff = (days: number) => new Date(options.now.getTime() - days * 24 * 60 * 60 * 1000);
-  const maxBatches = options.maxBatchesPerTable ?? defaultMaxBatchesPerTable;
-  const totals = emptyDeletedCounts();
-
-  for (const row of rows) {
-    const policy = normalizeGovernanceRetentionPolicy(row.retention_policy);
-    const scoped = emptyDeletedCounts();
-
-    if (policy.events !== undefined) {
-      scoped.events +=
-        (await deleteExpiredBatchesFromTableForScope(db, "events", cutoff(policy.events), options.batchSize, maxBatches, row.project_id, row.environment_id)) +
-        (await deleteExpiredBatchesFromTableForScope(db, "session_replays", cutoff(policy.events), options.batchSize, maxBatches, row.project_id, row.environment_id));
-    }
-    if (policy.clicks !== undefined) {
-      scoped.events += await deleteExpiredBatchesFromTableForScope(
-        db,
-        "click_events",
-        cutoff(policy.clicks),
-        options.batchSize,
-        maxBatches,
-        row.project_id,
-        row.environment_id
-      );
-    }
-    if (policy.replays !== undefined) {
-      scoped.events += await deleteExpiredBatchesFromTableForScope(
-        db,
-        "session_replays",
-        cutoff(policy.replays),
-        options.batchSize,
-        maxBatches,
-        row.project_id,
-        row.environment_id
-      );
-    }
-    if (policy.errors !== undefined) {
-      scoped.errors += await deleteExpiredBatchesFromTableForScope(db, "errors", cutoff(policy.errors), options.batchSize, maxBatches, row.project_id, row.environment_id);
-    }
-    if (policy.traces !== undefined) {
-      scoped.traces += await deleteExpiredBatchesFromTableForScope(db, "traces", cutoff(policy.traces), options.batchSize, maxBatches, row.project_id, row.environment_id);
-    }
-    if (policy.spans !== undefined) {
-      scoped.spans += await deleteExpiredBatchesFromTableForScope(db, "spans", cutoff(policy.spans), options.batchSize, maxBatches, row.project_id, row.environment_id);
-    }
-    if (policy.llmCalls !== undefined) {
-      scoped.llmCalls += await deleteExpiredBatchesFromTableForScope(db, "llm_calls", cutoff(policy.llmCalls), options.batchSize, maxBatches, row.project_id, row.environment_id);
-    }
-    if (policy.webVitals !== undefined) {
-      scoped.webVitals += await deleteExpiredBatchesFromTableForScope(db, "web_vitals", cutoff(policy.webVitals), options.batchSize, maxBatches, row.project_id, row.environment_id);
-    }
-    if (policy.profiles !== undefined) {
-      scoped.profiles += await deleteExpiredBatchesFromTableForScope(db, "profiles", cutoff(policy.profiles), options.batchSize, maxBatches, row.project_id, row.environment_id);
-    }
-    if (policy.breadcrumbs !== undefined) {
-      scoped.breadcrumbs += await deleteExpiredBatchesFromTableForScope(db, "breadcrumbs", cutoff(policy.breadcrumbs), options.batchSize, maxBatches, row.project_id, row.environment_id);
-    }
-
-    addDeletedCountsInPlace(totals, scoped);
-  }
-
-  return totals;
-}
-
 export const __test = { deleteExpiredBatchesFromTable };
 
 export async function deleteExpiredTelemetry(db: SystemDb, options: RetentionExecutionOptions): Promise<RetentionDeletedCounts> {
-  const cutoff = (days: number) => new Date(options.now.getTime() - days * 24 * 60 * 60 * 1000);
   const maxBatches = options.maxBatchesPerTable ?? defaultMaxBatchesPerTable;
+  const deleted = emptyDeletedCounts();
 
-  const globalDeleted = {
-    events:
-      (await deleteExpiredBatchesFromTable(db, "events", cutoff(options.eventsDays), options.batchSize, maxBatches)) +
-      (await deleteExpiredBatchesFromTable(db, "click_events", cutoff(options.eventsDays), options.batchSize, maxBatches)) +
-      (await deleteExpiredBatchesFromTable(db, "session_replays", cutoff(options.eventsDays), options.batchSize, maxBatches)),
-    errors: await deleteExpiredBatchesFromTable(db, "errors", cutoff(options.errorsDays), options.batchSize, maxBatches),
-    traces: await deleteExpiredBatchesFromTable(db, "traces", cutoff(options.tracesDays), options.batchSize, maxBatches),
-    spans: await deleteExpiredBatchesFromTable(db, "spans", cutoff(options.spansDays), options.batchSize, maxBatches),
-    llmCalls: await deleteExpiredBatchesFromTable(db, "llm_calls", cutoff(options.llmCallsDays), options.batchSize, maxBatches),
-    webVitals: await deleteExpiredBatchesFromTable(
-      db,
-      "web_vitals",
-      cutoff(options.eventsDays),
-      options.batchSize,
-      maxBatches
-    ),
-    profiles: await deleteExpiredBatchesFromTable(
-      db,
-      "profiles",
-      cutoff(options.profilesDays),
-      options.batchSize,
-      maxBatches
-    ),
-    breadcrumbs: await deleteExpiredBatchesFromTable(
-      db,
-      "breadcrumbs",
-      cutoff(options.breadcrumbsDays),
-      options.batchSize,
-      maxBatches
-    ),
-    deadLetterJobs: 0,
-    sourceMapArtifacts: 0,
-    sourceMapFiles: 0
-  };
-  const scopedDeleted = await deleteExpiredTelemetryForGovernancePolicies(db, options);
-  return addDeletedCounts(globalDeleted, scopedDeleted);
+  for (const spec of retentionCategorySpecs) {
+    try {
+      await deleteExpiredBatchesFromTableWithEffectiveCutoff(
+        db,
+        spec,
+        options.now,
+        options[spec.defaultKey],
+        options.batchSize,
+        maxBatches,
+        (batchDeleted) => {
+          deleted[spec.counter] += batchDeleted;
+        }
+      );
+    } catch (error) {
+      throw new RetentionDeleteError(spec.category, spec.table, deleted, error);
+    }
+  }
+
+  return deleted;
 }
 
 export async function recordRetentionRun(

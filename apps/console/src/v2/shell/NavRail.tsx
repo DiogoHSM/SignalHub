@@ -12,7 +12,8 @@ export function NavRail({ active, onNavigate, fleetCritical }: NavRailProps) {
   const renderItem = (it: typeof NAV[number]) => (
     <button
       key={it.id}
-      className={`nv-item ${active === it.id ? "is-active" : ""}`}
+      className={`nv-item sh-hit-target ${active === it.id ? "is-active" : ""}`}
+      type="button"
       title={it.label}
       onClick={() => onNavigate(it.id)}
     >

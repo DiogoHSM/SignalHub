@@ -40,3 +40,8 @@
 .ms-env__load { font-size: 12px; color: var(--fg-muted); padding: 8px 0; }
 
 .ms-empty { padding: 40px 20px; text-align: center; color: var(--fg-muted); font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ms-card__chevron { transition-duration: 0.01ms; }
+  .ms-card[data-open="true"] .ms-card__chevron { transform: rotate(90deg); }
+}

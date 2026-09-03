@@ -1,5 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { afterEach, describe, expect, it } from "vitest";
+import { Redis } from "ioredis";
+import { GenericContainer, Wait } from "testcontainers";
+import { createMaintenanceQueue, enqueueBackupCreation } from "@sigmon/queues";
 import { buildApp } from "../src/app.js";
 import { createSystemHealthSnapshot } from "../src/system-health.js";
 import type { SystemHealthSnapshot } from "../src/routes/system.js";
@@ -215,13 +218,17 @@ describe("system health routes", () => {
     expect(response.json()).toEqual({ error: "system_backup_unavailable" });
   });
 
-  it("runs system actions for admins", async () => {
+  it("runs synchronous system actions for admins and accepts a manual backup asynchronously", async () => {
+    const enqueued: Array<{ requestedBy: string; requestedAt: string }> = [];
     app = await buildApp({
       readiness: async () => ({ postgres: true, redis: true }),
       auth,
       system: {
         runDoctor: async () => ({ status: "success", message: "Doctor completed: system is operational." }),
-        runBackup: async () => ({ status: "skipped", message: "Backup skipped because another backup is active.", ran: false, skipped: true }),
+        enqueueBackup: async (input) => {
+          enqueued.push(input);
+          return { jobId: "backup-create-20260901T1234Z" };
+        },
         runRetention: async () => ({ status: "success", message: "Retention completed.", ran: true, skipped: false })
       }
     });
@@ -237,14 +244,16 @@ describe("system health routes", () => {
     expect(doctor.json().generatedAt).toEqual(expect.any(String));
 
     const backup = await app.inject({ method: "POST", url: "/system/actions/backup" });
-    expect(backup.statusCode).toBe(200);
-    expect(backup.json()).toMatchObject({
+    expect(backup.statusCode).toBe(202);
+    expect(backup.json()).toEqual({
       ok: true,
       action: "backup",
-      status: "skipped",
-      ran: false,
-      skipped: true
+      status: "accepted",
+      message: "Backup queued.",
+      jobId: "backup-create-20260901T1234Z",
+      generatedAt: expect.any(String)
     });
+    expect(enqueued).toEqual([{ requestedBy: "usr_1", requestedAt: backup.json().generatedAt }]);
 
     const retention = await app.inject({ method: "POST", url: "/system/actions/retention" });
     expect(retention.statusCode).toBe(200);
@@ -256,6 +265,95 @@ describe("system health routes", () => {
       skipped: false
     });
   });
+
+  it("returns a stable 503 when a manual backup cannot be enqueued", async () => {
+    app = await buildApp({
+      readiness: async () => ({ postgres: true, redis: true }),
+      auth,
+      system: {
+        enqueueBackup: async () => {
+          throw new Error("Redis password=secret is unavailable");
+        }
+      }
+    });
+
+    const response = await app.inject({ method: "POST", url: "/system/actions/backup" });
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "system_backup_failed" });
+  });
+
+  it("returns a bounded stable 503 for a stalled Redis command and recovers on the same producer", async () => {
+    const container = await new GenericContainer("redis:7-alpine")
+      .withExposedPorts(6379)
+      .withWaitStrategy(Wait.forLogMessage("Ready to accept connections"))
+      .start();
+    const redisUrl = `redis://${container.getHost()}:${container.getMappedPort(6379)}`;
+    const queue = createMaintenanceQueue(redisUrl);
+    const controller = new Redis(redisUrl);
+    queue.on("error", () => undefined);
+    let pauseArmed = false;
+    const releasePause = async () => {
+      if (!pauseArmed) return;
+      await controller.call("CLIENT", "UNPAUSE");
+      pauseArmed = false;
+    };
+
+    try {
+      await enqueueBackupCreation(queue, {
+        kind: "backup.create",
+        requestedBy: "usr_warm",
+        requestedAt: "2026-09-01T12:34:01.000Z"
+      });
+      app = await buildApp({
+        readiness: async () => ({ postgres: true, redis: true }),
+        auth,
+        system: {
+          enqueueBackup: (payload) =>
+            enqueueBackupCreation(queue, { kind: "backup.create", ...payload }).then((job) => {
+              if (!job.id) throw new Error("maintenance_queue_invalid_job");
+              return { jobId: job.id };
+            })
+        }
+      });
+      await controller.call("CLIENT", "PAUSE", "10000", "WRITE");
+      pauseArmed = true;
+
+      const startedAt = Date.now();
+      const stalled = await app.inject({ method: "POST", url: "/system/actions/backup" });
+      expect(stalled.statusCode).toBe(503);
+      expect(stalled.json()).toEqual({ error: "system_backup_failed" });
+      expect(Date.now() - startedAt).toBeLessThan(1_800);
+      await releasePause();
+
+      let recovered: Awaited<ReturnType<FastifyInstance["inject"]>> | undefined;
+      const deadline = Date.now() + 5_000;
+      while (!recovered && Date.now() < deadline) {
+        const response = await app.inject({ method: "POST", url: "/system/actions/backup" });
+        if (response.statusCode === 202) {
+          recovered = response;
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+      }
+      expect(recovered?.statusCode).toBe(202);
+      expect(recovered?.json()).toMatchObject({
+        action: "backup",
+        status: "accepted",
+        message: "Backup queued."
+      });
+    } finally {
+      await app?.close();
+      app = undefined;
+      try {
+        await releasePause();
+      } finally {
+        await queue.obliterate({ force: true });
+        await queue.close();
+        await controller.quit();
+        await container.stop();
+      }
+    }
+  }, 30_000);
 
   it("returns unavailable when system actions fail", async () => {
     app = await buildApp({

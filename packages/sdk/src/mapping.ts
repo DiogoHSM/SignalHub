@@ -17,6 +17,7 @@ import type {
   TraceInput,
   WebVitalInput
 } from "./types.js";
+import { sanitizeTelemetryUrl } from "./url-sanitization.js";
 
 const UNSERIALIZABLE_THROWN_VALUE_MESSAGE = "[Unserializable thrown value]";
 
@@ -383,8 +384,8 @@ export function createFeedbackSignal(
   };
 
   assignDefined(payload, "category", input.category);
-  assignDefined(payload, "page_url", input.pageUrl);
-  assignDefined(payload, "path", input.path);
+  assignDefined(payload, "page_url", sanitizeTelemetryUrl(input.pageUrl));
+  assignDefined(payload, "path", sanitizeTelemetryUrl(input.path));
   assignDefined(payload, "user_agent", input.userAgent);
 
   return {

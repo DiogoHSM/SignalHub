@@ -74,6 +74,18 @@ function mockUseLlm(data: LlmVM | null, status: "loading" | "ok" | "error" = "ok
   vi.spyOn(useLlmModule, "useLlm").mockReturnValue({ data, status, reload: vi.fn() });
 }
 
+function expectSharedWideTableScroller(header: HTMLElement, row: HTMLElement) {
+  const headerScroller = header.closest(".sh-wide-table-scroll");
+  const rowScroller = row.closest(".sh-wide-table-scroll");
+  const headerTable = header.closest(".sh-wide-table");
+  expect(headerScroller).not.toBeNull();
+  expect(rowScroller).toBe(headerScroller);
+  expect(headerTable).not.toBeNull();
+  expect(row.closest(".sh-wide-table")).toBe(headerTable);
+  expect(row.closest(".sh-wide-table__body")).not.toBeNull();
+  expect(row.style.gridTemplateColumns).toBe(header.style.gridTemplateColumns);
+}
+
 describe("LlmScreen", () => {
   it("shows a guard hint when project/env are missing", () => {
     mockUseLlm(null, "loading");
@@ -149,12 +161,24 @@ describe("LlmScreen", () => {
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
 
-  it("Export CSV is a stub toast", async () => {
+  it("keeps each wide table header and its rows under one horizontal scroll owner", () => {
     mockUseLlm(vm);
-    const ctx = makeCtx();
-    render(<LlmScreen ctx={ctx} />);
-    await userEvent.click(screen.getByText("Export CSV"));
-    expect(ctx.pushToast).toHaveBeenCalledWith("CSV export is not yet available");
+    render(<LlmScreen ctx={makeCtx()} />);
+
+    expectSharedWideTableScroller(
+      screen.getByText("Prompt · model").closest(".sh-row") as HTMLElement,
+      screen.getByText("dashboard_summary").closest(".sh-row") as HTMLElement,
+    );
+    expectSharedWideTableScroller(
+      screen.getByText("Timestamp").closest(".sh-row") as HTMLElement,
+      screen.getByText("anthropic/claude-3.7").closest(".sh-row") as HTMLElement,
+    );
+  });
+
+  it("does not offer unavailable CSV export", () => {
+    mockUseLlm(vm);
+    render(<LlmScreen ctx={makeCtx()} />);
+    expect(screen.queryByRole("button", { name: /export csv/i })).not.toBeInTheDocument();
   });
 
   it("shows empty hints when sections have no data", () => {

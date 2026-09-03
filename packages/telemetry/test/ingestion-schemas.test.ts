@@ -13,6 +13,22 @@ import {
   webVitalPayloadSchema
 } from "../src/ingestion-schemas.js";
 
+function metadataWithContainerDepth(containerLevels: number): Record<string, unknown> {
+  let value: Record<string, unknown> = { leaf: true };
+  for (let depth = 1; depth < containerLevels; depth += 1) value = { child: value };
+  return value;
+}
+
+function metadataWithNodeCount(firstArrayLength: number): Record<string, unknown> {
+  return {
+    values: Array.from({ length: 512 }, (_, index) => {
+      if (index === 0) return Array(firstArrayLength).fill(1);
+      if (index < 511) return Array(3).fill(1);
+      return [];
+    })
+  };
+}
+
 describe("ingestion schemas", () => {
   it("accepts a product event payload with shared metadata", () => {
     const parsed = eventPayloadSchema.parse({
@@ -165,6 +181,54 @@ describe("ingestion schemas", () => {
         input: { huge: "x".repeat(20001) }
       })
     ).toThrow();
+  });
+
+  it("accepts metadata at eight container levels and rejects a ninth", () => {
+    expect(eventPayloadSchema.safeParse({ name: "deep", metadata: metadataWithContainerDepth(8) }).success).toBe(true);
+
+    const result = eventPayloadSchema.safeParse({ name: "deep", metadata: metadataWithContainerDepth(9) });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toContain("8 container levels");
+    }
+  });
+
+  it("accepts 2,048 metadata nodes and rejects 2,049", () => {
+    expect(eventPayloadSchema.safeParse({ name: "nodes", metadata: metadataWithNodeCount(4) }).success).toBe(true);
+
+    const result = eventPayloadSchema.safeParse({ name: "nodes", metadata: metadataWithNodeCount(5) });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toContain("2048 nodes");
+    }
+  });
+
+  it("accepts 512 metadata keys and rejects 513", () => {
+    expect(
+      eventPayloadSchema.safeParse({
+        name: "keys",
+        metadata: Object.fromEntries(Array.from({ length: 512 }, (_, index) => [`key_${index}`, index]))
+      }).success
+    ).toBe(true);
+
+    const result = eventPayloadSchema.safeParse({
+      name: "keys",
+      metadata: Object.fromEntries(Array.from({ length: 513 }, (_, index) => [`key_${index}`, index]))
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toContain("512 object keys");
+    }
+  });
+
+  it("accepts arrays with 512 items and rejects 513", () => {
+    expect(eventPayloadSchema.safeParse({ name: "wide", metadata: { values: Array(512).fill(1) } }).success).toBe(true);
+
+    const result = eventPayloadSchema.safeParse({ name: "wide", metadata: { values: Array(513).fill(1) } });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toContain("512 items");
+    }
   });
 
   it("rejects negative numeric metrics", () => {

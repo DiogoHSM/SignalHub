@@ -1,5 +1,8 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient, FleetProject, FleetResponse } from "../api/client";
 import type { User } from "../api/types";
@@ -66,7 +69,21 @@ afterEach(() => {
   cleanup();
 });
 
+function moduleFilename(url: string): string {
+  const parsed = new URL(url);
+  if (parsed.protocol === "file:") return fileURLToPath(parsed);
+  const pathname = decodeURIComponent(parsed.pathname);
+  return process.platform === "win32" && /^\/[A-Za-z]:\//.test(pathname) ? pathname.slice(1) : pathname;
+}
+
 describe("MobileStatusView", () => {
+  it("settles the project chevron immediately at its open or closed state for reduced motion", () => {
+    const css = readFileSync(join(dirname(moduleFilename(import.meta.url)), "mobile-status.css"), "utf8");
+    const reduced = css.match(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{([\s\S]*)\}\s*$/)?.[1] ?? "";
+    expect(reduced).toMatch(/\.ms-card__chevron\s*\{[^}]*transition-duration:\s*0\.01ms/s);
+    expect(reduced).toMatch(/\.ms-card\[data-open="true"\]\s+\.ms-card__chevron\s*\{[^}]*transform:\s*rotate\(90deg\)/s);
+  });
+
   it("renders the fleet rollup banner and project list", async () => {
     const client = makeClient();
     render(<MobileStatusView client={client} user={ADMIN_USER} onSignOut={vi.fn()} />);
@@ -113,5 +130,15 @@ describe("MobileStatusView", () => {
     await user.click(screen.getByRole("button", { name: "Sign out" }));
 
     expect(onSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the shared hit target for mobile refresh, sign-out, and project controls", async () => {
+    const client = makeClient();
+    render(<MobileStatusView client={client} user={ADMIN_USER} onSignOut={vi.fn()} />);
+
+    await screen.findByText("Operational");
+    expect(screen.getByRole("button", { name: "Sign out" })).toHaveClass("sh-hit-target");
+    expect(screen.getByRole("button", { name: /refresh/i })).toHaveClass("sh-hit-target");
+    expect(screen.getByRole("button", { name: /Pinima/ })).toHaveClass("sh-hit-target");
   });
 });

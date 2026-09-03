@@ -14,6 +14,7 @@ import {
 } from "../src/source-maps/parser.js";
 import { resolveErrorStackWithSourceMaps, resolveFrameWithSourceMap } from "../src/source-maps/resolver.js";
 import { readSourceMapFile, storeSourceMapFile } from "../src/source-maps/storage.js";
+import { assertSourceMapStorageRoot, openSourceMapStorageSession } from "../src/source-maps/storage-root.js";
 import { FunnelScopeTooLargeError } from "@sigmon/db/repositories/telemetry-query.js";
 import { EventPropertyNotPromotedError } from "../../../packages/db/src/repositories/analytics-insights.js";
 
@@ -163,20 +164,23 @@ describe("source map helpers", () => {
     const escapedDirectory = path.join(path.dirname(localDir), ".._x");
 
     try {
-      const artifact = await storeSourceMapFile({
-        localDir,
-        projectId: "..",
-        environmentId: ".",
-        release: "../x",
-        artifactId: ".",
-        content: Buffer.from("{}")
-      });
+      await assertSourceMapStorageRoot(localDir, "create");
+      const storage = await openSourceMapStorageSession({ localDir, mode: "require", nodeEnv: "test" });
+      try {
+        const artifact = await storeSourceMapFile({
+          storage,
+          projectId: "..",
+          environmentId: ".",
+          release: "../x",
+          artifactId: "123e4567-e89b-42d3-a456-426614174000",
+          content: Buffer.from("{}")
+        });
 
-      const relativePath = path.relative(await realpath(localDir), artifact.storagePath);
-      expect(relativePath).not.toBe("");
-      expect(relativePath).not.toBe("..");
-      expect(relativePath.startsWith(`..${path.sep}`)).toBe(false);
-      expect(path.isAbsolute(relativePath)).toBe(false);
+        const relativePath = path.relative(await realpath(localDir), artifact.storagePath);
+        expect(relativePath).toBe("123e4567-e89b-42d3-a456-426614174000.map");
+      } finally {
+        await storage.close();
+      }
     } finally {
       await rm(localDir, { recursive: true, force: true });
       await rm(escapedDirectory, { recursive: true, force: true });
@@ -187,9 +191,15 @@ describe("source map helpers", () => {
     const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
 
     try {
-      await expect(readSourceMapFile({ localDir, storagePath: path.join(path.dirname(localDir), "outside.map") })).rejects.toThrow(
-        "source_map_storage_path_invalid"
-      );
+      await assertSourceMapStorageRoot(localDir, "create");
+      const storage = await openSourceMapStorageSession({ localDir, mode: "require", nodeEnv: "test" });
+      try {
+        await expect(
+          readSourceMapFile({ storage, storagePath: path.join(path.dirname(localDir), "outside.map") })
+        ).rejects.toThrow("source_map_storage_path_invalid");
+      } finally {
+        await storage.close();
+      }
     } finally {
       await rm(localDir, { recursive: true, force: true });
     }
@@ -198,15 +208,20 @@ describe("source map helpers", () => {
   it("rejects source map reads through symlinks inside local storage", async () => {
     const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
     const outsideFile = path.join(path.dirname(localDir), "outside-source-map.map");
-    const symlinkPath = path.join(localDir, "linked.map");
+    const symlinkPath = path.join(localDir, "123e4567-e89b-42d3-a456-426614174000.map");
 
     try {
+      await assertSourceMapStorageRoot(localDir, "create");
+      const storage = await openSourceMapStorageSession({ localDir, mode: "require", nodeEnv: "test" });
       await writeFile(outsideFile, "{}");
       await symlink(outsideFile, symlinkPath);
-
-      await expect(readSourceMapFile({ localDir, storagePath: symlinkPath })).rejects.toThrow(
-        "source_map_storage_path_invalid"
-      );
+      try {
+        await expect(readSourceMapFile({ storage, storagePath: symlinkPath })).rejects.toThrow(
+          "source_map_storage_path_invalid"
+        );
+      } finally {
+        await storage.close();
+      }
     } finally {
       await rm(localDir, { recursive: true, force: true });
       await rm(outsideFile, { force: true });

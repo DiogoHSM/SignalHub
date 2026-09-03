@@ -4,6 +4,11 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { zipSync } from "fflate";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  assertSourceMapStorageRoot,
+  openSourceMapStorageSession,
+  type SourceMapStorageSession
+} from "../src/source-maps/storage-root.js";
 import type { AnalyticsSegmentPreview, AnalyticsSegmentRecord } from "../../../packages/db/src/repositories/analytics-segments.js";
 import type { AnalyticsDashboardRecord } from "../../../packages/db/src/repositories/analytics-dashboards.js";
 import { EventPropertyNotPromotedError } from "../../../packages/db/src/repositories/analytics-insights.js";
@@ -32,6 +37,18 @@ import type {
 import type { FeedbackWidgetSettings } from "../../../packages/db/src/repositories/feedback-widget.js";
 import { AdminUserInvariantError } from "../../../packages/db/src/repositories/users.js";
 import { buildApp } from "../src/app.js";
+import {
+  authenticateOpaqueSession,
+  createOpaqueSession,
+  revokeCurrentSession,
+  type OpaqueSessionServiceDependencies
+} from "../src/auth/session-service.js";
+import { getSessionCookieOptions, type AuthDependencies } from "../src/routes/auth.js";
+import type {
+  UserAdministrationDependencies,
+  WarehouseExportAdministrationDependencies
+} from "../src/routes/admin.js";
+import { OutboundPolicy } from "@sigmon/config";
 
 let app: FastifyInstance | undefined;
 
@@ -46,6 +63,77 @@ const userAuth = {
 };
 
 const readiness = async () => ({ postgres: true, redis: true });
+
+type LifecycleUser = { id: string; email: string; isAdmin: boolean };
+
+function readSessionCookie(response: { headers: { "set-cookie"?: string | string[] | number } }): string {
+  const header = response.headers["set-cookie"];
+  const values = Array.isArray(header) ? header : typeof header === "string" ? [header] : [];
+  const session = values.find((value) => value?.startsWith("sigmon_session="));
+  if (!session) throw new Error("session cookie not set");
+  return session.split(";", 1)[0]!;
+}
+
+function createLifecycleHarness() {
+  let tokenNumber = 0;
+  const now = new Date("2026-09-01T12:00:00.000Z");
+  const users = new Map<string, LifecycleUser>([
+    ["admin@example.com", { id: "usr_1", email: "admin@example.com", isAdmin: true }],
+    ["admin-2@example.com", { id: "usr_2", email: "admin-2@example.com", isAdmin: true }]
+  ]);
+  const sessions = new Map<string, { userId: string; revoked: boolean }>();
+  const service: OpaqueSessionServiceDependencies = {
+    cookieName: "sigmon_session",
+    cookieOptions: getSessionCookieOptions("test", 3600),
+    maxAgeSeconds: 3600,
+    now: () => now,
+    generateToken: () => Buffer.alloc(32, ++tokenNumber).toString("base64url"),
+    createSession: async ({ userId, tokenHash }) => {
+      sessions.set(tokenHash, { userId, revoked: false });
+    },
+    findSessionUser: async ({ tokenHash }) => {
+      const session = sessions.get(tokenHash);
+      if (!session || session.revoked) return undefined;
+      return [...users.values()].find((user) => user.id === session.userId);
+    },
+    revokeSession: async ({ tokenHash }) => {
+      const session = sessions.get(tokenHash);
+      if (session) session.revoked = true;
+    }
+  };
+  const revokeUserSessions = (userId: string) => {
+    for (const session of sessions.values()) {
+      if (session.userId === userId) session.revoked = true;
+    }
+  };
+
+  const auth: AuthDependencies = {
+    login: async (email: string, password: string, { reply }) => {
+      const user = password === "password" ? users.get(email) : undefined;
+      if (!user) return null;
+      await createOpaqueSession(service, user.id, reply);
+      return user;
+    },
+    findSessionUser: (request) => authenticateOpaqueSession(service, request),
+    logout: (context) => revokeCurrentSession(service, context)
+  };
+  const userDependencies: UserAdministrationDependencies = {
+    updateUser: async (id: string, input: { password?: string }) => {
+      const user = [...users.values()].find((candidate) => candidate.id === id);
+      if (!user) return null;
+      if (input.password !== undefined) revokeUserSessions(id);
+      return user;
+    },
+    archiveUser: async (id: string) => {
+      revokeUserSessions(id);
+    }
+  };
+
+  return {
+    auth,
+    users: userDependencies
+  };
+}
 
 function sourceMapArtifact(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -342,6 +430,23 @@ function warehouseDestination(overrides: Partial<WarehouseDestinationRecord> = {
     createdAt: new Date("2026-01-01T00:00:00.000Z"),
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     archivedAt: null,
+    ...overrides
+  };
+}
+
+function warehouseExportAdministration(
+  overrides: Partial<WarehouseExportAdministrationDependencies> = {}
+): WarehouseExportAdministrationDependencies {
+  return {
+    listDestinations: async () => [],
+    getDestination: async () =>
+      warehouseDestination({ connectionUrl: "postgres://writer:stored-secret@warehouse.internal/analytics" }),
+    createDestination: async () => {
+      throw new Error("not used");
+    },
+    updateDestination: async (input) => warehouseDestination({ id: input.id }),
+    archiveDestination: async () => undefined,
+    listRuns: async () => [],
     ...overrides
   };
 }
@@ -935,6 +1040,55 @@ describe("admin routes", () => {
     expect(archiveUser).toHaveBeenCalledWith("usr_2", { actorUserId: "usr_1" });
   });
 
+  it("rejects a copied cookie after an administrator changes its user's password", async () => {
+    const harness = createLifecycleHarness();
+    app = await buildApp({ readiness, auth: harness.auth, users: harness.users });
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "admin@example.com", password: "password" }
+    });
+    const cookie = readSessionCookie(login);
+
+    const changed = await app.inject({
+      method: "PATCH",
+      url: "/admin/users/usr_1",
+      headers: { cookie },
+      payload: { password: "replacement-password" }
+    });
+
+    expect(changed.statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/auth/me", headers: { cookie } })).statusCode).toBe(401);
+  });
+
+  it("rejects a copied cookie after an administrator archives its user", async () => {
+    const harness = createLifecycleHarness();
+    app = await buildApp({ readiness, auth: harness.auth, users: harness.users });
+    const actorLogin = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "admin@example.com", password: "password" }
+    });
+    const targetLogin = await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "admin-2@example.com", password: "password" }
+    });
+    const actorCookie = readSessionCookie(actorLogin);
+    const copiedTargetCookie = readSessionCookie(targetLogin);
+
+    const archived = await app.inject({
+      method: "DELETE",
+      url: "/admin/users/usr_2",
+      headers: { cookie: actorCookie }
+    });
+
+    expect(archived.statusCode).toBe(204);
+    expect(
+      (await app.inject({ method: "GET", url: "/auth/me", headers: { cookie: copiedTargetCookie } })).statusCode
+    ).toBe(401);
+  });
+
   it("rejects unsafe webhook notification-channel URLs in development", async () => {
     const alerts = {
       listNotificationChannels: vi.fn(async () => []),
@@ -1101,6 +1255,13 @@ describe("admin routes", () => {
           },
           archive: async (id) => {
             archivedOriginIds.push(id);
+            return {
+              id,
+              projectId: "prj_1",
+              origin: "https://app.example.com",
+              createdAt: new Date("2026-01-01T00:00:00.000Z"),
+              archivedAt: new Date("2026-01-02T00:00:00.000Z")
+            };
           }
         }
       }
@@ -1124,6 +1285,95 @@ describe("admin routes", () => {
     const deleteResponse = await app.inject({ method: "DELETE", url: "/admin/browser-origins/borg_1" });
     expect(deleteResponse.statusCode).toBe(204);
     expect(archivedOriginIds).toEqual(["borg_1"]);
+  });
+
+  it("updates browser-origin cache state only after successful admin mutations", async () => {
+    const allowedOrigins = new Set([
+      "https://archived.example.com",
+      "https://project.example.com",
+      "https://failed.example.com"
+    ]);
+    const lookup = vi.fn(async (origin: string) => allowedOrigins.has(origin));
+    const originRecord = (id: string, origin: string) => ({
+      id,
+      projectId: "prj_1",
+      origin,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      archivedAt: null
+    });
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      isBrowserCorsOriginAllowed: lookup,
+      adminResources: {
+        projects: {
+          list: async () => [],
+          get: async () => null,
+          create: async () => {
+            throw new Error("not used");
+          },
+          update: async () => null,
+          archive: async () => {
+            allowedOrigins.delete("https://project.example.com");
+          }
+        },
+        browserOrigins: {
+          list: async () => [],
+          create: async (input) => {
+            const origin = new URL(input.origin).origin;
+            if (origin === "https://failed-create.example.com") throw new Error("create failed");
+            allowedOrigins.add(origin);
+            return originRecord("borg_created", origin);
+          },
+          archive: async (id) => {
+            if (id === "borg_failed") throw new Error("archive failed");
+            allowedOrigins.delete("https://archived.example.com");
+            return {
+              ...originRecord(id, "https://archived.example.com"),
+              archivedAt: new Date("2026-01-02T00:00:00.000Z")
+            };
+          }
+        }
+      }
+    });
+
+    const preflight = (origin: string) => app!.inject({ method: "OPTIONS", url: "/v1/events", headers: { origin } });
+
+    expect((await preflight("https://new.example.com")).statusCode).not.toBe(204);
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/browser-origins",
+      payload: { origin: "https://new.example.com/path" }
+    });
+    expect(createResponse.statusCode).toBe(201);
+    expect((await preflight("https://new.example.com")).statusCode).toBe(204);
+
+    expect((await preflight("https://archived.example.com")).statusCode).toBe(204);
+    expect((await app.inject({ method: "DELETE", url: "/admin/browser-origins/borg_archived" })).statusCode).toBe(204);
+    expect((await preflight("https://archived.example.com")).statusCode).not.toBe(204);
+
+    expect((await preflight("https://project.example.com")).statusCode).toBe(204);
+    expect((await app.inject({ method: "DELETE", url: "/admin/projects/prj_1" })).statusCode).toBe(204);
+    expect((await preflight("https://project.example.com")).statusCode).not.toBe(204);
+
+    expect((await preflight("https://failed.example.com")).statusCode).toBe(204);
+    expect((await app.inject({ method: "DELETE", url: "/admin/browser-origins/borg_failed" })).statusCode).toBe(500);
+    allowedOrigins.delete("https://failed.example.com");
+    expect((await preflight("https://failed.example.com")).statusCode).toBe(204);
+
+    expect((await preflight("https://failed-create.example.com")).statusCode).not.toBe(204);
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/admin/projects/prj_1/browser-origins",
+          payload: { origin: "https://failed-create.example.com" }
+        })
+      ).statusCode
+    ).toBe(500);
+    allowedOrigins.add("https://failed-create.example.com");
+    expect((await preflight("https://failed-create.example.com")).statusCode).not.toBe(204);
   });
 
   it("manages project code integrations and release metadata", async () => {
@@ -2537,13 +2787,61 @@ describe("admin routes", () => {
     });
   });
 
+  it("rejects unknown data governance retention categories", async () => {
+    const upsert = vi.fn(async () => dataGovernancePolicy());
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        dataGovernance: { get: async () => dataGovernancePolicy(), upsert }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PUT",
+      url: "/admin/data-governance",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        retentionPolicy: { events: 60, unknownCategory: 45 },
+        propertyRules: []
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_data_governance_request" });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
   it("manages warehouse export destinations and manual runs for admins", async () => {
-    const listDestinations = vi.fn(async () => [warehouseDestination()]);
+    const repositoryDestination = () => ({
+      ...warehouseDestination(),
+      connectionUrl: "postgres://synthetic-private.invalid/db",
+      connectionUrlEncrypted: "v1.synthetic-envelope",
+      connection_url: "postgres://synthetic-legacy.invalid/db",
+      connection_url_encrypted: "v1.synthetic-legacy-envelope"
+    });
+    const listDestinations = vi.fn(async () => [repositoryDestination()]);
+    const getDestination = vi.fn(async () =>
+      warehouseDestination({
+        connectionUrl: "postgres://writer:stored-secret@warehouse.internal:5432/analytics"
+      })
+    );
     const createDestination = vi.fn(async (input) =>
-      warehouseDestination({ name: input.name, datasets: input.datasets, batchSize: input.batchSize })
+      ({
+        ...repositoryDestination(),
+        name: input.name,
+        datasets: input.datasets,
+        batchSize: input.batchSize
+      })
     );
     const updateDestination = vi.fn(async (input) =>
-      warehouseDestination({ id: input.id, name: input.name ?? "Warehouse", enabled: input.enabled ?? true })
+      ({
+        ...repositoryDestination(),
+        id: input.id,
+        name: input.name ?? "Warehouse",
+        enabled: input.enabled ?? true
+      })
     );
     const archiveDestination = vi.fn(async () => undefined);
     const listRuns = vi.fn(async () => [warehouseExportRun()]);
@@ -2555,6 +2853,7 @@ describe("admin routes", () => {
       adminResources: {
         warehouseExports: {
           listDestinations,
+          getDestination,
           createDestination,
           updateDestination,
           archiveDestination,
@@ -2570,7 +2869,10 @@ describe("admin routes", () => {
     });
     expect(listResponse.statusCode).toBe(200);
     expect(listResponse.json()).toEqual({ destinations: [warehouseDestinationResponse()] });
-    expect(listResponse.body).not.toContain("secret");
+    expect(listResponse.json().destinations[0]).not.toHaveProperty("connectionUrl");
+    expect(listResponse.json().destinations[0]).not.toHaveProperty("connectionUrlEncrypted");
+    expect(listResponse.json().destinations[0]).not.toHaveProperty("connection_url");
+    expect(listResponse.json().destinations[0]).not.toHaveProperty("connection_url_encrypted");
     expect(listDestinations).toHaveBeenCalledWith({ projectId: "prj_1", environmentId: "env_1" });
 
     const createResponse = await app.inject({
@@ -2599,6 +2901,34 @@ describe("admin routes", () => {
       enabled: true
     });
     expect(createResponse.body).not.toContain("secret");
+    expect(createResponse.json().destination).not.toHaveProperty("connectionUrl");
+    expect(createResponse.json().destination).not.toHaveProperty("connectionUrlEncrypted");
+    expect(createResponse.json().destination).not.toHaveProperty("connection_url");
+    expect(createResponse.json().destination).not.toHaveProperty("connection_url_encrypted");
+
+    for (const connectionUrl of [
+      "https://writer:request-secret@warehouse.internal/analytics",
+      "postgres://writer:request-secret@127.0.0.1/analytics",
+      "postgres://writer:request-secret@warehouse.internal/analytics?sslmode=disable",
+      "postgres://writer:request-secret@warehouse.internal/analytics?rejectUnauthorized=false"
+    ]) {
+      const unsafeResponse = await app.inject({
+        method: "POST",
+        url: "/admin/warehouse-destinations",
+        payload: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          name: "Unsafe warehouse",
+          destinationType: "postgres",
+          connectionUrl,
+          datasets: ["events"]
+        }
+      });
+      expect(unsafeResponse.statusCode).toBe(400);
+      expect(unsafeResponse.json()).toEqual({ error: "invalid_warehouse_export_request" });
+      expect(unsafeResponse.body).not.toContain("request-secret");
+    }
+    expect(createDestination).toHaveBeenCalledOnce();
 
     const invalidDatasetResponse = await app.inject({
       method: "POST",
@@ -2614,6 +2944,21 @@ describe("admin routes", () => {
     });
     expect(invalidDatasetResponse.statusCode).toBe(400);
 
+    const unsafePatchResponse = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_1",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        connectionUrl: "postgres://writer:patch-secret@10.0.0.8/analytics"
+      }
+    });
+    expect(unsafePatchResponse.statusCode).toBe(400);
+    expect(unsafePatchResponse.json()).toEqual({ error: "invalid_warehouse_export_request" });
+    expect(unsafePatchResponse.body).not.toContain("patch-secret");
+    expect(getDestination).not.toHaveBeenCalled();
+    expect(updateDestination).not.toHaveBeenCalled();
+
     const patchResponse = await app.inject({
       method: "PATCH",
       url: "/admin/warehouse-destinations/whdst_1",
@@ -2625,6 +2970,10 @@ describe("admin routes", () => {
       }
     });
     expect(patchResponse.statusCode).toBe(200);
+    expect(patchResponse.json().destination).not.toHaveProperty("connectionUrl");
+    expect(patchResponse.json().destination).not.toHaveProperty("connectionUrlEncrypted");
+    expect(patchResponse.json().destination).not.toHaveProperty("connection_url");
+    expect(patchResponse.json().destination).not.toHaveProperty("connection_url_encrypted");
     expect(updateDestination).toHaveBeenCalledWith({
       id: "whdst_1",
       projectId: "prj_1",
@@ -2634,6 +2983,11 @@ describe("admin routes", () => {
       datasets: undefined,
       batchSize: undefined,
       enabled: false
+    });
+    expect(getDestination).toHaveBeenCalledWith({
+      id: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1"
     });
 
     const runsResponse = await app.inject({
@@ -2664,6 +3018,188 @@ describe("admin routes", () => {
     });
     expect(deleteResponse.statusCode).toBe(204);
     expect(archiveDestination).toHaveBeenCalledWith({ id: "whdst_1", projectId: "prj_1", environmentId: "env_1" });
+  });
+
+  it("rejects an unrelated warehouse patch when the scoped persisted URL is invalid", async () => {
+    const persistedSecret = "legacy-private-secret";
+    const getDestination = vi.fn(async () =>
+      warehouseDestination({ connectionUrl: `postgres://writer:${persistedSecret}@10.0.0.8/analytics` })
+    );
+    const updateDestination = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        warehouseExports: warehouseExportAdministration({ getDestination, updateDestination })
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_1",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Re-enabled legacy warehouse",
+        enabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "invalid_warehouse_export_request" });
+    expect(response.body).not.toContain(persistedSecret);
+    expect(getDestination).toHaveBeenCalledWith({
+      id: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+    expect(updateDestination).not.toHaveBeenCalled();
+  });
+
+  it("allows an unrelated warehouse patch when the scoped persisted URL is valid", async () => {
+    const persistedSecret = "stored-valid-secret";
+    const getDestination = vi.fn(async () =>
+      warehouseDestination({
+        connectionUrl: `postgres://writer:${persistedSecret}@warehouse.internal/analytics`
+      })
+    );
+    const updateDestination = vi.fn(async (input) =>
+      warehouseDestination({ id: input.id, name: input.name ?? "Warehouse" })
+    );
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        warehouseExports: warehouseExportAdministration({ getDestination, updateDestination })
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_1",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        name: "Validated warehouse"
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().destination.name).toBe("Validated warehouse");
+    expect(response.body).not.toContain(persistedSecret);
+    expect(getDestination).toHaveBeenCalledWith({
+      id: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1"
+    });
+    expect(updateDestination).toHaveBeenCalledOnce();
+  });
+
+  it("returns 404 before mutation when an omitted-URL warehouse patch has no scoped destination", async () => {
+    const getDestination = vi.fn(async () => undefined);
+    const updateDestination = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        warehouseExports: warehouseExportAdministration({ getDestination, updateDestination })
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_missing",
+      payload: {
+        projectId: "prj_other",
+        environmentId: "env_other",
+        enabled: false
+      }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "warehouse_destination_not_found" });
+    expect(getDestination).toHaveBeenCalledWith({
+      id: "whdst_missing",
+      projectId: "prj_other",
+      environmentId: "env_other"
+    });
+    expect(updateDestination).not.toHaveBeenCalled();
+  });
+
+  it("redacts persisted warehouse decryption failures and does not mutate", async () => {
+    const decryptionSecret = "legacy-ciphertext-secret";
+    const getDestination = vi.fn(async () => {
+      throw new Error(`unable to decrypt ${decryptionSecret}`);
+    });
+    const updateDestination = vi.fn();
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        warehouseExports: warehouseExportAdministration({ getDestination, updateDestination })
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_1",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        enabled: true
+      }
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: "warehouse_exports_unavailable" });
+    expect(response.body).not.toContain(decryptionSecret);
+    expect(updateDestination).not.toHaveBeenCalled();
+  });
+
+  it("repairs an invalid legacy warehouse URL when PATCH supplies a valid replacement", async () => {
+    const replacementSecret = "replacement-secret";
+    const getDestination = vi.fn(async () =>
+      warehouseDestination({ connectionUrl: "postgres://legacy-secret@10.0.0.8/analytics" })
+    );
+    const updateDestination = vi.fn(async (input) =>
+      warehouseDestination({ id: input.id, connectionUrl: input.connectionUrl })
+    );
+
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      adminResources: {
+        warehouseExports: warehouseExportAdministration({ getDestination, updateDestination })
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/warehouse-destinations/whdst_1",
+      payload: {
+        projectId: "prj_1",
+        environmentId: "env_1",
+        connectionUrl: `postgres://writer:${replacementSecret}@warehouse.internal/analytics`
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).not.toContain(replacementSecret);
+    expect(getDestination).not.toHaveBeenCalled();
+    expect(updateDestination).toHaveBeenCalledWith({
+      id: "whdst_1",
+      projectId: "prj_1",
+      environmentId: "env_1",
+      name: undefined,
+      connectionUrl: `postgres://writer:${replacementSecret}@warehouse.internal/analytics`,
+      datasets: undefined,
+      batchSize: undefined,
+      enabled: undefined
+    });
   });
 
   it("rejects invalid browser origins", async () => {
@@ -2718,7 +3254,7 @@ describe("admin routes", () => {
     expect(response.json()).toEqual({ error: "project_not_found" });
   });
 
-  it("returns a one-time API key secret and stores only prefix and hash", async () => {
+  it("returns a one-time API key secret with its capability and stores only prefix and hash", async () => {
     const storedApiKeys: unknown[] = [];
 
     app = await buildApp({
@@ -2737,6 +3273,7 @@ describe("admin routes", () => {
               name: input.name,
               prefix: input.prefix,
               hash: input.hash,
+              capability: input.capability,
               createdAt: new Date("2026-01-01T00:00:00.000Z"),
               revokedAt: null
             };
@@ -2749,7 +3286,7 @@ describe("admin routes", () => {
     const response = await app.inject({
       method: "POST",
       url: "/admin/projects/prj_1/api-keys",
-      payload: { environmentId: "env_1", name: "Production ingest" }
+      payload: { environmentId: "env_1", name: "Production ingest", capability: "server" }
     });
 
     expect(response.statusCode).toBe(201);
@@ -2760,11 +3297,77 @@ describe("admin routes", () => {
       projectId: "prj_1",
       environmentId: "env_1",
       name: "Production ingest",
-      prefix: response.json().apiKey.prefix
+      prefix: response.json().apiKey.prefix,
+      capability: "server"
     });
     expect(storedApiKeys[0]).not.toHaveProperty("secret");
     expect(storedApiKeys[0]).toHaveProperty("hash");
     expect(response.json().apiKey.hash).toBeUndefined();
+    expect(response.json().apiKey.capability).toBe("server");
+  });
+
+  it("requires capability when creating an API key", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      apiKeyPepper: "test-pepper",
+      adminResources: {
+        apiKeys: {
+          list: async () => [],
+          create: async () => {
+            throw new Error("not used");
+          },
+          revoke: async () => undefined
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/api-keys",
+      payload: { environmentId: "env_1", name: "missing" }
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("accepts a 120-character API key name and rejects 121 characters", async () => {
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      apiKeyPepper: "test-pepper",
+      adminResources: {
+        apiKeys: {
+          list: async () => [],
+          create: async (input) => ({
+            id: "key_1",
+            projectId: input.projectId,
+            environmentId: input.environmentId,
+            name: input.name,
+            prefix: input.prefix,
+            hash: input.hash,
+            capability: input.capability,
+            createdAt: new Date("2026-01-01T00:00:00.000Z"),
+            revokedAt: null
+          }),
+          revoke: async () => undefined
+        }
+      }
+    });
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/api-keys",
+      payload: { environmentId: "env_1", name: "a".repeat(120), capability: "server" }
+    });
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/admin/projects/prj_1/api-keys",
+      payload: { environmentId: "env_1", name: "a".repeat(121), capability: "server" }
+    });
+
+    expect(accepted.statusCode).toBe(201);
+    expect(rejected.statusCode).toBe(400);
   });
 
   it("renames an API key without exposing its hash", async () => {
@@ -2788,6 +3391,7 @@ describe("admin routes", () => {
               name: input.name ?? "Production ingest",
               prefix: "sh_live_1234",
               hash: "stored-hash",
+              capability: "browser",
               createdAt: new Date("2026-01-01T00:00:00.000Z"),
               revokedAt: null
             };
@@ -2828,7 +3432,7 @@ describe("admin routes", () => {
     const response = await app.inject({
       method: "POST",
       url: "/admin/projects/prj_archived/api-keys",
-      payload: { environmentId: "env_archived", name: "Production ingest" }
+      payload: { environmentId: "env_archived", name: "Production ingest", capability: "browser" }
     });
 
     expect(response.statusCode).toBe(404);
@@ -3513,6 +4117,7 @@ describe("admin routes", () => {
 
     const { uploadSourceMapBundle } = await import("../src/source-maps/storage.js");
     const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
+    let storage: SourceMapStorageSession | undefined;
     const db = {
       transaction: () => ({
         execute: async <T>(callback: (trx: unknown) => Promise<T>) => callback({})
@@ -3526,10 +4131,12 @@ describe("admin routes", () => {
     );
 
     try {
+      await assertSourceMapStorageRoot(localDir, "create");
+      storage = await openSourceMapStorageSession({ localDir, mode: "require", nodeEnv: "test" });
       await expect(
         uploadSourceMapBundle({
           db: db as never,
-          localDir,
+          storage,
           input: {
             projectId: "prj_1",
             environmentId: "env_1",
@@ -3553,6 +4160,7 @@ describe("admin routes", () => {
         createdArtifactInputs.map((input) => expect(access(input.storagePath)).rejects.toThrow())
       );
     } finally {
+      await storage?.close();
       await rm(localDir, { recursive: true, force: true });
     }
   });
@@ -3574,6 +4182,7 @@ describe("admin routes", () => {
 
     const { uploadSingleSourceMap } = await import("../src/source-maps/storage.js");
     const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
+    let storage: SourceMapStorageSession | undefined;
     const db = {
       transaction: () => ({
         execute: async <T>(callback: (trx: unknown) => Promise<T>) => callback({})
@@ -3581,9 +4190,11 @@ describe("admin routes", () => {
     };
 
     try {
+      await assertSourceMapStorageRoot(localDir, "create");
+      storage = await openSourceMapStorageSession({ localDir, mode: "require", nodeEnv: "test" });
       await uploadSingleSourceMap({
         db: db as never,
-        localDir,
+        storage,
         input: {
           projectId: "prj_1",
           environmentId: "env_1",
@@ -3603,6 +4214,7 @@ describe("admin routes", () => {
 
       expect(createdArtifactInputs[0]).toMatchObject({ minifiedFile: "app.min.js" });
     } finally {
+      await storage?.close();
       await rm(localDir, { recursive: true, force: true });
     }
   });
@@ -3628,6 +4240,7 @@ describe("admin routes", () => {
 
     const { uploadSingleSourceMap, uploadSourceMapBundle } = await import("../src/source-maps/storage.js");
     const localDir = await mkdtemp(path.join(tmpdir(), "sigmon-source-maps-"));
+    let storage: SourceMapStorageSession | undefined;
     const db = {
       transaction: () => ({
         execute: async <T>(callback: (trx: unknown) => Promise<T>) => callback({})
@@ -3641,9 +4254,11 @@ describe("admin routes", () => {
     );
 
     try {
+      await assertSourceMapStorageRoot(localDir, "create");
+      storage = await openSourceMapStorageSession({ localDir, mode: "require", nodeEnv: "test" });
       await uploadSingleSourceMap({
         db: db as never,
-        localDir,
+        storage,
         input: {
           projectId: "prj_1",
           environmentId: "env_1",
@@ -3658,7 +4273,7 @@ describe("admin routes", () => {
 
       await uploadSourceMapBundle({
         db: db as never,
-        localDir,
+        storage,
         input: {
           projectId: "prj_1",
           environmentId: "env_1",
@@ -3683,6 +4298,7 @@ describe("admin routes", () => {
       });
       expect(createdArtifactInputs[1]).not.toHaveProperty("uploadedByUserId");
     } finally {
+      await storage?.close();
       await rm(localDir, { recursive: true, force: true });
     }
   });
@@ -3851,5 +4467,147 @@ describe("read token administration", () => {
       url: "/admin/read-tokens/rdtok_1?project_id=prj_1&environment_id=env_1"
     });
     expect(revoked.statusCode).toBe(204);
+  });
+
+  it("enforces final notification-channel transport rules on create and partial update", async () => {
+    const existingHttpChannel = {
+      id: "chn_http",
+      name: "Custom",
+      type: "webhook" as const,
+      url: "http://hooks.example.test/deliver",
+      emailRecipients: [] as string[],
+      secretHeaderName: null,
+      secretHeaderValue: null,
+      hasSecret: false,
+      enabled: true,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      archivedAt: null
+    };
+    const createNotificationChannel = vi.fn(async (input) => ({ ...existingHttpChannel, ...input, id: "chn_new" }));
+    const updateNotificationChannel = vi.fn(async (_id, input) => ({ ...existingHttpChannel, ...input }));
+    const getNotificationChannel = vi.fn(async (id: string) => {
+      if (id === "chn_slack") {
+        return { ...existingHttpChannel, id, type: "slack" as const, url: "https://hooks.slack.test/token" };
+      }
+      if (id === "chn_secret") {
+        return {
+          ...existingHttpChannel,
+          id,
+          url: "https://hooks.example.test/deliver",
+          secretHeaderName: "X-Sigmon-Secret",
+          hasSecret: true
+        };
+      }
+      return existingHttpChannel;
+    });
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      nodeEnv: "production",
+      outboundPolicy: new OutboundPolicy({ nodeEnv: "production" }),
+      alerts: { createNotificationChannel, updateNotificationChannel, getNotificationChannel }
+    } as never);
+
+    for (const payload of [
+      { name: "Slack", type: "slack", url: "http://hooks.slack.test/token" },
+      { name: "Discord", type: "discord", url: "http://discord.test/token" },
+      {
+        name: "Custom secret name",
+        type: "webhook",
+        url: "http://hooks.example.test/deliver",
+        secretHeaderName: "X-Sigmon-Secret"
+      },
+      {
+        name: "Custom secret",
+        type: "webhook",
+        url: "http://hooks.example.test/deliver",
+        secretHeaderName: "X-Sigmon-Secret",
+        secretHeaderValue: "secret"
+      }
+    ]) {
+      const response = await app.inject({ method: "POST", url: "/admin/notification-channels", payload });
+      expect(response.statusCode, payload.type).toBe(400);
+      expect(response.json()).toEqual({ error: "invalid_notification_channel_request" });
+    }
+
+    const patch = await app.inject({
+      method: "PATCH",
+      url: "/admin/notification-channels/chn_http",
+      payload: { secretHeaderName: "X-Sigmon-Secret", secretHeaderValue: "secret" }
+    });
+    expect(patch.statusCode).toBe(400);
+    expect(patch.json()).toEqual({ error: "invalid_notification_channel_request" });
+    const nameOnlyPatch = await app.inject({
+      method: "PATCH",
+      url: "/admin/notification-channels/chn_http",
+      payload: { secretHeaderName: "X-Sigmon-Secret" }
+    });
+    expect(nameOnlyPatch.statusCode).toBe(400);
+    expect(nameOnlyPatch.json()).toEqual({ error: "invalid_notification_channel_request" });
+    for (const [id, payload] of [
+      ["chn_http", { type: "slack" }],
+      ["chn_slack", { url: "http://hooks.slack.test/new-token" }],
+      ["chn_secret", { url: "http://hooks.example.test/deliver" }]
+    ] as const) {
+      const response = await app.inject({
+        method: "PATCH",
+        url: `/admin/notification-channels/${id}`,
+        payload
+      });
+      expect(response.statusCode, id).toBe(400);
+      expect(response.json()).toEqual({ error: "invalid_notification_channel_request" });
+    }
+    expect(getNotificationChannel).toHaveBeenCalledWith("chn_http");
+    expect(createNotificationChannel).not.toHaveBeenCalled();
+    expect(updateNotificationChannel).not.toHaveBeenCalled();
+  });
+
+  it("uses the configured outbound policy for public HTTP monitors and explicit private development targets", async () => {
+    const createHttpMonitor = vi.fn(async (input) => ({
+      id: "mon_new",
+      ...input,
+      status: "unknown" as const,
+      consecutiveFailures: 0,
+      consecutiveSuccesses: 0,
+      expectedIntervalMinutes: null,
+      graceMinutes: null,
+      secretHash: null,
+      lastCheckedAt: null,
+      lastCheckStatus: null,
+      lastCheckLatencyMs: null,
+      lastCheckResponseStatus: null,
+      lastCheckErrorMessage: null,
+      lastHeartbeatAt: null,
+      createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      archivedAt: null
+    }));
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      nodeEnv: "development",
+      outboundPolicy: new OutboundPolicy({ nodeEnv: "development", privateCidrs: ["10.20.0.0/16"] }),
+      monitors: { createHttpMonitor }
+    } as never);
+
+    for (const url of ["http://public.example.test/health", "https://10.20.3.4/health"]) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/admin/monitors/http",
+        payload: {
+          projectId: "prj_1",
+          environmentId: "env_1",
+          name: "HTTP monitor",
+          url,
+          method: "GET",
+          intervalMinutes: 5,
+          failureThreshold: 2,
+          recoveryThreshold: 1
+        }
+      });
+      expect(response.statusCode, url).toBe(201);
+    }
+    expect(createHttpMonitor).toHaveBeenCalledTimes(2);
   });
 });

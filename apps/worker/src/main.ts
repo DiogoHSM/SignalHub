@@ -1,7 +1,7 @@
 import { Worker } from "bullmq";
 import { Redis } from "ioredis";
 import { sql } from "kysely";
-import { createStructuredLogger, loadConfig } from "@sigmon/config";
+import { createStructuredLogger, loadConfig, OutboundPolicy, SecretBox } from "@sigmon/config";
 import { createDb } from "@sigmon/db";
 import { createTelemetryQueue } from "@sigmon/queues";
 import type { TelemetryJobPayload } from "@sigmon/queues";
@@ -29,7 +29,8 @@ import {
 } from "@sigmon/db/repositories/system.js";
 import {
   listExpiredSourceMapArtifacts,
-  softDeleteSourceMapArtifactForRetention
+  softDeleteSourceMapArtifactForRetention,
+  withSourceMapStorageLock
 } from "@sigmon/db/repositories/source-maps.js";
 import {
   evaluateAlertRule,
@@ -83,12 +84,14 @@ import {
 import { runRetentionOnce, startRetentionScheduler } from "./retention.js";
 import { runEventRollupOnce, startEventRollupScheduler } from "./event-rollups.js";
 import { deleteExpiredSourceMapArtifacts } from "./source-map-retention.js";
+import { openSourceMapStorageSession } from "../../api/src/source-maps/storage-root.js";
 import { runShutdownSteps, runSignalShutdown } from "./runtime.js";
 import {
   pruneSystemHealthSamples,
   recordSystemHealthSample
 } from "@sigmon/db/repositories/system-health-samples.js";
 import { collectHealthSample, runHealthSampleOnce, startHealthSampleScheduler } from "./system-health-samples.js";
+import { createMaintenanceWorkerForRole } from "./maintenance-worker.js";
 import {
   runWarehouseExportOnce,
   startWarehouseExportScheduler,
@@ -99,6 +102,22 @@ import { recordFeedbackItem } from "@sigmon/db/repositories/feedback-widget.js";
 
 const logger = createStructuredLogger("worker");
 const config = loadConfig();
+const sourceMapStorage = await openSourceMapStorageSession({
+  localDir: config.sourceMaps.localDir,
+  mode: "require",
+  nodeEnv: config.nodeEnv
+});
+const outboundPolicy = new OutboundPolicy({
+  privateCidrs: config.outbound.privateCidrs,
+  allowLoopback: config.outbound.allowLoopback,
+  nodeEnv: config.nodeEnv
+});
+const secretBox = config.dataEncryption.currentKey
+  ? new SecretBox({
+      currentKey: config.dataEncryption.currentKey,
+      previousKey: config.dataEncryption.previousKey
+    })
+  : undefined;
 // PER-449: the worker runs long-lived jobs (rollups, retention, backups, source-map cleanup) that
 // can legitimately exceed the timeout applied to the API's read pool, so it defaults to disabled
 // (DB_WORKER_STATEMENT_TIMEOUT_MS=0) and is opt-in via its own env var.
@@ -215,9 +234,11 @@ const stopRetention = runsScheduler && config.retention.enabled
           deleteExpiredSourceMapArtifacts: () =>
             deleteExpiredSourceMapArtifacts({
               localDir: config.sourceMaps.localDir,
+              storage: sourceMapStorage,
               now: new Date(),
               retentionDays: config.sourceMaps.retention.days,
               batchSize: config.sourceMaps.retention.batchSize,
+              withStorageLock: (run) => withSourceMapStorageLock(db, async () => run()),
               listExpiredArtifacts: (input) => listExpiredSourceMapArtifacts(db, input),
               softDeleteArtifact: (id) => softDeleteSourceMapArtifactForRetention(db, id)
             }),
@@ -261,7 +282,7 @@ const stopAlerts = runsScheduler && config.alerts.enabled
           now: () => new Date(),
           withLock: (run) => withAlertEvaluationLock(db, run),
           listActiveRules: () => listActiveAlertRules(db),
-          getNotificationChannel: (id) => getNotificationChannel(db, id),
+          getNotificationChannel: (id) => getNotificationChannel(db, id, { includeSecret: true, secretBox }),
           evaluateRule: (rule, windowStart, windowEnd) =>
             evaluateAlertRule(db, {
               projectId: rule.projectId,
@@ -284,7 +305,8 @@ const stopAlerts = runsScheduler && config.alerts.enabled
               smtp: config.smtp,
               timeoutMs: config.alerts.webhookTimeoutMs,
               nodeEnv: config.nodeEnv,
-              publicEndpoint: config.console.publicEndpoint
+              publicEndpoint: config.console.publicEndpoint,
+              outboundPolicy
             }),
           recordDelivery: (input) => recordNotificationDelivery(db, input)
         })
@@ -304,10 +326,10 @@ const stopMonitors = runsScheduler && config.monitors.enabled
           listStaleHeartbeatMonitors: () =>
             listStaleHeartbeatMonitors(db, { now: new Date(), limit: config.monitors.maxConcurrency }),
           checkHttpMonitor: (monitor): Promise<MonitorCheckResult> =>
-            checkHttpMonitor({ monitor, timeoutMs: config.monitors.httpTimeoutMs }),
+            checkHttpMonitor({ monitor, timeoutMs: config.monitors.httpTimeoutMs, outboundPolicy }),
           recordMonitorCheck: (input) => recordMonitorCheck(db, input),
           recordAlertEvent: (input) => recordMonitorAlertEvent(db, input),
-          getNotificationChannel: (id) => getNotificationChannel(db, id),
+          getNotificationChannel: (id) => getNotificationChannel(db, id, { includeSecret: true, secretBox }),
           deliver: (channel, payload) =>
             deliverNotification({
               channel,
@@ -315,7 +337,8 @@ const stopMonitors = runsScheduler && config.monitors.enabled
               smtp: config.smtp,
               timeoutMs: config.alerts.webhookTimeoutMs,
               nodeEnv: config.nodeEnv,
-              publicEndpoint: config.console.publicEndpoint
+              publicEndpoint: config.console.publicEndpoint,
+              outboundPolicy
             }),
           recordDelivery: (input) => recordNotificationDelivery(db, input)
         })
@@ -329,9 +352,13 @@ const stopWarehouseExports = runsScheduler && config.warehouseExports.enabled
         runWarehouseExportOnce({
           now: () => new Date(),
           withLock: (run) => withWarehouseExportLock(db, run),
-          listActiveDestinations: () => listActiveWarehouseDestinations(db),
+          listActiveDestinations: () => listActiveWarehouseDestinations(db, secretBox),
           selectBatch: (destination, input) => selectWarehouseExportBatch(db, destination, input),
           writeBatch: (input) => writePostgresWarehouseBatch(input),
+          postgresOptions: {
+            outboundPolicy,
+            timeouts: config.warehouseExports
+          },
           updateCursor: (input) => updateWarehouseDestinationCursor(db, input),
           recordRun: (input) => recordWarehouseExportRun(db, input)
         })
@@ -347,19 +374,32 @@ const backupConfig = {
   s3: config.backups.s3
 };
 
+function runBackup(trigger: "scheduled" | "manual", throwOnFailure = false) {
+  return runBackupOnce({
+    now: () => new Date(),
+    trigger,
+    throwOnFailure,
+    config: backupConfig,
+    outboundPolicy,
+    withLock: (run) => withBackupLock(db, run),
+    recordBackupRun: (input) => recordBackupRun(db, input)
+  });
+}
+
 const stopBackups = runsScheduler && config.backups.enabled
   ? startBackupScheduler({
       intervalHours: config.backups.intervalHours,
-      runOnce: () =>
-        runBackupOnce({
-          now: () => new Date(),
-          trigger: "scheduled",
-          config: backupConfig,
-          withLock: (run) => withBackupLock(db, run),
-          recordBackupRun: (input) => recordBackupRun(db, input)
-        })
+      runOnce: () => runBackup("scheduled")
     })
   : async () => {};
+
+const maintenanceWorker = createMaintenanceWorkerForRole({
+  role: config.worker.role,
+  redisUrl: config.redisUrl,
+  backupsEnabled: config.backups.enabled,
+  runBackupOnce: ({ trigger, throwOnFailure }) => runBackup(trigger, throwOnFailure),
+  onError: (error) => logger.error({ error }, "Maintenance worker error")
+});
 
 const healthSampleConnection =
   runsScheduler && config.systemHealthHistory.enabled
@@ -445,10 +485,12 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
       { name: "stopEventRollups", run: () => stopEventRollups() },
       { name: "stopSchedulerHeartbeat", run: () => stopSchedulerHeartbeat() },
       { name: "stopWorkerHeartbeat", run: () => stopWorkerHeartbeat() },
+      { name: "maintenanceWorker.close", run: () => maintenanceWorker?.close() ?? Promise.resolve() },
       { name: "worker.close", run: () => worker?.close() ?? Promise.resolve() },
       { name: "healthSampleQueue.close", run: () => healthSampleQueue?.close() ?? Promise.resolve() },
       { name: "healthSampleConnection.quit", run: () => healthSampleConnection?.quit() ?? Promise.resolve() },
       { name: "connection.quit", run: () => connection?.quit() ?? Promise.resolve() },
+      { name: "sourceMapStorage.close", run: () => sourceMapStorage.close() },
       { name: "db.destroy", run: () => db.destroy() }
     ],
     10_000,

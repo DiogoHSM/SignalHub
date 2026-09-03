@@ -14,6 +14,7 @@ describe("NavRail", () => {
     const items = container.querySelectorAll(".nv-item");
     const expectedCount = NAV.length + NAV_BOTTOM.length;
     expect(items).toHaveLength(expectedCount);
+    expect(Array.from(items).every((item) => item.classList.contains("sh-hit-target"))).toBe(true);
   });
 
   it("renders the logo with correct classes", () => {

@@ -18,7 +18,7 @@ function eventRow(index: number) {
     metadata: { ua: "should be pruned" },
     name: "page_view",
     replayId: null,
-    properties: { path: "/should/be/pruned" }
+    properties: { pageUrl: "/should/be/pruned?token=secret", apiToken: "secret" }
   };
 }
 
@@ -89,14 +89,22 @@ describe("handleSearchEvents", () => {
     expect(events[0]!.name).toBe("page_view");
   });
 
-  it("keeps properties/metadata when includeRawDetail is set", async () => {
+  it("prunes properties/metadata when only the tool call opts in", async () => {
     const client = makeFakeClient();
 
     const result = await handleSearchEvents(client, { includeRawDetail: true });
 
     const events = result.events as Array<Record<string, unknown>>;
-    expect(events[0]!.properties).toEqual({ path: "/should/be/pruned" });
-    expect(events[0]!.metadata).toEqual({ ua: "should be pruned" });
+    expect(events[0]!.properties).toBeUndefined();
+    expect(events[0]!.metadata).toBeUndefined();
+  });
+
+  it("returns sanitized event properties only after both gates opt in", async () => {
+    const result = await handleSearchEvents(makeFakeClient(), { includeRawDetail: true }, { allowRawDetail: true });
+
+    const events = result.events as Array<Record<string, unknown>>;
+    expect(events[0]!.properties).toEqual({ pageUrl: "/should/be/pruned?token=%5BREDACTED%5D", apiToken: "[REDACTED]" });
+    expect(result).toMatchObject({ rawDetailIncluded: true });
   });
 
   it("also fetches the property catalog when includeCatalog is set", async () => {

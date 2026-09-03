@@ -1254,13 +1254,13 @@ describe("createApiClient", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(200, { ok: true, action: "doctor", status: "success", message: "ok", generatedAt: "2026-06-30T00:00:00.000Z" }))
-      .mockResolvedValueOnce(jsonResponse(200, { ok: true, action: "backup", status: "skipped", message: "busy", ran: false, skipped: true, generatedAt: "2026-06-30T00:00:01.000Z" }))
+      .mockResolvedValueOnce(jsonResponse(202, { ok: true, action: "backup", status: "accepted", message: "Backup queued.", jobId: "backup-create-20260630T0000Z", generatedAt: "2026-06-30T00:00:01.000Z" }))
       .mockResolvedValueOnce(jsonResponse(200, { ok: true, action: "retention", status: "success", message: "done", ran: true, skipped: false, generatedAt: "2026-06-30T00:00:02.000Z" }));
     vi.stubGlobal("fetch", fetchMock);
 
     const client = createApiClient("/api");
     await expect(client.runSystemDoctor?.()).resolves.toMatchObject({ action: "doctor", status: "success" });
-    await expect(client.runSystemBackup?.()).resolves.toMatchObject({ action: "backup", status: "skipped" });
+    await expect(client.runSystemBackup?.()).resolves.toMatchObject({ action: "backup", status: "accepted", jobId: "backup-create-20260630T0000Z" });
     await expect(client.runSystemRetention?.()).resolves.toMatchObject({ action: "retention", ran: true });
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/system/actions/doctor", expect.objectContaining({ method: "POST" }));
@@ -1803,7 +1803,9 @@ describe("createApiClient", () => {
       id: "chn_1",
       name: "Ops webhook",
       type: "webhook",
-      url: "https://hooks.example.com/sigmon",
+      url: null,
+      hasUrl: true,
+      urlPreview: "https://hooks.example.com/sigmon…",
       emailRecipients: [],
       secretHeaderName: "x-sigmon-secret",
       hasSecret: true,

@@ -73,7 +73,17 @@ function jsonb(value: unknown) {
   return sql<unknown>`${JSON.stringify(value)}::jsonb`;
 }
 
-function normalizeRetentionPolicy(value: unknown): DataGovernanceRetentionPolicy {
+function normalizeRetentionDays(value: unknown): number | undefined {
+  const days = typeof value === "number"
+    ? value
+    : typeof value === "string" && /^[1-9][0-9]{0,3}$/.test(value)
+      ? Number(value)
+      : undefined;
+
+  return typeof days === "number" && Number.isInteger(days) && days >= 1 && days <= 3650 ? days : undefined;
+}
+
+export function normalizeDataGovernanceRetentionPolicy(value: unknown): DataGovernanceRetentionPolicy {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
@@ -81,8 +91,8 @@ function normalizeRetentionPolicy(value: unknown): DataGovernanceRetentionPolicy
   const policy: DataGovernanceRetentionPolicy = {};
   for (const [key, rawValue] of Object.entries(value)) {
     if (!categorySet.has(key)) continue;
-    const days = typeof rawValue === "number" ? rawValue : Number(rawValue);
-    if (Number.isInteger(days) && days >= 1 && days <= 3650) {
+    const days = normalizeRetentionDays(rawValue);
+    if (days !== undefined) {
       policy[key as DataGovernanceRetentionCategory] = days;
     }
   }
@@ -130,7 +140,7 @@ function toPolicy(row: {
   return {
     projectId: row.project_id,
     environmentId: row.environment_id,
-    retentionPolicy: normalizeRetentionPolicy(row.retention_policy),
+    retentionPolicy: normalizeDataGovernanceRetentionPolicy(row.retention_policy),
     propertyRules: normalizePropertyRules(row.property_rules),
     updatedByUserId: row.updated_by_user_id,
     createdAt: row.created_at,
@@ -169,7 +179,7 @@ export async function upsertDataGovernancePolicy(
   db: Db,
   input: UpsertDataGovernancePolicyInput
 ): Promise<DataGovernancePolicy> {
-  const retentionPolicy = normalizeRetentionPolicy(input.retentionPolicy ?? {});
+  const retentionPolicy = normalizeDataGovernanceRetentionPolicy(input.retentionPolicy ?? {});
   const propertyRules = normalizePropertyRules(input.propertyRules ?? []);
   const now = new Date();
 
@@ -198,11 +208,15 @@ export async function upsertDataGovernancePolicy(
   return toPolicy(row);
 }
 
-function cloneJsonObject(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
+function cloneJsonValue<T>(value: T): T {
+  if (value === null || typeof value !== "object") {
+    return value;
   }
-  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function pathParts(path: string): string[] {
@@ -244,12 +258,15 @@ function applyRule(root: Record<string, unknown>, rule: DataGovernancePropertyRu
   cursor[leaf] = "[REDACTED]";
 }
 
-export function applyDataGovernanceRules(
-  value: unknown,
+export function applyDataGovernanceRules<T>(
+  value: T,
   policy: Pick<DataGovernancePolicy, "propertyRules">,
   target: DataGovernancePropertyRuleTarget
-): Record<string, unknown> {
-  const governed = cloneJsonObject(value);
+): T {
+  const governed = cloneJsonValue(value);
+  if (!isJsonObject(governed)) {
+    return governed;
+  }
   for (const rule of policy.propertyRules) {
     if (rule.target === target) {
       applyRule(governed, rule);

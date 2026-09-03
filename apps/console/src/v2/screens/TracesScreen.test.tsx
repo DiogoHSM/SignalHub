@@ -141,6 +141,18 @@ async function openDashboardTrace() {
   await userEvent.click(screen.getAllByText("POST /api/dashboards")[1]);
 }
 
+function expectSharedWideTableScroller(header: HTMLElement, row: HTMLElement) {
+  const headerScroller = header.closest(".sh-wide-table-scroll");
+  const rowScroller = row.closest(".sh-wide-table-scroll");
+  const headerTable = header.closest(".sh-wide-table");
+  expect(headerScroller).not.toBeNull();
+  expect(rowScroller).toBe(headerScroller);
+  expect(headerTable).not.toBeNull();
+  expect(row.closest(".sh-wide-table")).toBe(headerTable);
+  expect(row.closest(".sh-wide-table__body")).not.toBeNull();
+  expect(row.style.gridTemplateColumns).toBe(header.style.gridTemplateColumns);
+}
+
 describe("TracesScreen — index", () => {
   it("guards missing project/env", () => {
     mockList(null, "loading");
@@ -170,6 +182,17 @@ describe("TracesScreen — index", () => {
     expect(screen.getByText("Endpoints")).toBeInTheDocument();
     expect(screen.getAllByText("POST /api/dashboards").length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText("GET /api/health").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps the endpoint header and rows under one horizontal scroll owner", () => {
+    mockList(traces);
+    render(<TracesScreen ctx={makeCtx()} />);
+    const endpointCard = screen.getByText("APM endpoints").closest(".sh-card") as HTMLElement;
+
+    expectSharedWideTableScroller(
+      within(endpointCard).getByText("Endpoint").closest(".sh-row") as HTMLElement,
+      within(endpointCard).getByText("POST /api/dashboards").closest(".sh-row") as HTMLElement,
+    );
   });
 
   it("selects an endpoint and can clear the endpoint filter", async () => {
@@ -249,6 +272,19 @@ describe("TracesScreen — detail", () => {
     expect(screen.getByText("Expand all")).toBeInTheDocument();
   });
 
+  it("keeps the waterfall ruler and span rows under one horizontal scroll owner", async () => {
+    mockList(traces);
+    mockSpans(detail);
+    render(<TracesScreen ctx={makeCtx()} />);
+    await openDashboardTrace();
+    const waterfall = screen.getByText("Waterfall").closest(".sh-card") as HTMLElement;
+
+    expectSharedWideTableScroller(
+      within(waterfall).getByText("Span").parentElement as HTMLElement,
+      within(waterfall).getByRole("button", { name: /postgres\.query/i }),
+    );
+  });
+
   it("queries spans by the W3C trace id, not the traces row id", async () => {
     mockList(traces);
     const spy = mockSpans(detail);
@@ -271,14 +307,75 @@ describe("TracesScreen — detail", () => {
     expect(screen.getAllByText("$ 0.02").length).toBeGreaterThanOrEqual(1); // cost of the llm span
   });
 
-  it("Open incident is a stub toast; Copy ID toasts", async () => {
+  it.each(["{Enter}", " "])("selects a detail span row with %s", async (key) => {
+    mockList(traces);
+    mockSpans(detail);
+    render(<TracesScreen ctx={makeCtx()} />);
+    await openDashboardTrace();
+
+    const row = screen.getByRole("button", { name: /postgres\.query/i });
+    expect(row).toHaveAttribute("tabindex", "0");
+    expect(row).toHaveClass("sh-hit-target");
+    row.focus();
+    let defaultPrevented = false;
+    const observeDefault = (event: KeyboardEvent) => {
+      if (event.target === row) defaultPrevented = event.defaultPrevented;
+    };
+    document.addEventListener("keydown", observeDefault);
+    await userEvent.keyboard(key);
+    document.removeEventListener("keydown", observeDefault);
+
+    const panel = screen.getByText("Span detail").closest(".sh-card") as HTMLElement;
+    expect(within(panel).getByText("postgres.query")).toBeInTheDocument();
+    expect(defaultPrevented).toBe(true);
+  });
+
+  it.each(["{Enter}", " "])("keeps nested expand %s from selecting its span row", async (key) => {
+    mockList(traces);
+    mockSpans(detail);
+    render(<TracesScreen ctx={makeCtx()} />);
+    await openDashboardTrace();
+
+    const expand = screen.getByRole("button", { name: "Collapse" });
+    expect(expand).toHaveClass("sh-hit-target");
+    expand.focus();
+    await userEvent.keyboard(key);
+
+    const panel = screen.getByText("Span detail").closest(".sh-card") as HTMLElement;
+    expect(within(panel).getByText("llm.gpt-5 explain")).toBeInTheDocument();
+  });
+
+  it("keeps a nested expand click from selecting its span row", async () => {
+    mockList(traces);
+    mockSpans(detail);
+    render(<TracesScreen ctx={makeCtx()} />);
+    await openDashboardTrace();
+
+    await userEvent.click(screen.getByRole("button", { name: "Collapse" }));
+
+    const panel = screen.getByText("Span detail").closest(".sh-card") as HTMLElement;
+    expect(within(panel).getByText("llm.gpt-5 explain")).toBeInTheDocument();
+  });
+
+  it("aligns child and leaf spans through the same non-overlapping toggle slot", async () => {
+    mockList(traces);
+    mockSpans(detail);
+    render(<TracesScreen ctx={makeCtx()} />);
+    await openDashboardTrace();
+
+    const parentRow = screen.getByRole("button", { name: /POST \/api\/dashboards/i });
+    const leafRow = screen.getByRole("button", { name: /postgres\.query/i });
+    expect(parentRow.querySelector(".span-toggle-slot > .span-toggle")).toBeInTheDocument();
+    expect(leafRow.querySelector(".span-toggle-slot > .span-toggle-placeholder")).toBeInTheDocument();
+  });
+
+  it("removes the unavailable incident action while preserving Copy ID", async () => {
     mockList(traces);
     mockSpans(detail);
     const ctx = makeCtx();
     render(<TracesScreen ctx={ctx} />);
     await openDashboardTrace();
-    await userEvent.click(screen.getByText("Open incident"));
-    expect(ctx.pushToast).toHaveBeenCalledWith("Linking spans to incidents is not yet available");
+    expect(screen.queryByRole("button", { name: "Open incident" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByText("Copy ID"));
     expect(ctx.pushToast).toHaveBeenCalledWith("Trace ID copied");
   });

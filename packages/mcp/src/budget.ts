@@ -8,6 +8,8 @@
  * instead of being re-implemented (or forgotten) per tool.
  */
 
+import { sanitizeTelemetryUrl, sanitizeValue, type SanitizedValue } from "@sigmon/telemetry/sanitization";
+
 /**
  * Conservative default cap on how many items a single response section may return. 20 keeps a
  * section within a few hundred tokens even for wide records (error groups, spans, ...), leaving
@@ -41,6 +43,8 @@ export interface SectionBudgetOptions {
   cap?: number;
   /** Opt-in to keep stack traces, raw payloads, and span bodies instead of dropping them. */
   includeRawDetail?: boolean;
+  /** Process-level authorization required before raw detail may be returned. */
+  allowRawDetail?: boolean;
   /** Overrides `DEFAULT_SENSITIVE_FIELDS` for this section. */
   sensitiveFields?: readonly string[];
   /** Overrides the default `how_to_get_more` message builder. */
@@ -49,7 +53,42 @@ export interface SectionBudgetOptions {
 
 export interface FieldPruneOptions {
   includeRawDetail?: boolean;
+  allowRawDetail?: boolean;
   sensitiveFields?: readonly string[];
+}
+
+export type RawDetailOptions = Pick<FieldPruneOptions, "allowRawDetail">;
+
+export function isRawDetailEnabled(options: Pick<FieldPruneOptions, "includeRawDetail" | "allowRawDetail">): boolean {
+  return options.includeRawDetail === true && options.allowRawDetail === true;
+}
+
+function isUrlLikeField(key: string): boolean {
+  const normalized = key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  return normalized.includes("url") || normalized.includes("uri") || normalized.includes("href") || normalized.includes("path");
+}
+
+function sanitizeUrlLikeFields(value: SanitizedValue): SanitizedValue {
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeUrlLikeFields(item));
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nestedValue]) => [
+      key,
+      typeof nestedValue === "string" && isUrlLikeField(key)
+        ? (sanitizeTelemetryUrl(nestedValue) ?? nestedValue)
+        : sanitizeUrlLikeFields(nestedValue)
+    ])
+  );
+}
+
+/** Recursively redacts secret-shaped keys and removes query values from URL-like fields. */
+export function sanitizeMcpOutput<T>(value: T): T {
+  return sanitizeUrlLikeFields(sanitizeValue(value)) as T;
 }
 
 function defaultHowToGetMore(section: string, returned: number, total: number): string {
@@ -62,15 +101,17 @@ function defaultHowToGetMore(section: string, returned: number, total: number): 
 
 /**
  * Returns a shallow copy of `record` with sensitive fields (stack traces, raw payloads, span
- * bodies) removed, unless `includeRawDetail` is set. Never mutates the input.
+ * bodies) removed unless both the tool call and process authorize raw detail. It recursively
+ * redacts secret-shaped keys and sanitizes URL-like fields. Never mutates the input.
  */
 export function pruneSensitiveFields<T extends Record<string, unknown>>(record: T, options: FieldPruneOptions = {}): T {
-  if (options.includeRawDetail) {
-    return { ...record };
+  const sanitized = sanitizeMcpOutput(record);
+  if (isRawDetailEnabled(options)) {
+    return sanitized;
   }
 
   const fields = options.sensitiveFields ?? DEFAULT_SENSITIVE_FIELDS;
-  const pruned = { ...record };
+  const pruned = { ...sanitized };
   for (const field of fields) {
     delete pruned[field];
   }
@@ -88,10 +129,15 @@ export function pruneSection<T extends Record<string, unknown>>(
   options: SectionBudgetOptions = {}
 ): PrunedSection<T> {
   const cap = options.cap ?? DEFAULT_SECTION_CAP;
-  const fieldOptions: FieldPruneOptions = { includeRawDetail: options.includeRawDetail, sensitiveFields: options.sensitiveFields };
+  const fieldOptions: FieldPruneOptions = {
+    includeRawDetail: options.includeRawDetail,
+    allowRawDetail: options.allowRawDetail,
+    sensitiveFields: options.sensitiveFields
+  };
 
   const total = items.length;
-  const capped = total > cap ? items.slice(0, cap) : items;
+  const sanitizedItems = items.map((item) => sanitizeMcpOutput(item));
+  const capped = total > cap ? sanitizedItems.slice(0, cap) : sanitizedItems;
   const prunedItems = capped.map((item) => pruneSensitiveFields(item, fieldOptions));
 
   if (total <= cap) {

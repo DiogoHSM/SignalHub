@@ -1,11 +1,15 @@
-import { lstat, realpath, rm } from "node:fs/promises";
-import path from "node:path";
 import type { SourceMapArtifactRecord } from "@sigmon/db/repositories/source-maps.js";
+import {
+  openSourceMapStorageSession,
+  type SourceMapStorageSession
+} from "../../api/src/source-maps/storage-root.js";
 
 export type SourceMapRetentionDeletedCounts = {
   sourceMapArtifacts: number;
   sourceMapFiles: number;
 };
+
+export type SourceMapRetentionResult = SourceMapRetentionDeletedCounts & { skipped: boolean };
 
 export class SourceMapRetentionError extends Error {
   readonly deleted: SourceMapRetentionDeletedCounts;
@@ -22,115 +26,74 @@ type SourceMapRetentionRuntime = {
   now: Date;
   retentionDays: number;
   batchSize: number;
+  withStorageLock: <T>(
+    run: () => Promise<T>
+  ) => Promise<{ locked: false } | { locked: true; result: T }>;
   listExpiredArtifacts: (input: {
     cutoff: Date;
     batchSize: number;
   }) => Promise<SourceMapArtifactRecord[]>;
   softDeleteArtifact: (id: string) => Promise<SourceMapArtifactRecord | null>;
-  removeFile?: (resolvedPath: string) => Promise<void>;
+  storage?: SourceMapStorageSession;
+  nodeEnv?: string;
 };
-
-function isEnoent(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
-}
-
-function assertInsideLocalDir(localDir: string, storagePath: string): void {
-  const relativePath = path.relative(localDir, storagePath);
-  if (
-    relativePath === "" ||
-    relativePath === ".." ||
-    relativePath.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relativePath)
-  ) {
-    throw new Error("source_map_storage_path_invalid");
-  }
-}
-
-async function assertMissingStoragePathInsideLocalDir(localDir: string, storagePath: string): Promise<void> {
-  const missingSegments: string[] = [];
-  let currentPath = storagePath;
-
-  for (;;) {
-    try {
-      const realExistingPath = await realpath(currentPath);
-      assertInsideLocalDir(localDir, path.join(realExistingPath, ...missingSegments.reverse()));
-      return;
-    } catch (error) {
-      if (!isEnoent(error)) {
-        throw error;
-      }
-      const parentPath = path.dirname(currentPath);
-      if (parentPath === currentPath) {
-        throw error;
-      }
-      missingSegments.push(path.basename(currentPath));
-      currentPath = parentPath;
-    }
-  }
-}
-
-async function resolveStoragePath(localDir: string, storagePath: string): Promise<string | null> {
-  const resolvedLocalDir = await realpath(localDir);
-  const resolvedStoragePath = path.resolve(storagePath);
-
-  try {
-    const targetStats = await lstat(resolvedStoragePath);
-    if (targetStats.isSymbolicLink()) {
-      throw new Error("source_map_storage_path_invalid");
-    }
-    const realStoragePath = await realpath(resolvedStoragePath);
-    assertInsideLocalDir(resolvedLocalDir, realStoragePath);
-    return realStoragePath;
-  } catch (error) {
-    if (isEnoent(error)) {
-      await assertMissingStoragePathInsideLocalDir(resolvedLocalDir, resolvedStoragePath);
-      return null;
-    }
-    throw error;
-  }
-}
-
-async function deleteSourceMapFileIfPresent(
-  localDir: string,
-  storagePath: string,
-  removeFile: (resolvedPath: string) => Promise<void>
-): Promise<boolean> {
-  const resolvedStoragePath = await resolveStoragePath(localDir, storagePath);
-  if (!resolvedStoragePath) return false;
-  try {
-    await removeFile(resolvedStoragePath);
-  } catch (error) {
-    if (isEnoent(error)) {
-      return false;
-    }
-    throw error;
-  }
-  return true;
-}
 
 export async function deleteExpiredSourceMapArtifacts(
   runtime: SourceMapRetentionRuntime
-): Promise<SourceMapRetentionDeletedCounts> {
-  const cutoff = new Date(runtime.now.getTime() - runtime.retentionDays * 24 * 60 * 60 * 1000);
-  const artifacts = await runtime.listExpiredArtifacts({ cutoff, batchSize: runtime.batchSize });
-  let sourceMapArtifacts = 0;
-  let sourceMapFiles = 0;
-  const removeFile = runtime.removeFile ?? ((resolvedPath: string) => rm(resolvedPath, { force: false }));
-
-  for (const artifact of artifacts) {
-    try {
-      if (await deleteSourceMapFileIfPresent(runtime.localDir, artifact.storagePath, removeFile)) {
-        sourceMapFiles += 1;
-      }
-      const deleted = await runtime.softDeleteArtifact(artifact.id);
-      if (deleted) sourceMapArtifacts += 1;
-    } catch (error) {
-      throw new SourceMapRetentionError(error instanceof Error ? error.message : String(error), {
-        sourceMapArtifacts,
-        sourceMapFiles
-      }, error);
-    }
+): Promise<SourceMapRetentionResult> {
+  let storage: SourceMapStorageSession;
+  let ownsStorage = false;
+  try {
+    storage = runtime.storage ?? await openSourceMapStorageSession({
+      localDir: runtime.localDir,
+      mode: "require",
+      nodeEnv: runtime.nodeEnv ?? process.env.NODE_ENV ?? "production"
+    });
+    ownsStorage = runtime.storage === undefined;
+    await storage.assertAuthority();
+  } catch (error) {
+    throw new SourceMapRetentionError(
+      "source_map_storage_unavailable",
+      { sourceMapArtifacts: 0, sourceMapFiles: 0 },
+      error
+    );
   }
 
-  return { sourceMapArtifacts, sourceMapFiles };
+  try {
+    const locked = await runtime.withStorageLock(async () => {
+      try {
+        await storage.assertAuthority();
+      } catch (error) {
+        throw new SourceMapRetentionError(
+          "source_map_storage_unavailable",
+          { sourceMapArtifacts: 0, sourceMapFiles: 0 },
+          error
+        );
+      }
+
+      const cutoff = new Date(runtime.now.getTime() - runtime.retentionDays * 24 * 60 * 60 * 1000);
+      const artifacts = await runtime.listExpiredArtifacts({ cutoff, batchSize: runtime.batchSize });
+      let sourceMapArtifacts = 0;
+      let sourceMapFiles = 0;
+
+      for (const artifact of artifacts) {
+        try {
+          if (await storage.deleteArtifact(artifact.storagePath)) sourceMapFiles += 1;
+          await storage.assertAuthority();
+          const deleted = await runtime.softDeleteArtifact(artifact.id);
+          if (deleted) sourceMapArtifacts += 1;
+        } catch (error) {
+          throw new SourceMapRetentionError(error instanceof Error ? error.message : String(error), {
+            sourceMapArtifacts,
+            sourceMapFiles
+          }, error);
+        }
+      }
+      return { sourceMapArtifacts, sourceMapFiles };
+    });
+    if (!locked.locked) return { sourceMapArtifacts: 0, sourceMapFiles: 0, skipped: true };
+    return { ...locked.result, skipped: false };
+  } finally {
+    if (ownsStorage) await storage.close();
+  }
 }

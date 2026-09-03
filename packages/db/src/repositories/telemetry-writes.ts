@@ -186,6 +186,10 @@ function jsonb(value: unknown) {
   return sql<unknown>`${JSON.stringify(value)}::jsonb`;
 }
 
+function nullableJsonb(value: unknown) {
+  return value == null ? null : jsonb(value);
+}
+
 async function assertActiveTelemetryScope(db: Db, input: TelemetryBaseInput): Promise<void> {
   const activeScope = await db
     .selectFrom("environments")
@@ -373,9 +377,9 @@ export async function insertSpan(db: Db, input: InsertSpanInput): Promise<void> 
         started_at: input.startedAt,
         ended_at: nullable(input.endedAt),
         duration_ms: nullable(input.durationMs),
-        input: nullable(input.input),
-        output: nullable(input.output),
-        error: nullable(input.error),
+        input: nullableJsonb(input.input),
+        output: nullableJsonb(input.output),
+        error: nullableJsonb(input.error),
         cost_usd: nullable(input.costUsd)
       })
       .onConflict((oc) => oc.column("id").doNothing())

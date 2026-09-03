@@ -20,6 +20,7 @@ import {
   parseConsoleRoute,
   type ConsoleDetail,
 } from "./console-route";
+import { NarrowConsoleBoundary } from "./NarrowConsoleBoundary";
 
 // ─── persistence ─────────────────────────────────────────────────────────────
 
@@ -206,7 +207,7 @@ function FirstProjectOnboarding({
   );
 }
 
-export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleShellV2Props) {
+function DenseConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleShellV2Props) {
   // Restore persisted state on mount
   const persisted = useRef(loadState()).current;
   const initialRoute = useRef(parseConsoleRoute(window.location)).current;
@@ -821,5 +822,13 @@ export function ConsoleShellV2({ client, apiEndpoint, user, onSignOut }: Console
         />
       ) : null}
     </div>
+  );
+}
+
+export function ConsoleShellV2(props: ConsoleShellV2Props) {
+  return (
+    <NarrowConsoleBoundary>
+      <DenseConsoleShellV2 {...props} />
+    </NarrowConsoleBoundary>
   );
 }

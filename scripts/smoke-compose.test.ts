@@ -1,8 +1,12 @@
 import { EventEmitter } from "node:events";
+import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
+import { promisify } from "node:util";
 import { spanPayloadSchema, tracePayloadSchema } from "@sigmon/telemetry/ingestion-schemas";
 import { describe, expect, it, vi } from "vitest";
 import { parseSmokeArgs } from "./smoke-compose/args.js";
@@ -22,6 +26,11 @@ import { createRedactor } from "./smoke-compose/redaction.js";
 import { isSmokeErrorGroup, pollForAssertion, runSmokeCompose } from "./smoke-compose/runner.js";
 import { createStepRecorder, renderSummary } from "./smoke-compose/steps.js";
 import { createSmokeEnvContent, defaultSmokeSecrets, writeSmokeResources } from "./smoke-compose/temp-env.js";
+
+const execFileAsync = promisify(execFile);
+const require = createRequire(import.meta.url);
+const tsxCli = require.resolve("tsx/cli");
+const doctorEntry = fileURLToPath(new URL("./doctor.ts", import.meta.url));
 
 describe("smoke compose primitives", () => {
   it("uses default smoke options", () => {
@@ -129,6 +138,15 @@ class HangingFakeProcess extends EventEmitter {
 }
 
 describe("smoke compose command execution", () => {
+  it("launches the real doctor parser through Node without invoking Docker", async () => {
+    const literalArgument = "--literal value & $() | < >";
+
+    await expect(execFileAsync(process.execPath, [tsxCli, doctorEntry, literalArgument], { shell: false })).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining(`Unknown doctor argument: ${literalArgument}`)
+    });
+  });
+
   it("captures stdout, stderr, and exit code", async () => {
     const child = new FakeProcess();
     const promise = runCommand(
@@ -282,6 +300,38 @@ describe("smoke compose temp env", () => {
     const compose = await readFile("docker-compose.yml", "utf8");
 
     expect(compose.match(/path: \$\{SIGMON_ENV_FILE:-\.env\}/g)).toHaveLength(2);
+  });
+
+  it("mounts one exact read-write source-map volume into API and worker", async () => {
+    const { stdout } = await execFileAsync(
+      "docker",
+      ["compose", "--project-name", "sigmon_contract", "config", "--no-normalize", "--format", "json"],
+      { cwd: process.cwd(), encoding: "utf8" }
+    );
+    const compose = JSON.parse(stdout) as {
+      services: Record<string, {
+        volumes?: Array<{ type: string; source: string; target: string; read_only?: boolean }>;
+        depends_on?: Record<string, { condition?: string }>;
+      }>;
+      volumes: Record<string, unknown>;
+    };
+    const expected = {
+      type: "volume",
+      source: "source_map_data",
+      target: "/var/lib/sigmon/source-maps"
+    };
+
+    expect(compose.volumes).toHaveProperty("source_map_data");
+    for (const serviceName of ["api", "worker"]) {
+      const matches = (compose.services[serviceName]?.volumes ?? []).filter(
+        (volume) => volume.source === expected.source || volume.target === expected.target
+      );
+      expect(matches, serviceName).toHaveLength(1);
+      expect(matches[0]).toMatchObject(expected);
+      expect(matches[0].read_only ?? false).toBe(false);
+    }
+    expect(compose.services.worker?.depends_on?.api).toMatchObject({ condition: "service_healthy" });
+    expect(compose.services.api?.depends_on).not.toHaveProperty("api");
   });
 });
 
@@ -521,6 +571,53 @@ describe("smoke compose runner", () => {
 
   const commandString = (input: { command: string; args: string[] }) => [input.command, ...input.args].join(" ");
 
+  it("sends a server-capability API key request through the smoke HTTP helper", async () => {
+    const apiKeyBodies: unknown[] = [];
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const requestUrl = String(url);
+
+      if (requestUrl.endsWith("/auth/login")) {
+        return new Response(JSON.stringify({}), { status: 200 });
+      }
+
+      if (requestUrl.endsWith("/admin/projects")) {
+        return new Response(JSON.stringify({ project: { id: "prj_1" } }), { status: 201 });
+      }
+
+      if (requestUrl.endsWith("/admin/projects/prj_1/environments")) {
+        return new Response(JSON.stringify({ environment: { id: "env_1" } }), { status: 201 });
+      }
+
+      if (requestUrl.endsWith("/admin/projects/prj_1/api-keys")) {
+        apiKeyBodies.push(JSON.parse(String(init?.body)));
+        return new Response("stop after API key request", { status: 400 });
+      }
+
+      throw new Error(`Unexpected smoke HTTP request: ${requestUrl}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const exitCode = await runSmokeCompose({
+        options: runnerOptions,
+        write: () => undefined,
+        dependencies: {
+          getCommit: async () => "abc1234",
+          prepareResources: preparedResources,
+          runCommand: async () => ({ exitCode: 0, stdout: "ok", stderr: "" }),
+          removeTempDir: async () => undefined
+        }
+      });
+
+      expect(exitCode).toBe(1);
+      expect(apiKeyBodies).toEqual([
+        { environmentId: "env_1", name: "Phase 6B Smoke Ingestion", capability: "server" }
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("runs lifecycle steps with cleanup by default", async () => {
     const calls: string[] = [];
     const lines: string[] = [];
@@ -563,12 +660,12 @@ describe("smoke compose runner", () => {
 
     expect(exitCode).toBe(0);
     expect(calls).toEqual([
-      "pnpm run doctor -- --env-file /tmp/sigmon-smoke-1/.env",
+      `${process.execPath} ${tsxCli} ${doctorEntry} --env-file /tmp/sigmon-smoke-1/.env`,
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env config --quiet",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env up -d postgres redis",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm api pnpm seed:admin",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env up -d --build",
-      "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env",
+      `${process.execPath} ${tsxCli} ${doctorEntry} --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env`,
       "http-smoke",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm worker pnpm backup:create",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm worker sh -lc ls -1t /var/lib/sigmon/backups/*.dump | head -n 1",
@@ -576,7 +673,7 @@ describe("smoke compose runner", () => {
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env stop api worker",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env run --rm worker pnpm backup:restore -- /var/lib/sigmon/backups/sigmon-smoke.dump --yes",
       "docker compose -p sigmon_smoke --env-file /tmp/sigmon-smoke-1/.env start api worker",
-      "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env",
+      `${process.execPath} ${tsxCli} ${doctorEntry} --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env`,
       "http-smoke",
       "docker compose -p sigmon_smoke down -v",
       "rm /tmp/sigmon-smoke-1"
@@ -599,7 +696,7 @@ describe("smoke compose runner", () => {
         runCommand: async (input) => {
           const command = commandString(input);
           calls.push(command);
-          if (command === "pnpm run doctor -- --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env") {
+          if (command === `${process.execPath} ${tsxCli} ${doctorEntry} --compose --api-url http://localhost:3000 --env-file /tmp/sigmon-smoke-1/.env`) {
             composeDoctorAttempts += 1;
             if (composeDoctorAttempts === 1) {
               return { exitCode: 1, stdout: "[FAIL] API /ready is unreachable", stderr: "" };

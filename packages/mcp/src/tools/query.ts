@@ -17,7 +17,7 @@
  */
 
 import type { AnalyticsTrendParams, LlmAggregateBaseParams, SigmonClient } from "../client.js";
-import { pruneSection, type TruncatedInfo } from "../budget.js";
+import { isRawDetailEnabled, pruneSection, type RawDetailOptions, type TruncatedInfo } from "../budget.js";
 
 export interface McpToolSchema {
   name: string;
@@ -100,7 +100,7 @@ export const queryTool: McpToolSchema = {
       filters: { type: "array", items: {}, description: "metric \"trends\" only, when not using insightId." },
       includeRawDetail: {
         type: "boolean",
-        description: "Keep fields the response budget would otherwise prune. Defaults to false."
+        description: "Requires MCP_ALLOW_RAW_DETAIL=true; keep fields the response budget would otherwise prune. Defaults to false."
       }
     },
     required: ["metric"],
@@ -119,7 +119,12 @@ function baseAggregateParams(input: QueryToolInput) {
   };
 }
 
-export async function handleQuery(client: SigmonClient, input: QueryToolInput): Promise<Record<string, unknown>> {
+export async function handleQuery(
+  client: SigmonClient,
+  input: QueryToolInput,
+  rawDetailOptions: RawDetailOptions = {}
+): Promise<Record<string, unknown>> {
+  const fieldOptions = { includeRawDetail: input.includeRawDetail, allowRawDetail: rawDetailOptions.allowRawDetail };
   switch (input.metric) {
     case "events": {
       const result = await client.getEventAggregates({
@@ -128,17 +133,17 @@ export async function handleQuery(client: SigmonClient, input: QueryToolInput): 
         eventId: input.eventId,
         segmentId: input.segmentId
       });
-      return { metric: "events", result };
+      return { metric: "events", result, ...(isRawDetailEnabled(fieldOptions) ? { rawDetailIncluded: true } : {}) };
     }
 
     case "errors": {
       const result = await client.getErrorAggregates(baseAggregateParams(input));
-      return { metric: "errors", result };
+      return { metric: "errors", result, ...(isRawDetailEnabled(fieldOptions) ? { rawDetailIncluded: true } : {}) };
     }
 
     case "traces": {
       const result = await client.getTraceAggregates(baseAggregateParams(input));
-      return { metric: "traces", result };
+      return { metric: "traces", result, ...(isRawDetailEnabled(fieldOptions) ? { rawDetailIncluded: true } : {}) };
     }
 
     case "llm": {
@@ -150,7 +155,7 @@ export async function handleQuery(client: SigmonClient, input: QueryToolInput): 
         status: input.status
       };
       const result = await client.getLlmAggregates(params);
-      return { metric: "llm", result };
+      return { metric: "llm", result, ...(isRawDetailEnabled(fieldOptions) ? { rawDetailIncluded: true } : {}) };
     }
 
     case "trends": {
@@ -177,12 +182,16 @@ export async function handleQuery(client: SigmonClient, input: QueryToolInput): 
       }
 
       const data = (await client.getAnalyticsTrend(trendParams)) as { buckets: string[]; series: Record<string, unknown>[] };
-      const seriesSection = pruneSection(data.series ?? [], "trends.series", { includeRawDetail: input.includeRawDetail });
+      const seriesSection = pruneSection(data.series ?? [], "trends.series", fieldOptions);
 
       const truncated: TruncatedInfo[] = [];
       if (seriesSection.truncated) truncated.push(seriesSection.truncated);
 
-      const result: Record<string, unknown> = { metric: "trends", result: { buckets: data.buckets, series: seriesSection.items } };
+      const result: Record<string, unknown> = {
+        metric: "trends",
+        result: { buckets: data.buckets, series: seriesSection.items },
+        ...(isRawDetailEnabled(fieldOptions) ? { rawDetailIncluded: true } : {})
+      };
       if (truncated.length > 0) result.truncated = truncated;
       return result;
     }

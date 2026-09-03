@@ -1,6 +1,6 @@
 {
   "name": "@sigmon/sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "SignalMonitor JavaScript and TypeScript SDK for events, errors, breadcrumbs, traces, LLM calls, identify, Web Vitals, session replay, click maps, feedback widgets, Node CPU/memory profiling, and Next.js instrumentation.",
   "type": "module",
   "license": "MIT",
@@ -55,15 +55,16 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node ./scripts/build.mjs",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "prepublishOnly": "pnpm build"
+    "smoke:packed": "node ./scripts/smoke-packed-consumer.mjs",
+    "prepack": "npm run build"
   },
   "dependencies": {
-    "nanoid": "^5.1.11"
+    "nanoid": "^5.1.16"
   },
   "devDependencies": {
     "@sigmon/telemetry": "workspace:*",
-    "vitest": "^2.1.8"
+    "vitest": "^3.2.7"
   }
 }

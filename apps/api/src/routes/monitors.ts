@@ -3,7 +3,7 @@ import type { MonitorRecord } from "@sigmon/db/repositories/monitors.js";
 import { z } from "zod";
 
 export type MonitorRouteDependencies = {
-  getMonitor?: (id: string) => Promise<MonitorRecord | null | undefined>;
+  getActiveHeartbeatMonitor?: (id: string) => Promise<MonitorRecord | null | undefined>;
   verifyHeartbeatSecret?: (hash: string, secret: string) => Promise<boolean>;
   recordHeartbeatCheckIn?: (input: { monitorId: string; checkedInAt: Date }) => Promise<MonitorRecord | null | undefined>;
 };
@@ -23,7 +23,7 @@ function parseBearerToken(header: string | undefined): string | undefined {
 
 export function registerMonitorRoutes(app: FastifyInstance, options?: MonitorRouteDependencies): void {
   app.post("/v1/heartbeats/:id", async (request, reply) => {
-    if (!options?.getMonitor || !options.verifyHeartbeatSecret || !options.recordHeartbeatCheckIn) {
+    if (!options?.getActiveHeartbeatMonitor || !options.verifyHeartbeatSecret || !options.recordHeartbeatCheckIn) {
       return reply.status(501).send({ error: "monitors_repository_unavailable" });
     }
 
@@ -39,7 +39,7 @@ export function registerMonitorRoutes(app: FastifyInstance, options?: MonitorRou
 
     let monitor: MonitorRecord | null | undefined;
     try {
-      monitor = await options.getMonitor(params.data.id);
+      monitor = await options.getActiveHeartbeatMonitor(params.data.id);
     } catch {
       return reply.status(503).send({ error: "monitors_unavailable" });
     }

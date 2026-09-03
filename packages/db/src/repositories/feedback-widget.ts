@@ -1,5 +1,6 @@
 import type { Selectable } from "kysely";
 import { sql } from "kysely";
+import { sanitizeTelemetryUrl } from "@sigmon/telemetry/sanitization";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
 import type { FeedbackItemsTable, FeedbackItemStatus, FeedbackWidgetSettingsTable } from "../schema.js";
@@ -149,8 +150,8 @@ function toFeedbackItem(row: FeedbackItemRow): FeedbackItemRecord {
     status: row.status,
     message: row.message,
     category: row.category,
-    pageUrl: row.page_url,
-    path: row.path,
+    pageUrl: row.page_url === null ? null : (sanitizeTelemetryUrl(row.page_url) ?? null),
+    path: row.path === null ? null : (sanitizeTelemetryUrl(row.path) ?? null),
     tenantId: row.tenant_id,
     userId: row.user_id,
     sessionId: row.session_id,
@@ -281,6 +282,40 @@ export async function listFeedbackItems(
 
   const rows = await query.orderBy("submitted_at", "desc").limit(limit).execute();
   return rows.map(toFeedbackItem);
+}
+
+export async function listFeedbackItemsForUrlRedaction(
+  db: Db,
+  input: { afterId: string | null; limit: number }
+): Promise<Array<{ id: string; pageUrl: string | null; path: string | null }>> {
+  const limit = Math.max(1, Math.min(500, Math.trunc(input.limit)));
+  let query = db.selectFrom("feedback_items").select(["id", "page_url", "path"]);
+
+  if (input.afterId !== null) {
+    query = query.where("id", ">", input.afterId);
+  }
+
+  const rows = await query.orderBy("id", "asc").limit(limit).execute();
+  return rows.map((row) => ({ id: row.id, pageUrl: row.page_url, path: row.path }));
+}
+
+export async function updateFeedbackItemUrlsForRedaction(
+  db: Db,
+  input: { id: string; pageUrl?: string; path?: string }
+): Promise<void> {
+  if (input.pageUrl === undefined && input.path === undefined) {
+    return;
+  }
+
+  await db
+    .updateTable("feedback_items")
+    .set({
+      ...(input.pageUrl === undefined ? {} : { page_url: input.pageUrl }),
+      ...(input.path === undefined ? {} : { path: input.path }),
+      updated_at: new Date()
+    })
+    .where("id", "=", input.id)
+    .execute();
 }
 
 export async function updateFeedbackItemStatus(

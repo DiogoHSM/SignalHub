@@ -1,11 +1,16 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { ApiKeyCapability } from "@sigmon/db/repositories/admin.js";
 import {
   createApiKey,
   createReadToken,
   createSourceMapUploadToken,
   hashApiKey as hashTelemetryApiKey
 } from "@sigmon/telemetry/api-keys";
-import { validateWebhookTargetUrl } from "@sigmon/config";
+import {
+  OutboundPolicy,
+  parseWarehousePostgresUrl,
+  validateOutboundHttpTransport
+} from "@sigmon/config";
 import type {
   CreateHeartbeatMonitorInput,
   CreateHttpMonitorInput,
@@ -145,6 +150,7 @@ export interface AdminApiKey {
   name: string;
   prefix: string;
   hash: string;
+  capability: ApiKeyCapability;
   createdAt: Date;
   revokedAt: Date | null;
 }
@@ -185,7 +191,13 @@ export type ApiKeyAdministrationDependencies = {
 export type BrowserOriginAdministrationDependencies = {
   list: (projectId: string) => Promise<AdminProjectBrowserOrigin[]>;
   create: (input: CreateBrowserOriginInput) => Promise<AdminProjectBrowserOrigin>;
-  archive: (id: string) => Promise<void>;
+  archive: (id: string) => Promise<AdminProjectBrowserOrigin | undefined>;
+};
+
+export type BrowserOriginCacheControl = {
+  allow: (origin: string) => void;
+  invalidate: (origin: string) => void;
+  clear: () => void;
 };
 
 export type CodeIntegrationAdministrationDependencies = {
@@ -391,6 +403,11 @@ export type DataGovernanceAdministrationDependencies = {
 
 export type WarehouseExportAdministrationDependencies = {
   listDestinations: (input: { projectId: string; environmentId: string }) => Promise<WarehouseDestinationRecord[]>;
+  getDestination: (input: {
+    id: string;
+    projectId: string;
+    environmentId: string;
+  }) => Promise<WarehouseDestinationRecord | null | undefined>;
   createDestination: (input: CreateWarehouseDestinationInput) => Promise<WarehouseDestinationRecord>;
   updateDestination: (input: UpdateWarehouseDestinationInput) => Promise<WarehouseDestinationRecord | null | undefined>;
   archiveDestination: (input: { id: string; projectId: string; environmentId: string }) => Promise<void>;
@@ -572,7 +589,9 @@ export type AdminRouteOptions = {
   apiKeyPepper?: string;
   hashApiKeySecret?: (secret: string) => Promise<string>;
   hashHeartbeatSecret?: (secret: string) => Promise<string>;
+  browserOriginCache?: BrowserOriginCacheControl;
   nodeEnv?: string;
+  outboundPolicy?: OutboundPolicy;
 };
 
 const createUserSchema = z.object({
@@ -633,7 +652,8 @@ const updateEnvironmentSchema = z
 
 const createApiKeySchema = z.object({
   environmentId: z.string().min(1),
-  name: z.string().trim().min(1).max(256)
+  name: z.string().trim().min(1).max(120),
+  capability: z.enum(["browser", "server"])
 });
 
 const updateApiKeySchema = z
@@ -999,27 +1019,21 @@ const updateReadTokenSchema = z
   .refine((input) => Object.keys(input).length > 0, { message: "at_least_one_field_required" });
 
 const dataGovernanceScopeQuerySchema = analyticsSegmentScopeQuerySchema;
-const dataGovernanceRetentionCategorySchema = z.enum([
-  "events",
-  "errors",
-  "traces",
-  "spans",
-  "llmCalls",
-  "profiles",
-  "breadcrumbs",
-  "webVitals",
-  "clicks",
-  "replays"
-]);
+const retentionDaysSchema = z.number().int().min(1).max(3650);
 const dataGovernanceRetentionPolicySchema = z
-  .record(z.string(), z.number().int().min(1).max(3650))
-  .transform((input) =>
-    Object.fromEntries(
-      Object.entries(input).filter(([category]) =>
-        dataGovernanceRetentionCategorySchema.safeParse(category).success
-      )
-    )
-  );
+  .object({
+    events: retentionDaysSchema.optional(),
+    errors: retentionDaysSchema.optional(),
+    traces: retentionDaysSchema.optional(),
+    spans: retentionDaysSchema.optional(),
+    llmCalls: retentionDaysSchema.optional(),
+    profiles: retentionDaysSchema.optional(),
+    breadcrumbs: retentionDaysSchema.optional(),
+    webVitals: retentionDaysSchema.optional(),
+    clicks: retentionDaysSchema.optional(),
+    replays: retentionDaysSchema.optional()
+  })
+  .strict();
 const dataGovernancePropertyRuleSchema = z.object({
   target: z.enum([
     "metadata",
@@ -1560,14 +1574,21 @@ function redactReadToken(token: ReadTokenResponse): Omit<ReadTokenResponse, "has
   };
 }
 
-function isUrlSecretNotificationChannelType(type: NotificationChannelRecord["type"]): boolean {
-  return type === "slack" || type === "discord";
+function isUrlSecretNotificationChannelType(
+  type: NotificationChannelRecord["type"]
+): type is Exclude<NotificationChannelRecord["type"], "email"> {
+  return type !== "email";
 }
 
-function maskNotificationChannelUrl(url: string): string {
+function maskNotificationChannelUrl(
+  url: string,
+  type: Exclude<NotificationChannelRecord["type"], "email">
+): string {
   try {
     const parsed = new URL(url);
-    return `${parsed.origin}${parsed.pathname.slice(0, 8)}…`;
+    return type === "webhook"
+      ? `${parsed.origin}/…`
+      : `${parsed.origin}${parsed.pathname.slice(0, 8)}…`;
   } catch {
     return "••••";
   }
@@ -1580,18 +1601,56 @@ type RedactedNotificationChannel = Omit<NotificationChannelRecord, "secretHeader
 };
 
 function redactNotificationChannel(channel: NotificationChannelRecord): RedactedNotificationChannel {
-  const { secretHeaderValue: _secretHeaderValue, url, ...safeChannel } = channel;
+  const {
+    secretHeaderValue: _secretHeaderValue,
+    secretHeaderValueEncrypted: _secretHeaderValueEncrypted,
+    secret_header_value: _legacySecretHeaderValue,
+    secret_header_value_encrypted: _legacySecretHeaderValueEncrypted,
+    urlEncrypted: _urlEncrypted,
+    url_encrypted: _legacyUrlEncrypted,
+    url: rawUrl,
+    urlPreview,
+    hasUrl,
+    ...safeChannel
+  } = channel as NotificationChannelRecord & {
+    secretHeaderValueEncrypted?: unknown;
+    secret_header_value?: unknown;
+    secret_header_value_encrypted?: unknown;
+    urlEncrypted?: unknown;
+    url_encrypted?: unknown;
+  };
 
-  if (isUrlSecretNotificationChannelType(channel.type) && url !== null) {
+  if (isUrlSecretNotificationChannelType(channel.type)) {
     return {
       ...safeChannel,
       url: null,
-      hasUrl: true,
-      urlPreview: maskNotificationChannelUrl(url)
+      hasUrl: hasUrl ?? rawUrl !== null,
+      ...(urlPreview !== undefined && urlPreview !== null
+        ? { urlPreview }
+        : rawUrl !== null
+          ? { urlPreview: maskNotificationChannelUrl(rawUrl, channel.type) }
+          : {})
     };
   }
 
-  return { ...safeChannel, url };
+  return { ...safeChannel, url: null };
+}
+
+type RedactedWarehouseDestination = Omit<WarehouseDestinationRecord, "connectionUrl">;
+
+function redactWarehouseDestination(destination: WarehouseDestinationRecord): RedactedWarehouseDestination {
+  const {
+    connectionUrl: _connectionUrl,
+    connectionUrlEncrypted: _connectionUrlEncrypted,
+    connection_url: _legacyConnectionUrl,
+    connection_url_encrypted: _legacyConnectionUrlEncrypted,
+    ...safeDestination
+  } = destination as WarehouseDestinationRecord & {
+    connectionUrlEncrypted?: unknown;
+    connection_url?: unknown;
+    connection_url_encrypted?: unknown;
+  };
+  return safeDestination;
 }
 
 function redactMonitor(monitor: MonitorRecord): Omit<MonitorRecord, "secretHash"> {
@@ -1654,9 +1713,22 @@ function isValidSecretHeaderName(headerName: string | null | undefined): boolean
   return normalizedHeaderName.startsWith("x-") || normalizedHeaderName.startsWith("sigmon-");
 }
 
-function validateWebhookUrl(rawUrl: string, _nodeEnv: string | undefined): boolean {
+function validateOutboundHttpUrl(
+  rawUrl: string,
+  options: AdminRouteOptions,
+  requireHttps: boolean
+): boolean {
   try {
-    validateWebhookTargetUrl(rawUrl);
+    validateOutboundHttpTransport(rawUrl, options.outboundPolicy ?? new OutboundPolicy(), { requireHttps });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validateWarehousePostgresConnectionUrl(rawUrl: string, options: AdminRouteOptions): boolean {
+  try {
+    parseWarehousePostgresUrl(rawUrl, options.outboundPolicy ?? new OutboundPolicy());
     return true;
   } catch {
     return false;
@@ -1731,7 +1803,35 @@ function isValidNotificationChannelInput(
     return true;
   }
 
-  return validateWebhookUrl(input.url, options.nodeEnv) && isValidSecretHeaderName(input.secretHeaderName);
+  const requireHttps =
+    input.type === "slack" ||
+    input.type === "discord" ||
+    Boolean(input.secretHeaderName || input.secretHeaderValue);
+  return validateOutboundHttpUrl(input.url, options, requireHttps) && isValidSecretHeaderName(input.secretHeaderName);
+}
+
+function isValidNotificationChannelFinalState(
+  current: NotificationChannelRecord,
+  update: UpdateNotificationChannelInput,
+  options: AdminRouteOptions
+): boolean {
+  const type = update.type ?? current.type;
+  if (type === "email") return true;
+  const url = update.url === undefined ? current.url : update.url;
+  if (typeof url !== "string") return false;
+  const secretHeaderName =
+    update.secretHeaderName === undefined ? current.secretHeaderName : update.secretHeaderName;
+  const hasSecret =
+    update.secretHeaderName === null || update.secretHeaderValue === null
+      ? false
+      : typeof update.secretHeaderValue === "string"
+        ? true
+        : current.hasSecret;
+  return validateOutboundHttpUrl(
+    url,
+    options,
+    type === "slack" || type === "discord" || Boolean(secretHeaderName) || hasSecret
+  );
 }
 
 async function requireAdmin(
@@ -2112,6 +2212,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     await options.adminResources.projects.archive(params.data.id);
+    options.browserOriginCache?.clear();
     return reply.status(204).send();
   });
 
@@ -2170,6 +2271,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       throw error;
     }
 
+    options.browserOriginCache?.allow(origin.origin);
     return reply.status(201).send({ origin });
   });
 
@@ -2188,7 +2290,10 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
       return reply.status(400).send({ error: "invalid_browser_origin_request" });
     }
 
-    await options.adminResources.browserOrigins.archive(params.data.id);
+    const archivedOrigin = await options.adminResources.browserOrigins.archive(params.data.id);
+    if (archivedOrigin) {
+      options.browserOriginCache?.invalidate(archivedOrigin.origin);
+    }
     return reply.status(204).send();
   });
 
@@ -3518,7 +3623,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
         projectId: query.data.project_id,
         environmentId: query.data.environment_id
       });
-      return reply.send({ destinations });
+      return reply.send({ destinations: destinations.map(redactWarehouseDestination) });
     } catch {
       return reply.status(503).send({ error: "warehouse_exports_unavailable" });
     }
@@ -3532,14 +3637,14 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     const parsed = warehouseDestinationCreateSchema.safeParse(request.body);
-    if (!parsed.success) {
+    if (!parsed.success || !validateWarehousePostgresConnectionUrl(parsed.data.connectionUrl, options)) {
       return reply.status(400).send({ error: "invalid_warehouse_export_request" });
     }
 
     try {
       const input = parsed.data as WarehouseDestinationCreateBody;
       const destination = await options.adminResources.warehouseExports.createDestination(input);
-      return reply.status(201).send({ destination });
+      return reply.status(201).send({ destination: redactWarehouseDestination(destination) });
     } catch {
       return reply.status(503).send({ error: "warehouse_exports_unavailable" });
     }
@@ -3554,12 +3659,33 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
 
     const params = idParamsSchema.safeParse(request.params);
     const parsed = warehouseDestinationPatchSchema.safeParse(request.body);
-    if (!params.success || !parsed.success) {
+    if (
+      !params.success ||
+      !parsed.success ||
+      (typeof parsed.data.connectionUrl === "string" &&
+        !validateWarehousePostgresConnectionUrl(parsed.data.connectionUrl, options))
+    ) {
       return reply.status(400).send({ error: "invalid_warehouse_export_request" });
     }
 
     try {
       const input = parsed.data as WarehouseDestinationPatchBody;
+      if (input.connectionUrl === undefined) {
+        const currentDestination = await options.adminResources.warehouseExports.getDestination({
+          id: params.data.id,
+          projectId: input.projectId,
+          environmentId: input.environmentId
+        });
+        if (!currentDestination) {
+          return reply.status(404).send({ error: "warehouse_destination_not_found" });
+        }
+        if (
+          typeof currentDestination.connectionUrl !== "string" ||
+          !validateWarehousePostgresConnectionUrl(currentDestination.connectionUrl, options)
+        ) {
+          return reply.status(400).send({ error: "invalid_warehouse_export_request" });
+        }
+      }
       const destination = await options.adminResources.warehouseExports.updateDestination({
         id: params.data.id,
         projectId: input.projectId,
@@ -3571,7 +3697,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
         enabled: input.enabled
       });
       if (!destination) return reply.status(404).send({ error: "warehouse_destination_not_found" });
-      return reply.send({ destination });
+      return reply.send({ destination: redactWarehouseDestination(destination) });
     } catch {
       return reply.status(503).send({ error: "warehouse_exports_unavailable" });
     }
@@ -3808,7 +3934,8 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
         environmentId: parsed.data.environmentId,
         name: parsed.data.name,
         prefix: generatedApiKey.prefix,
-        hash
+        hash,
+        capability: parsed.data.capability
       });
     } catch (error) {
       if (isKnownAdminResourceError(error, "active_api_key_scope_not_found")) {
@@ -4287,9 +4414,21 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     const parsed = updateNotificationChannelSchema.safeParse(request.body);
     if (
       !parsed.success ||
-      (typeof parsed.data.url === "string" && !validateWebhookUrl(parsed.data.url, options.nodeEnv)) ||
       (parsed.data.secretHeaderName !== undefined && !isValidSecretHeaderName(parsed.data.secretHeaderName))
     ) {
+      return reply.status(400).send({ error: "invalid_notification_channel_request" });
+    }
+
+    let currentChannel: NotificationChannelRecord | null | undefined;
+    try {
+      currentChannel = await options.alerts.getNotificationChannel?.(params.data.id);
+    } catch {
+      return reply.status(503).send({ error: "notification_channels_unavailable" });
+    }
+    if (!currentChannel) {
+      return reply.status(404).send({ error: "notification_channel_not_found" });
+    }
+    if (!isValidNotificationChannelFinalState(currentChannel, parsed.data, options)) {
       return reply.status(400).send({ error: "invalid_notification_channel_request" });
     }
 
@@ -4502,7 +4641,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     }
 
     const parsed = httpMonitorSchema.safeParse(request.body);
-    if (!parsed.success || !validateWebhookUrl(parsed.data.url, options.nodeEnv)) {
+    if (!parsed.success || !validateOutboundHttpUrl(parsed.data.url, options, false)) {
       return reply.status(400).send({ error: "invalid_monitor_request" });
     }
     if (!(await validateMonitorNotificationChannel(parsed.data.notificationChannelId, options, reply))) {
@@ -4582,7 +4721,7 @@ export function registerAdminRoutes(app: FastifyInstance, options: AdminRouteOpt
     if (
       !params.success ||
       !parsed.success ||
-      (typeof parsed.data.url === "string" && !validateWebhookUrl(parsed.data.url, options.nodeEnv))
+      (typeof parsed.data.url === "string" && !validateOutboundHttpUrl(parsed.data.url, options, false))
     ) {
       return reply.status(400).send({ error: "invalid_monitor_request" });
     }

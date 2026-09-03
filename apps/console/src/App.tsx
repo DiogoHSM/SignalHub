@@ -8,7 +8,10 @@ import { MobileStatusView } from "./v2/MobileStatusView";
 // apps/api/src/routes/console.ts), so this must live under that prefix to be
 // reachable at all — a path outside /console/* 404s at the server before this
 // component ever runs.
-const isMobileStatusPath = window.location.pathname === "/console/status";
+function isMobileStatusPath(pathname: string): boolean {
+  const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  return normalized === "/console/status";
+}
 
 const bootstrapClient = createApiClient();
 
@@ -74,7 +77,7 @@ export function App() {
       googleOAuthEnabled={runtime.googleOAuthEnabled}
     >
       {({ user, signOut }) =>
-        isMobileStatusPath ? (
+        isMobileStatusPath(window.location.pathname) ? (
           <MobileStatusView client={runtime.client} user={user} onSignOut={signOut} />
         ) : (
           <ConsoleShellV2 client={runtime.client} apiEndpoint={runtime.apiEndpoint} user={user} onSignOut={signOut} />

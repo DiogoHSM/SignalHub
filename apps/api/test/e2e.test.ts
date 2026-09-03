@@ -99,14 +99,16 @@ describe("telemetry core e2e", () => {
         environmentId: environment.id,
         name: "E2E ingest",
         prefix: createdApiKey.prefix,
-        hash: await hashApiKey(createdApiKey.secret, apiKeyPepper)
+        hash: await hashApiKey(createdApiKey.secret, apiKeyPepper),
+        capability: "browser"
       });
       await createApiKeyRecord(db, {
         projectId: project.id,
         environmentId: previewEnvironment.id,
         name: "E2E preview ingest",
         prefix: previewApiKey.prefix,
-        hash: await hashApiKey(previewApiKey.secret, apiKeyPepper)
+        hash: await hashApiKey(previewApiKey.secret, apiKeyPepper),
+        capability: "browser"
       });
 
       app = await buildApp({
@@ -124,7 +126,8 @@ describe("telemetry core e2e", () => {
 
             return {
               projectId: apiKey.projectId,
-              environmentId: apiKey.environmentId
+              environmentId: apiKey.environmentId,
+              capability: apiKey.capability
             };
           },
           enqueue: async (job) => {
@@ -163,7 +166,8 @@ describe("telemetry core e2e", () => {
         environmentId: archivedEnvironment.id,
         name: "Archived E2E ingest",
         prefix: archivedApiKey.prefix,
-        hash: await hashApiKey(archivedApiKey.secret, apiKeyPepper)
+        hash: await hashApiKey(archivedApiKey.secret, apiKeyPepper),
+        capability: "browser"
       });
       await archiveEnvironment(db, archivedEnvironment.id);
       const archivedResponse = await app.inject({

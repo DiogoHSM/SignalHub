@@ -104,14 +104,12 @@ describe("TenantScreen", () => {
     expect(screen.getByText("LLM calls")).toBeInTheDocument();
   });
 
-  it("Watch tenant and Open in CRM push toasts; back calls ctx.back", async () => {
+  it("removes unavailable tenant actions while preserving Back", async () => {
     mock(RESPONSE);
     const ctx = makeCtx();
     render(<TenantScreen ctx={ctx} tenantId="tenant_acme" />);
-    await userEvent.click(screen.getByText(/watch tenant/i));
-    expect(ctx.pushToast).toHaveBeenCalledWith("Watching Acme Corp");
-    await userEvent.click(screen.getByText(/open in crm/i));
-    expect(ctx.pushToast).toHaveBeenCalledWith("CRM integration is not yet available");
+    expect(screen.queryByRole("button", { name: /watch tenant/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open in crm/i })).not.toBeInTheDocument();
     await userEvent.click(screen.getByText(/^back$/i));
     expect(ctx.back).toHaveBeenCalled();
   });

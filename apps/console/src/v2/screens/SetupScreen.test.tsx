@@ -22,7 +22,7 @@ function makeClient(over: Partial<ApiClient> = {}): ApiClient {
     listEnvironments: vi.fn().mockResolvedValue({ environments: [environment] }),
     createEnvironment: vi.fn().mockResolvedValue({ environment }),
     listApiKeys: vi.fn().mockResolvedValue({ apiKeys: [] }),
-    createApiKey: vi.fn().mockResolvedValue({ apiKey: { id: "key_1", projectId: "prj_1", environmentId: "env_1", name: "k", prefix: "sh_live_ab", createdAt: "x", revokedAt: null, secret: "sh_live_browser_secret_value" } }),
+    createApiKey: vi.fn().mockResolvedValue({ apiKey: { id: "key_1", projectId: "prj_1", environmentId: "env_1", name: "k", prefix: "sh_live_ab", capability: "browser", createdAt: "x", revokedAt: null, secret: "sh_live_browser_secret_value" } }),
     getOperations: vi.fn().mockResolvedValue({ data: { window: "24h", summary: { telemetry: { events: 184, lastEventAt: "2026-06-24T11:59:56.000Z", errors: 0, traces: 0, failedTraces: 0, errorRatePercent: null, p95TraceDurationMs: null, lastErrorAt: null, lastTraceAt: null } } } }),
     listSourceMapArtifacts: vi.fn().mockResolvedValue([]),
     listSourceMapUploadTokens: vi.fn().mockResolvedValue({ tokens: [] }),
@@ -130,7 +130,7 @@ describe("SetupScreen", () => {
     renderInShell(client);
     const generate = await screen.findByRole("button", { name: /Generate API key/ });
     fireEvent.click(generate);
-    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1", name: "console-production" }));
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1", name: "console-production", capability: "browser" }));
     expect(await screen.findByText(/Copy/)).toBeInTheDocument();
   });
 
@@ -157,7 +157,7 @@ describe("SetupScreen", () => {
     finish({
       apiKey: {
         id: "key_old", projectId: "prj_1", environmentId: "env_1", name: "old",
-        prefix: "sh_live_old", createdAt: "x", revokedAt: null, secret: "must_not_leak",
+        prefix: "sh_live_old", capability: "browser", createdAt: "x", revokedAt: null, secret: "must_not_leak",
       },
     });
 
@@ -173,6 +173,15 @@ describe("SetupScreen", () => {
     expect(await screen.findByRole("button", { name: /Generate API key/ })).toBeInTheDocument();
     expect(screen.queryByText("shread_visible_once")).not.toBeInTheDocument();
     expect(document.body.textContent).not.toContain("shread_visible_once");
+  });
+
+  it("never interpolates a settings-created server key into the browser snippet", async () => {
+    const serverSecret = "sh_live_server_secret_must_not_reach_browser";
+    render(<SetupScreen ctx={makeCtx({ createdSecret: { value: serverSecret, kind: "serverApiKey" } })} />);
+
+    await screen.findByText(/@sigmon\/sdk\/browser/);
+    expect(screen.queryByDisplayValue(serverSecret)).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(serverSecret);
   });
 
   it("creates a project from the inline input", async () => {

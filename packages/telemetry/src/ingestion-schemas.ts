@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { generalTelemetryJsonBounds, inspectJsonBounds } from "./json-bounds.js";
 
 const SHORT_TEXT_MAX = 256;
 const MEDIUM_TEXT_MAX = 2_000;
@@ -16,18 +17,43 @@ const mediumTextSchema = z.string().min(1).max(MEDIUM_TEXT_MAX);
 const optionalMediumTextSchema = z.string().max(MEDIUM_TEXT_MAX).optional();
 const jsonStringSchema = z.string().max(LONG_TEXT_MAX);
 
+function addGeneralJsonBoundsIssue(value: unknown, context: z.RefinementCtx): void {
+  const result = inspectJsonBounds(value, generalTelemetryJsonBounds);
+  if (result.ok) return;
+
+  const messageByViolation = {
+    depth: `Telemetry JSON values must not exceed ${generalTelemetryJsonBounds.maxDepth} container levels`,
+    nodes: `Telemetry JSON values must not exceed ${generalTelemetryJsonBounds.maxNodes} nodes`,
+    keys: `Telemetry JSON values must not exceed ${generalTelemetryJsonBounds.maxKeys} object keys`,
+    array_length: `Telemetry JSON arrays must not exceed ${generalTelemetryJsonBounds.maxArrayLength} items`,
+    cycle: "Telemetry JSON values must not contain cyclic references"
+  } as const;
+
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: result.path,
+    message: messageByViolation[result.violation]
+  });
+}
+
+function generalJsonPreflightSchema() {
+  return z.unknown().superRefine(addGeneralJsonBoundsIssue);
+}
+
 const jsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
-  z.union([
-    jsonStringSchema,
-    z.number(),
-    z.boolean(),
-    z.null(),
-    z.array(jsonValueSchema),
-    z.record(z.string(), jsonValueSchema)
-  ])
+  generalJsonPreflightSchema().pipe(
+    z.union([
+      jsonStringSchema,
+      z.number(),
+      z.boolean(),
+      z.null(),
+      z.array(jsonValueSchema),
+      z.record(z.string(), jsonValueSchema)
+    ])
+  )
 );
 
-const jsonObjectSchema = z.record(z.string(), jsonValueSchema).default({});
+const jsonObjectSchema = generalJsonPreflightSchema().pipe(z.record(z.string(), jsonValueSchema)).default({});
 
 type JsonObjectBounds = {
   maxDepth: number;
@@ -293,6 +319,7 @@ const sessionReplayPayloadShapeSchema = sharedEnvelopeSchema.extend({
 
 export const sessionReplayPayloadSchema = z
   .unknown()
+  .superRefine(addGeneralJsonBoundsIssue)
   .superRefine((value, context) => {
     if (!preflightReplayPayload(value, context)) return;
     const byteLength = serializedUtf8ByteLength(value);

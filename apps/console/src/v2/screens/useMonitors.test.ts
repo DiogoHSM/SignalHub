@@ -35,7 +35,7 @@ function heartbeatMonitor(over: Partial<MonitorResponse> = {}): MonitorResponse 
 }
 
 const channels: NotificationChannelResponse[] = [
-  { id: "ch_1", name: "Ops webhook", type: "webhook", url: "https://hook", emailRecipients: [], secretHeaderName: null, hasSecret: false, enabled: true, createdAt: "x", updatedAt: "x", archivedAt: null },
+  { id: "ch_1", name: "Ops webhook", type: "webhook", url: null, hasUrl: true, urlPreview: "https://hook/…", emailRecipients: [], secretHeaderName: null, hasSecret: false, enabled: true, createdAt: "x", updatedAt: "x", archivedAt: null },
 ];
 
 describe("monitorStatusToV2", () => {

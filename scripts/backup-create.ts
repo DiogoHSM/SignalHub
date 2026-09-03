@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import { loadConfig } from "../packages/config/src/index.js";
+import { loadConfig, OutboundPolicy } from "../packages/config/src/index.js";
 import { createDb } from "../packages/db/src/client.js";
 import { migrate } from "../packages/db/src/migrate.js";
 import { recordBackupRun, withBackupLock } from "../packages/db/src/repositories/backups.js";
@@ -7,6 +7,11 @@ import { runBackupOnce } from "../apps/worker/src/backups.js";
 
 export async function main(): Promise<void> {
   const config = loadConfig();
+  const outboundPolicy = new OutboundPolicy({
+    privateCidrs: config.outbound.privateCidrs,
+    allowLoopback: config.outbound.allowLoopback,
+    nodeEnv: config.nodeEnv
+  });
   const db = createDb(config.databaseUrl);
 
   try {
@@ -20,6 +25,7 @@ export async function main(): Promise<void> {
         enabled: true,
         databaseUrl: config.databaseUrl
       },
+      outboundPolicy,
       withLock: (run) => withBackupLock(db, run),
       recordBackupRun: (input) => recordBackupRun(db, input)
     });

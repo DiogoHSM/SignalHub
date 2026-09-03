@@ -9,12 +9,13 @@
     "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@sigmon/config": "workspace:*",
     "@sigmon/telemetry": "workspace:*",
-    "kysely": "^0.28.16",
+    "kysely": "^0.28.17",
     "pg": "^8.20.0"
   },
   "devDependencies": {
-    "@testcontainers/postgresql": "^11.14.0",
+    "@testcontainers/postgresql": "^12.1.0",
     "@types/pg": "^8.20.0"
   }
 }

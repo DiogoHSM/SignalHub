@@ -118,6 +118,17 @@ describe("API docs", () => {
     expect(spec.paths["/v1/identify/tenant"].post.security).toEqual([{ ingestionApiKey: [] }]);
     expect(Object.keys(spec.paths["/v1/identify/user"].post.responses)).toEqual(["202", "400", "401", "503"]);
     expect(Object.keys(spec.paths["/v1/identify/tenant"].post.responses)).toEqual(["202", "400", "401", "503"]);
+    expect(Object.keys(spec.paths["/system/actions/backup"].post.responses)).toEqual(["202", "401", "403", "501", "503"]);
+    expect(spec.paths["/system/actions/backup"].post.description).toContain("queues");
+    expect(spec.components.schemas.SystemBackupActionResponse).toMatchObject({
+      required: ["ok", "action", "status", "message", "jobId", "generatedAt"],
+      properties: {
+        action: { const: "backup" },
+        status: { const: "accepted" },
+        message: { const: "Backup queued." }
+      }
+    });
+    expect(spec.components.schemas.SystemActionResponse.properties.action.enum).toEqual(["doctor", "retention"]);
     expect(spec.paths["/v1/heartbeats/{id}"].post.security).toEqual([{ heartbeatSecret: [] }]);
     expect(spec.paths["/v1/source-maps"].post.security).toEqual([{ sourceMapUploadToken: [] }]);
     expect(spec.paths["/admin/dead-letter-jobs"].get.security).toEqual([{ sessionCookie: [] }]);
@@ -331,6 +342,37 @@ describe("API docs", () => {
       expect(datasets.description).toContain("cursor resets");
       expect(datasets.description).not.toContain("updated_at");
       expect(datasets.description).not.toContain("revision");
+    }
+  });
+
+  it("documents the closed data governance retention categories", async () => {
+    const server = await createApp();
+    const response = await server.inject({ method: "GET", url: "/openapi.json" });
+    const spec = response.json();
+    const categories = [
+      "events",
+      "errors",
+      "traces",
+      "spans",
+      "llmCalls",
+      "profiles",
+      "breadcrumbs",
+      "webVitals",
+      "clicks",
+      "replays"
+    ];
+    const schemas = [
+      spec.components.schemas.DataGovernancePolicy.properties.retentionPolicy,
+      spec.paths["/admin/data-governance"].put.requestBody.content["application/json"].schema.properties.retentionPolicy
+    ];
+
+    for (const schema of schemas) {
+      expect(Object.keys(schema.properties)).toEqual(categories);
+      expect(schema.additionalProperties).toBe(false);
+      expect(schema.description).toMatch(/omitted categories use.*installation defaults/i);
+      for (const category of categories) {
+        expect(schema.properties[category]).toEqual({ type: "integer", minimum: 1, maximum: 3650 });
+      }
     }
   });
 

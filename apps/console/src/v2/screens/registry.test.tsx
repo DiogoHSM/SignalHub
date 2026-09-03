@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api/client";
 import type { Environment, Project } from "../../api/types";
 import type { NavSection } from "../nav";
+// Compile the same module used by the production analytics/experiments split
+// point before tests begin, so Vitest transform time stays outside DOM waits.
+import "./screen-groups/analytics-experiments";
 import { renderSection, SCREENS, type ScreenCtx } from "./registry";
 import * as useOverviewModule from "./useOverview";
 import * as useErrorsModule from "./useErrors";

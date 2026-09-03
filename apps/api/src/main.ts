@@ -1,6 +1,7 @@
-import { createStructuredLogger, loadConfig } from "@sigmon/config";
+import { createStructuredLogger, loadConfig, OutboundPolicy, SecretBox } from "@sigmon/config";
 import { createDb } from "@sigmon/db";
 import { migrate } from "@sigmon/db/migrate.js";
+import type { ApiKeyScope } from "./routes/api-key-auth.js";
 import {
   archiveProjectBrowserOrigin,
   archiveEnvironment,
@@ -108,7 +109,7 @@ import {
   archiveMonitor,
   createHeartbeatMonitor,
   createHttpMonitor,
-  getMonitor,
+  findActiveHeartbeatMonitor,
   listMonitorChecks,
   listMonitors,
   recordHeartbeatCheckIn,
@@ -127,12 +128,16 @@ import {
   createUser,
   findUserByEmail,
   findUserByGoogleSubject,
-  findUserById,
   linkGoogleSubject,
   listUsers,
   updateUserAsAdmin
 } from "@sigmon/db/repositories/users.js";
-import { getBackupStatus, recordBackupRun, withBackupLock } from "@sigmon/db/repositories/backups.js";
+import {
+  createAuthSession,
+  findActiveSessionUser,
+  revokeAuthSession
+} from "@sigmon/db/repositories/auth-sessions.js";
+import { getBackupStatus } from "@sigmon/db/repositories/backups.js";
 import {
   deleteExpiredTelemetry,
   getHeartbeat,
@@ -148,7 +153,8 @@ import {
   listExpiredSourceMapArtifacts,
   listSourceMapArtifactsPage,
   replaceErrorStackResolutions,
-  softDeleteSourceMapArtifactForRetention
+  softDeleteSourceMapArtifactForRetention,
+  withSourceMapStorageLock
 } from "@sigmon/db/repositories/source-maps.js";
 import {
   createSourceMapUploadTokenRecord,
@@ -245,11 +251,16 @@ import { getEntityTenantDetail, listEntityTenants } from "@sigmon/db/repositorie
 import { identifyTenantProfile, identifyUserProfile } from "@sigmon/db/repositories/identity-profiles.js";
 import { getFleetRollup, getProjectFleetEnvironments } from "@sigmon/db/repositories/fleet-query.js";
 import { getUserDetail, listUsersActivity } from "@sigmon/db/repositories/users-query.js";
-import { createTelemetryQueue, enqueueTelemetryJob, replayTelemetryJob } from "@sigmon/queues";
-import { hashPassword, verifyPassword } from "@sigmon/telemetry/auth";
+import {
+  createMaintenanceQueue,
+  createTelemetryQueue,
+  enqueueBackupCreation,
+  enqueueTelemetryJob,
+  replayTelemetryJob
+} from "@sigmon/queues";
+import { createAuthLoginTelemetry, hashPassword, verifyPassword } from "@sigmon/telemetry/auth";
 import { verifyApiKey } from "@sigmon/telemetry/api-keys";
 import { createId } from "@sigmon/telemetry/ids";
-import { createHmac, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Redis } from "ioredis";
 import { sql } from "kysely";
@@ -271,74 +282,24 @@ import {
   uploadSourceMapBundle
 } from "./source-maps/storage.js";
 import { resolveErrorStackWithSourceMaps } from "./source-maps/resolver.js";
+import { listenAfterSourceMapStorage, openSourceMapStorageSession } from "./source-maps/storage-root.js";
 import { createSystemHealthSnapshot } from "./system-health.js";
 import { listenWithCleanup, runShutdownSteps, runSignalShutdown } from "./runtime.js";
 import { fetchWithTimeoutAndRetry } from "./fetch-retry.js";
-import { runBackupOnce } from "../../worker/src/backups.js";
 import { runWarehouseExportOnce, writePostgresWarehouseBatch } from "../../worker/src/warehouse-exports.js";
 import { runRetentionOnce } from "../../worker/src/retention.js";
 import { deleteExpiredSourceMapArtifacts } from "../../worker/src/source-map-retention.js";
+import {
+  authenticateOpaqueSession,
+  createOpaqueSession,
+  revokeCurrentSession,
+  type OpaqueSessionServiceDependencies
+} from "./auth/session-service.js";
+import { Argon2Semaphore, LoginGuard, createGuardedLogin } from "./auth/login-guard.js";
+import { createAuthQuotaRedis } from "./auth/login-redis.js";
+import { closeRateLimitRedis, createRateLimitRedis } from "./rate-limit-redis.js";
 
 const sessionMaxAgeSeconds = 60 * 60 * 24 * 7;
-
-type SessionPayload = {
-  userId: string;
-  exp: number;
-};
-
-function encodeBase64Url(value: string): string {
-  return Buffer.from(value).toString("base64url");
-}
-
-function signSessionPayload(payload: string, secret: string): string {
-  return createHmac("sha256", secret).update(payload).digest("base64url");
-}
-
-function timingSafeStringEqual(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  if (leftBuffer.length !== rightBuffer.length) {
-    return false;
-  }
-
-  return timingSafeEqual(leftBuffer, rightBuffer);
-}
-
-function createSessionToken(payload: SessionPayload, secret: string): string {
-  const encodedPayload = encodeBase64Url(JSON.stringify(payload));
-  return `${encodedPayload}.${signSessionPayload(encodedPayload, secret)}`;
-}
-
-function parseSessionToken(token: string, secret: string): SessionPayload | undefined {
-  const tokenParts = token.split(".");
-  if (tokenParts.length !== 2) {
-    return undefined;
-  }
-
-  const [encodedPayload, signature] = tokenParts;
-  if (!encodedPayload || !signature) {
-    return undefined;
-  }
-
-  const expectedSignature = signSessionPayload(encodedPayload, secret);
-  if (!timingSafeStringEqual(signature, expectedSignature)) {
-    return undefined;
-  }
-
-  try {
-    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as Partial<SessionPayload>;
-    if (typeof payload.userId !== "string" || typeof payload.exp !== "number") {
-      return undefined;
-    }
-    if (payload.exp <= Math.floor(Date.now() / 1000)) {
-      return undefined;
-    }
-
-    return payload as SessionPayload;
-  } catch {
-    return undefined;
-  }
-}
 
 function toAuthUser(user: { id: string; email: string; isAdmin: boolean }): AuthUser {
   return {
@@ -359,6 +320,22 @@ const googleUserInfoSchema = z.object({
 
 const logger = createStructuredLogger("api");
 const config = loadConfig();
+const sourceMapStorage = await openSourceMapStorageSession({
+  localDir: config.sourceMaps.localDir,
+  mode: "create",
+  nodeEnv: config.nodeEnv
+});
+const outboundPolicy = new OutboundPolicy({
+  privateCidrs: config.outbound.privateCidrs,
+  allowLoopback: config.outbound.allowLoopback,
+  nodeEnv: config.nodeEnv
+});
+const secretBox = config.dataEncryption.currentKey
+  ? new SecretBox({
+      currentKey: config.dataEncryption.currentKey,
+      previousKey: config.dataEncryption.previousKey
+    })
+  : undefined;
 const sessionCookieName = getSessionCookieName(config.nodeEnv);
 
 // PER-449: migrations run on a short-lived, timeout-free pool. A one-time schema change (e.g. a
@@ -374,7 +351,15 @@ const db = createDb(config.databaseUrl, { statementTimeoutMs: config.db.statemen
 const redis = new Redis(config.redisUrl, {
   maxRetriesPerRequest: null
 });
+const rateLimitRedis = createRateLimitRedis(config.redisUrl, {
+  onError: (error) => logger.warn({ err: error }, "Rate-limit Redis unavailable")
+});
+const authQuotaRedis = createAuthQuotaRedis(config.redisUrl, {
+  onError: (error) => logger.warn({ err: error }, "Auth quota Redis unavailable")
+});
 const telemetryQueue = createTelemetryQueue(config.redisUrl);
+const maintenanceQueue = createMaintenanceQueue(config.redisUrl);
+maintenanceQueue.on("error", (error) => logger.warn({ error }, "Maintenance queue unavailable"));
 const retentionPolicy = {
   eventsDays: config.retention.eventsDays,
   errorsDays: config.retention.errorsDays,
@@ -389,15 +374,29 @@ const retentionPolicy = {
   sourceMapsBatchSize: config.sourceMaps.retention.batchSize
 };
 
-function setSessionCookie(reply: CookieCapableReply, userId: string): void {
-  const sessionToken = createSessionToken(
-    {
-      userId,
-      exp: Math.floor(Date.now() / 1000) + sessionMaxAgeSeconds
-    },
-    config.sessionSecret
-  );
-  reply.setCookie(sessionCookieName, sessionToken, getSessionCookieOptions(config.nodeEnv, sessionMaxAgeSeconds));
+const opaqueSessions: OpaqueSessionServiceDependencies = {
+  cookieName: sessionCookieName,
+  cookieOptions: getSessionCookieOptions(config.nodeEnv, sessionMaxAgeSeconds),
+  maxAgeSeconds: sessionMaxAgeSeconds,
+  createSession: (input) => createAuthSession(db, input),
+  findSessionUser: (input) => findActiveSessionUser(db, input),
+  revokeSession: (input) => revokeAuthSession(db, input)
+};
+
+const loginGuard = new LoginGuard({
+  sessionSecret: config.sessionSecret,
+  accountLimit: config.auth.login.accountMaxAttempts,
+  accountWindowMs: config.auth.login.accountWindowMs,
+  progressiveDelayMaxMs: config.auth.login.progressiveDelayMaxMs,
+  redis: authQuotaRedis,
+  recordTelemetry: (outcome) => {
+    logger.info(createAuthLoginTelemetry(outcome), "Authentication attempt");
+  }
+});
+const argon2Semaphore = new Argon2Semaphore(config.auth.login.argon2Concurrency);
+
+function setSessionCookie(reply: CookieCapableReply, userId: string): Promise<void> {
+  return createOpaqueSession(opaqueSessions, userId, reply);
 }
 
 function createGoogleAuthorizationUrl(state: string): string {
@@ -451,7 +450,7 @@ async function completeGoogleOAuth(code: string, _state: string, { reply }: Auth
 
   const existingBySubject = await findUserByGoogleSubject(db, profile.sub);
   if (existingBySubject) {
-    setSessionCookie(reply, existingBySubject.id);
+    await setSessionCookie(reply, existingBySubject.id);
     return toAuthUser(existingBySubject);
   }
 
@@ -467,11 +466,11 @@ async function completeGoogleOAuth(code: string, _state: string, { reply }: Auth
     return null;
   }
 
-  setSessionCookie(reply, linkedUser.id);
+  await setSessionCookie(reply, linkedUser.id);
   return toAuthUser(linkedUser);
 }
 
-async function verifyIngestionApiKey(secret: string): Promise<{ projectId: string; environmentId: string } | null> {
+async function verifyIngestionApiKey(secret: string): Promise<ApiKeyScope | null> {
   const apiKey = await findApiKeyByPrefix(db, secret.slice(0, 12));
   if (!apiKey) {
     return null;
@@ -481,44 +480,26 @@ async function verifyIngestionApiKey(secret: string): Promise<{ projectId: strin
   return valid
     ? {
         projectId: apiKey.projectId,
-        environmentId: apiKey.environmentId
+        environmentId: apiKey.environmentId,
+        capability: apiKey.capability
       }
     : null;
 }
 
 const auth: AuthDependencies = {
-  login: async (email, password, { reply }) => {
-    const user = await findUserByEmail(db, email);
-    if (!user?.passwordHash) {
-      return null;
-    }
-
-    const validPassword = await verifyPassword(user.passwordHash, password);
-    if (!validPassword) {
-      return null;
-    }
-
-    setSessionCookie(reply, user.id);
-
-    return toAuthUser(user);
-  },
+  loginGuard,
+  login: createGuardedLogin({
+    guard: loginGuard,
+    semaphore: argon2Semaphore,
+    findUser: (email) => findUserByEmail(db, email),
+    verifyPassword,
+    createSession: (user, { reply }) => setSessionCookie(reply, user.id)
+  }),
   findSessionUser: async (request) => {
-    const token = request.cookies[sessionCookieName];
-    if (!token) {
-      return null;
-    }
-
-    const session = parseSessionToken(token, config.sessionSecret);
-    if (!session) {
-      return null;
-    }
-
-    const user = await findUserById(db, session.userId);
+    const user = await authenticateOpaqueSession(opaqueSessions, request);
     return user ? toAuthUser(user) : null;
   },
-  logout: async ({ reply }) => {
-    reply.clearCookie(sessionCookieName, { path: "/" });
-  },
+  logout: (context) => revokeCurrentSession(opaqueSessions, context),
   googleOAuth: config.googleOAuth.enabled
     ? {
         createAuthorizationUrl: createGoogleAuthorizationUrl,
@@ -608,41 +589,29 @@ function runManualRetention() {
     deleteExpiredSourceMapArtifacts: () =>
       deleteExpiredSourceMapArtifacts({
         localDir: config.sourceMaps.localDir,
+        storage: sourceMapStorage,
         now: new Date(),
         retentionDays: config.sourceMaps.retention.days,
         batchSize: config.sourceMaps.retention.batchSize,
+        withStorageLock: (run) => withSourceMapStorageLock(db, async () => run()),
         listExpiredArtifacts: (input) => listExpiredSourceMapArtifacts(db, input),
         softDeleteArtifact: (id) => softDeleteSourceMapArtifactForRetention(db, id)
       }),
     recordRetentionRun: (input) => recordRetentionRun(db, input)
   }).then((result) => ({
-    status: result.skipped ? ("skipped" as const) : ("success" as const),
-    message: result.skipped ? "Retention skipped because another run is active." : "Retention completed.",
+    status: result.skipped || result.sourceMapsSkipped ? ("skipped" as const) : ("success" as const),
+    message: result.skipped
+      ? "Retention skipped because another run is active."
+      : result.sourceMapsSkipped
+        ? "Retention completed; source-map cleanup skipped because storage maintenance is active."
+        : "Retention completed.",
     ran: result.ran,
-    skipped: result.skipped
-  }));
-}
-
-function runManualBackup() {
-  return runBackupOnce({
-    now: () => new Date(),
-    trigger: "manual",
-    config: {
-      ...config.backups,
-      enabled: true,
-      databaseUrl: config.databaseUrl
-    },
-    withLock: (run) => withBackupLock(db, run),
-    recordBackupRun: (input) => recordBackupRun(db, input)
-  }).then((result) => ({
-    status: result.skipped ? ("skipped" as const) : ("success" as const),
-    message: result.skipped ? "Backup skipped because another backup is active." : "Backup completed.",
-    ran: result.ran,
-    skipped: result.skipped
+    skipped: result.skipped || result.sourceMapsSkipped === true
   }));
 }
 
 const app = await buildApp({
+  outboundPolicy,
   readiness: async () => {
     const [postgres, redisReady] = await Promise.all([
       sql`select 1`.execute(db).then(
@@ -658,6 +627,10 @@ const app = await buildApp({
     return { postgres, redis: redisReady };
   },
   auth,
+  loginSourceRateLimit: {
+    max: config.auth.login.sourceMaxAttempts,
+    timeWindow: config.auth.login.sourceWindowMs
+  },
   users: {
     listUsers: async () => (await listUsers(db)).map(toAuthUser),
     createUser: async (input) =>
@@ -794,9 +767,17 @@ const app = await buildApp({
       upsert: (input) => upsertDataGovernancePolicy(db, input)
     },
     warehouseExports: {
-      listDestinations: (input) => listWarehouseDestinations(db, { ...input, includeDisabled: true }),
-      createDestination: (input) => createWarehouseDestination(db, input),
-      updateDestination: (input) => updateWarehouseDestination(db, input),
+      listDestinations: (input) => listWarehouseDestinations(db, {
+        ...input,
+        includeDisabled: true
+      }),
+      getDestination: (input) => getWarehouseDestination(db, {
+        ...input,
+        includeSecret: true,
+        secretBox
+      }),
+      createDestination: (input) => createWarehouseDestination(db, input, secretBox!),
+      updateDestination: (input) => updateWarehouseDestination(db, input, secretBox),
       archiveDestination: (input) => archiveWarehouseDestination(db, input),
       listRuns: (input) => listWarehouseExportRuns(db, input),
       runDestination: async (input) => {
@@ -804,7 +785,8 @@ const app = await buildApp({
           id: input.destinationId,
           projectId: input.projectId,
           environmentId: input.environmentId,
-          includeSecret: true
+          includeSecret: true,
+          secretBox
         });
         if (!destination) {
           return { ran: true, skipped: false, exported: 0, failed: 1 };
@@ -816,6 +798,10 @@ const app = await buildApp({
             listActiveDestinations: async () => [destination],
             selectBatch: (selectedDestination, batchInput) => selectWarehouseExportBatch(db, selectedDestination, batchInput),
             writeBatch: (writeInput) => writePostgresWarehouseBatch(writeInput),
+            postgresOptions: {
+              outboundPolicy,
+              timeouts: config.warehouseExports
+            },
             updateCursor: (cursorInput) => updateWarehouseDestinationCursor(db, cursorInput),
             recordRun: (runInput) => recordWarehouseExportRun(db, runInput)
           },
@@ -911,7 +897,7 @@ const app = await buildApp({
           }),
         getCachedErrorStackResolution: (errorId) => getCachedErrorStackResolution(db, errorId),
         findSourceMapArtifactForFrame: (scope) => findSourceMapArtifactForFrame(db, scope),
-        readSourceMapFile: ({ storagePath }) => readSourceMapFile({ localDir: config.sourceMaps.localDir, storagePath }),
+        readSourceMapFile: ({ storagePath }) => readSourceMapFile({ storage: sourceMapStorage, storagePath }),
         replaceErrorStackResolutions: (resolutionInput) => replaceErrorStackResolutions(db, resolutionInput)
       }),
     getFleet: (window) => getFleetRollup(db, { window, getHealth: getSystemHealth }),
@@ -935,15 +921,19 @@ const app = await buildApp({
         }))
       ),
     runDoctor: runSystemDoctor,
-    runBackup: runManualBackup,
+    enqueueBackup: (payload) =>
+      enqueueBackupCreation(maintenanceQueue, { kind: "backup.create", ...payload }).then((job) => {
+        if (!job.id) throw new Error("maintenance_queue_invalid_job");
+        return { jobId: job.id };
+      }),
     runRetention: runManualRetention
   },
   alerts: {
     listNotificationChannels: () => listNotificationChannels(db),
-    createNotificationChannel: (input) => createNotificationChannel(db, input),
-    updateNotificationChannel: (id, input) => updateNotificationChannel(db, id, input),
+    createNotificationChannel: (input) => createNotificationChannel(db, input, secretBox),
+    updateNotificationChannel: (id, input) => updateNotificationChannel(db, id, input, secretBox),
     archiveNotificationChannel: (id) => archiveNotificationChannel(db, id),
-    getNotificationChannel: (id) => getNotificationChannel(db, id),
+    getNotificationChannel: (id) => getNotificationChannel(db, id, { includeSecret: true, secretBox }),
     listAlertRules: (filters) => listAlertRules(db, filters),
     createAlertRule: (input) => createAlertRule(db, input),
     updateAlertRule: (id, input) => updateAlertRule(db, id, input),
@@ -956,7 +946,7 @@ const app = await buildApp({
   },
   monitors: {
     listMonitors: (filters) => listMonitors(db, filters),
-    getMonitor: (id) => getMonitor(db, id),
+    getActiveHeartbeatMonitor: (id) => findActiveHeartbeatMonitor(db, id),
     createHttpMonitor: (input) => createHttpMonitor(db, input),
     createHeartbeatMonitor: (input) => createHeartbeatMonitor(db, input),
     updateMonitor: (id, input) => updateMonitor(db, id, input),
@@ -994,19 +984,19 @@ const app = await buildApp({
     uploadMap: (input) =>
       uploadSingleSourceMap({
         db,
-        localDir: config.sourceMaps.localDir,
+        storage: sourceMapStorage,
         input
       }),
     uploadBundle: (input) =>
       uploadSourceMapBundle({
         db,
-        localDir: config.sourceMaps.localDir,
+        storage: sourceMapStorage,
         input
       }),
     remove: (input) =>
       deleteSourceMapArtifactAndFile({
         db,
-        localDir: config.sourceMaps.localDir,
+        storage: sourceMapStorage,
         input
       }),
     maxUploadBytes: config.sourceMaps.maxUploadMb * 1024 * 1024
@@ -1033,13 +1023,13 @@ const app = await buildApp({
     uploadMap: (input) =>
       uploadSingleSourceMap({
         db,
-        localDir: config.sourceMaps.localDir,
+        storage: sourceMapStorage,
         input
       }),
     uploadBundle: (input) =>
       uploadSourceMapBundle({
         db,
-        localDir: config.sourceMaps.localDir,
+        storage: sourceMapStorage,
         input
       })
   },
@@ -1077,6 +1067,8 @@ const app = await buildApp({
   googleOAuthEnabled: config.googleOAuth.enabled,
   browserCorsOrigins: config.browserCors.origins,
   isBrowserCorsOriginAllowed: (origin) => isBrowserOriginAllowed(db, origin),
+  rateLimitRedis,
+  trustProxy: config.trustedProxyCidrs,
   nodeEnv: config.nodeEnv,
   console: {
     enabled: config.console.enabled,
@@ -1101,7 +1093,11 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   await runShutdownSteps(
     [
       { name: "app.close", run: () => app.close() },
+      { name: "maintenanceQueue.close", run: () => maintenanceQueue.close() },
       { name: "telemetryQueue.close", run: () => telemetryQueue.close() },
+      { name: "authQuotaRedis.close", run: () => authQuotaRedis.close() },
+      { name: "rateLimitRedis.close", run: () => closeRateLimitRedis(rateLimitRedis) },
+      { name: "sourceMapStorage.close", run: () => sourceMapStorage.close() },
       { name: "redis.quit", run: () => redis.quit() },
       { name: "db.destroy", run: () => db.destroy() }
     ],
@@ -1112,7 +1108,11 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
 
 logger.info({ port: config.port }, "API starting");
 await listenWithCleanup({
-  listen: () => app.listen({ port: config.port, host: "0.0.0.0" }),
+  listen: () => listenAfterSourceMapStorage({
+    localDir: config.sourceMaps.localDir,
+    initialize: () => sourceMapStorage.assertAuthority(),
+    listen: () => app.listen({ port: config.port, host: "0.0.0.0" })
+  }),
   cleanup: () => shutdown("SIGTERM"),
   logger
 });

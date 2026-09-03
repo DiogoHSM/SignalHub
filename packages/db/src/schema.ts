@@ -22,6 +22,16 @@ export interface UsersTable {
   archived_at: NullableTimestamp;
 }
 
+export interface AuthSessionsTable {
+  id: string;
+  user_id: string;
+  token_hash: string;
+  created_at: Timestamp;
+  expires_at: Timestamp;
+  revoked_at: NullableTimestamp;
+  last_seen_at: Timestamp;
+}
+
 export interface ProjectsTable {
   id: string;
   name: string;
@@ -383,7 +393,9 @@ export interface WarehouseDestinationsTable {
   environment_id: string;
   name: string;
   destination_type: WarehouseDestinationType;
-  connection_url: string;
+  connection_url: string | null;
+  connection_url_encrypted: string | null;
+  connection_url_preview: string | null;
   datasets: JsonColumn;
   cursor: JsonColumn;
   batch_size: DefaultedInteger;
@@ -484,6 +496,7 @@ export interface ApiKeysTable {
   name: string;
   prefix: string;
   hash: string;
+  capability: ColumnType<"browser" | "server", "browser" | "server" | undefined, "browser" | "server">;
   created_at: Timestamp;
   revoked_at: NullableTimestamp;
 }
@@ -884,9 +897,12 @@ export interface NotificationChannelsTable {
   name: string;
   type: "webhook" | "slack" | "discord" | "email";
   url: string | null;
+  url_encrypted: string | null;
+  url_preview: string | null;
   email_recipients: JsonColumn;
   secret_header_name: string | null;
   secret_header_value: string | null;
+  secret_header_value_encrypted: string | null;
   enabled: DefaultedBoolean;
   created_at: Timestamp;
   updated_at: Timestamp;
@@ -1051,6 +1067,7 @@ export interface MigrationsTable {
 
 export interface Database {
   users: UsersTable;
+  auth_sessions: AuthSessionsTable;
   projects: ProjectsTable;
   project_browser_origins: ProjectBrowserOriginsTable;
   project_code_integrations: ProjectCodeIntegrationsTable;

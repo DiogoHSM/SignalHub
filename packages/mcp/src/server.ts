@@ -28,6 +28,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
 
 import type { SigmonClient } from "./client.js";
+import { sanitizeMcpOutput, type RawDetailOptions } from "./budget.js";
 
 import { describeScopeTool } from "./tools/describe_scope.js";
 import { whatsBrokenTool } from "./tools/whats_broken.js";
@@ -45,7 +46,11 @@ interface ToolEntry {
   name: string;
   description: string;
   inputSchema: ToolInputSchema;
-  execute: (client: SigmonClient, rawArgs: Record<string, unknown>) => Promise<unknown>;
+  execute: (client: SigmonClient, rawArgs: Record<string, unknown>, rawDetailOptions: RawDetailOptions) => Promise<unknown>;
+}
+
+export interface McpServerOptions {
+  allowRawDetail?: boolean;
 }
 
 /** Batch A adapter: Zod raw-shape `inputSchema` + bundled `handler`. */
@@ -53,27 +58,27 @@ function fromZodShapeTool<Shape extends z.ZodRawShape, R>(tool: {
   name: string;
   description: string;
   inputSchema: Shape;
-  handler: (client: SigmonClient, input: z.infer<z.ZodObject<Shape>>) => Promise<R>;
+  handler: (client: SigmonClient, input: z.infer<z.ZodObject<Shape>>, rawDetailOptions?: RawDetailOptions) => Promise<R>;
 }): ToolEntry {
   const schema = z.object(tool.inputSchema);
   return {
     name: tool.name,
     description: tool.description,
     inputSchema: z.toJSONSchema(schema) as ToolInputSchema,
-    execute: (client, rawArgs) => tool.handler(client, schema.parse(rawArgs))
+    execute: (client, rawArgs, rawDetailOptions) => tool.handler(client, schema.parse(rawArgs), rawDetailOptions)
   };
 }
 
 /** Batch B adapter: pre-built JSON Schema `inputSchema` + a separate `handleXxx` function. */
 function fromJsonSchemaTool<Input>(
   tool: { name: string; description: string; inputSchema: Record<string, unknown> },
-  handler: (client: SigmonClient, input: Input) => Promise<unknown>
+  handler: (client: SigmonClient, input: Input, rawDetailOptions?: RawDetailOptions) => Promise<unknown>
 ): ToolEntry {
   return {
     name: tool.name,
     description: tool.description,
     inputSchema: tool.inputSchema as ToolInputSchema,
-    execute: (client, rawArgs) => handler(client, rawArgs as Input)
+    execute: (client, rawArgs, rawDetailOptions) => handler(client, rawArgs as Input, rawDetailOptions)
   };
 }
 
@@ -93,7 +98,7 @@ const TOOLS: ToolEntry[] = [
 export const TOOL_NAMES: readonly string[] = TOOLS.map((tool) => tool.name);
 
 /** Builds a `Server` with all nine tools registered, ready to `connect()` to any transport. */
-export function createSigmonMcpServer(client: SigmonClient): Server {
+export function createSigmonMcpServer(client: SigmonClient, options: McpServerOptions = {}): Server {
   const server = new Server({ name: "sigmon-mcp", version: "0.1.0" }, { capabilities: { tools: {} } });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -111,8 +116,10 @@ export function createSigmonMcpServer(client: SigmonClient): Server {
     }
 
     try {
-      const result = await tool.execute(client, (request.params.arguments ?? {}) as Record<string, unknown>);
-      return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      const result = await tool.execute(client, (request.params.arguments ?? {}) as Record<string, unknown>, {
+        allowRawDetail: options.allowRawDetail
+      });
+      return { content: [{ type: "text" as const, text: JSON.stringify(sanitizeMcpOutput(result)) }] };
     } catch (error) {
       // Never surface a stack or raw error object — only the message, which is where
       // SigmonClientError (client.ts) and QueryToolInputError (tools/query.ts) put their

@@ -5,6 +5,7 @@ import { spawn, type ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "../packages/config/src/index.js";
+import { buildLibpqSubprocess } from "../apps/worker/src/libpq-subprocess.js";
 
 type RestoreSpawnOptions = { stdio: ["ignore", "inherit", "pipe"]; env?: NodeJS.ProcessEnv };
 type RestoreChildProcess = ChildProcessByStdio<null, null, Readable>;
@@ -81,64 +82,43 @@ export async function restoreBackup(input: {
 }): Promise<void> {
   await verifyBackupChecksum(input.filePath);
 
-  const spawnFn = input.spawnFn ?? spawn;
-  const databaseUrl = new URL(input.databaseUrl);
-  const databaseName = decodeURIComponent(databaseUrl.pathname.replace(/^\//, ""));
-  const username = decodeURIComponent(databaseUrl.username);
-  const password = decodeURIComponent(databaseUrl.password);
-  const sanitizedConnectionUrl = new URL(databaseUrl);
-  sanitizedConnectionUrl.password = "";
-  const databaseArgs = ["--dbname"];
-
-  if (databaseUrl.search !== "") {
-    databaseArgs.push(sanitizedConnectionUrl.toString());
-  } else {
-    databaseArgs.push(databaseName, "--host", databaseUrl.hostname);
-
-    if (databaseUrl.port !== "") {
-      databaseArgs.push("--port", databaseUrl.port);
-    }
-
-    if (username !== "") {
-      databaseArgs.push("--username", username);
-    }
-  }
+  const spawnFn: RestoreSpawnFn = input.spawnFn ?? spawn;
+  const connection = buildLibpqSubprocess(input.databaseUrl);
 
   const stdio: ["ignore", "inherit", "pipe"] = ["ignore", "inherit", "pipe"];
-  const options: RestoreSpawnOptions =
-    password === ""
-      ? { stdio }
-      : { stdio, env: { ...process.env, PGPASSWORD: password } };
+  const options: RestoreSpawnOptions = { stdio, env: connection.env };
 
   await new Promise<void>((resolve, reject) => {
-    const child = spawnFn(
-      "pg_restore",
-      [
-        "--clean",
-        "--if-exists",
-        "--no-owner",
-        "--no-privileges",
-        ...databaseArgs,
-        "--",
-        input.filePath
-      ],
-      options
-    );
-    const stderrChunks: Buffer[] = [];
+    let child: RestoreChildProcess;
+    try {
+      child = spawnFn(
+        "pg_restore",
+        [
+          "--clean",
+          "--if-exists",
+          "--no-owner",
+          "--no-privileges",
+          "--no-password",
+          "--dbname",
+          connection.argsConnection,
+          "--",
+          input.filePath
+        ],
+        options
+      );
+    } catch {
+      reject(new Error("pg_restore failed"));
+      return;
+    }
 
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderrChunks.push(chunk);
-    });
-
-    child.on("error", reject);
+    child.stderr.on("data", () => undefined);
+    child.on("error", () => reject(new Error("pg_restore failed")));
     child.on("close", (code) => {
       if (code === 0) {
         resolve();
         return;
       }
-
-      const stderr = Buffer.concat(stderrChunks).toString("utf8").trim();
-      reject(new Error(stderr || `pg_restore exited with code ${code}`));
+      reject(new Error("pg_restore failed"));
     });
   });
 }

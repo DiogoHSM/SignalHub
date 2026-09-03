@@ -1,0 +1,88 @@
+/* Shared layout and type primitives for the audited investigation surfaces. */
+.sh-v2 .sh-investigation-grid { display: grid; }
+.sh-v2 .sh-grid-6 { display: grid; gap: 6px; }
+.sh-v2 .sh-grid-8 { display: grid; gap: 8px; }
+.sh-v2 .sh-grid-10 { display: grid; gap: 10px; }
+.sh-v2 .sh-grid-12 { display: grid; gap: 12px; }
+.sh-v2 .sh-grid-14 { display: grid; gap: 14px; }
+.sh-v2 .sh-grid-16 { display: grid; gap: 16px; }
+.sh-v2 .sh-stack { display: flex; flex-direction: column; }
+.sh-v2 .sh-card-fill { display: flex; flex-direction: column; min-height: 0; }
+.sh-v2 .sh-card-grow { flex: 1 0 auto; min-height: 0; display: flex; flex-direction: column; }
+.sh-v2 .sh-scroll-fill { overflow: auto; flex: 1; }
+.sh-v2 .sh-panel-rail { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow: auto; }
+.sh-v2 .sh-grow { flex: 1; }
+.sh-v2 .sh-min-w-0 { min-width: 0; }
+.sh-v2 .sh-min-h-0 { min-height: 0; }
+
+.sh-v2 .sh-cluster-6 { display: flex; align-items: center; gap: 6px; }
+.sh-v2 .sh-cluster-8 { display: flex; align-items: center; gap: 8px; }
+.sh-v2 .sh-cluster-10 { display: flex; align-items: center; gap: 10px; }
+.sh-v2 .sh-cluster-14 { display: flex; align-items: center; gap: 14px; }
+.sh-v2 .sh-cluster-16 { display: flex; align-items: center; gap: 16px; }
+.sh-v2 .sh-cluster-wrap { flex-wrap: wrap; }
+.sh-v2 .sh-between-8 { display: flex; justify-content: space-between; gap: 8px; }
+
+.sh-v2 .sh-copy-10 { font-size: 10px; }
+.sh-v2 .sh-copy-11 { font-size: 11px; }
+.sh-v2 .sh-copy-11-5 { font-size: 11.5px; }
+.sh-v2 .sh-copy-12 { font-size: 12px; }
+.sh-v2 .sh-copy-12-5 { font-size: 12.5px; }
+.sh-v2 .sh-copy-13 { font-size: 13px; }
+.sh-v2 .sh-copy-13-medium { font-size: 13px; font-weight: 500; }
+.sh-v2 .sh-copy-14-strong { font-size: 14px; font-weight: 600; }
+.sh-v2 .sh-copy-28-strong { font-size: 28px; }
+.sh-v2 .sh-numeric { font-variant-numeric: tabular-nums; }
+.sh-v2 .sh-cost { color: var(--sev-violet); font-weight: 600; font-variant-numeric: tabular-nums; }
+.sh-v2 .sh-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sh-v2 .sh-ellipsis { overflow: hidden; text-overflow: ellipsis; }
+.sh-v2 .sh-subtitle { margin: 4px 0 0; font-size: 12px; }
+.sh-v2 .sh-meta-line { font-size: 11px; margin-top: 3px; }
+.sh-v2 .sh-meta-line-md { font-size: 11.5px; margin-top: 3px; }
+.sh-v2 .sh-empty-region { padding: 48px 24px; display: grid; place-items: center; }
+.sh-v2 .sh-empty-inset { padding: 16px; }
+.sh-v2 .sh-inset-14 { padding: 14px; }
+.sh-v2 .sh-mt-3 { margin-top: 3px; }
+.sh-v2 .sh-full-span { grid-column: 1 / -1; }
+
+.sh-v2 :where(.sh-row--btn, .sh-interactive-row) {
+  cursor: pointer;
+  transition: background .12s;
+  font-family: inherit;
+}
+.sh-v2 :where(.sh-row--btn, .sh-interactive-row):hover { background: var(--bg-canvas); }
+/* Audited table geometry is named once so headers and rows cannot drift. */
+.sh-v2 .llm-tenant-row { grid-template-columns: 1.4fr 80px 70px 1fr; width: 100%; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--border-subtle); }
+.sh-v2 .llm-prompt-row { grid-template-columns: 1.6fr 100px 90px 100px 90px 90px 80px 28px; }
+.sh-v2 .llm-call-row { grid-template-columns: 1.1fr 1.2fr 1.4fr 90px 90px 90px; }
+.sh-v2 .llm-share-track { height: 6px; border-radius: 3px; background: var(--bg-canvas); overflow: hidden; align-self: center; }
+.sh-v2 .llm-share-fill { height: 100%; background: var(--sev-violet); border-radius: 3px; }
+
+.sh-v2 .tenant-timeline-row { display: grid; grid-template-columns: 70px 30px 1fr auto; gap: 10px; padding: 11px 16px; align-items: center; width: 100%; text-align: left; background: transparent; border: none; border-bottom: 1px solid var(--border-subtle); cursor: default; }
+.sh-v2 .tenant-timeline-row.sh-interactive-row { cursor: pointer; }
+.sh-v2 .tenant-user-row { grid-template-columns: 26px 1fr 70px 70px; }
+.sh-v2 .tenant-user-avatar { width: 22px; height: 22px; font-size: 9px; }
+.sh-v2 .tenant-back { padding: 4px 8px; font-size: 12px; }
+.sh-v2 .tenant-back-wrap { margin-bottom: 12px; }
+.sh-v2 .tenant-back-wrap--compact { margin-bottom: 4px; }
+.sh-v2 .tenant-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.sh-v2 .tenant-avatar { width: 52px; height: 52px; border-radius: 13px; background: var(--tenant-avatar-bg); display: grid; place-items: center; color: var(--tenant-avatar-fg); font-weight: 700; font-size: 20px; }
+.sh-v2 .tenant-title { font-size: 22px; margin-bottom: 2px; }
+.sh-v2 .tenant-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.sh-v2 .tenant-signal-head { display: flex; justify-content: space-between; font-size: 11.5px; }
+.sh-v2 .tenant-signal-track { height: 4px; background: var(--bg-canvas); border-radius: 2px; margin-top: 4px; }
+.sh-v2 .tenant-signal-fill { height: 100%; border-radius: 2px; }
+
+.sh-v2 .dashboard-report-stack { display: grid; gap: 10px; }
+.sh-v2 .dashboard-report-head { display: flex; justify-content: space-between; font-size: 11px; }
+.sh-v2 .dashboard-report-rows { display: grid; gap: 6px; }
+.sh-v2 .dashboard-report-row { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; }
+.sh-v2 .dashboard-widget-editor { display: grid; grid-template-columns: minmax(0, 1fr) 110px auto; gap: 8px; align-items: center; padding: 10px; }
+.sh-v2 .dashboard-widget-actions { display: flex; gap: 4px; }
+.sh-v2 .dashboard-layout { display: grid; gap: 12px; align-items: start; }
+.sh-v2 .dashboard-library-row { width: 100%; text-align: left; }
+.sh-v2 .dashboard-editor { display: grid; gap: 12px; }
+.sh-v2 .dashboard-form-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.sh-v2 .dashboard-add-insight { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+.sh-v2 .dashboard-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.sh-v2 .dashboard-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }

@@ -585,12 +585,23 @@ describe("admin alert routes", () => {
     expect(response.body).not.toContain("verysecrettoken");
   });
 
-  it("keeps the full url for generic webhook channels in list responses (out of scope for masking)", async () => {
+  it("masks generic webhook URLs and strips repository secret fields from list responses", async () => {
     app = await buildApp({
       readiness,
       auth: adminAuth,
       alerts: {
-        listNotificationChannels: async () => [notificationChannel({ id: "chn_webhook", type: "webhook" })]
+        listNotificationChannels: async () => [{
+          ...notificationChannel({
+            id: "chn_webhook",
+            type: "webhook",
+            url: "https://hooks.example.com/synthetic-token"
+          }),
+          urlEncrypted: "v1.synthetic-url-envelope",
+          secretHeaderValueEncrypted: "v1.synthetic-header-envelope",
+          url_encrypted: "v1.synthetic-legacy-url-envelope",
+          secret_header_value: "synthetic-legacy-header-token",
+          secret_header_value_encrypted: "v1.synthetic-legacy-header-envelope"
+        }]
       }
     });
 
@@ -599,18 +610,39 @@ describe("admin alert routes", () => {
     expect(response.json().channels[0]).toMatchObject({
       id: "chn_webhook",
       type: "webhook",
-      url: "https://hooks.example.com/sigmon"
+      url: null,
+      hasUrl: true
     });
-    expect(response.json().channels[0].urlPreview).toBeUndefined();
-    expect(response.json().channels[0].hasUrl).toBeUndefined();
+    expect(response.json().channels[0].urlPreview).toBe("https://hooks.example.com/…");
+    expect(response.json().channels[0]).not.toHaveProperty("urlEncrypted");
+    expect(response.json().channels[0]).not.toHaveProperty("secretHeaderValueEncrypted");
+    expect(response.json().channels[0]).not.toHaveProperty("url_encrypted");
+    expect(response.json().channels[0]).not.toHaveProperty("secret_header_value");
+    expect(response.json().channels[0]).not.toHaveProperty("secret_header_value_encrypted");
+    expect(response.body).not.toContain("synthetic-token");
+    expect(response.body).not.toContain("synthetic-url-envelope");
+    expect(response.body).not.toContain("synthetic-header-envelope");
+    expect(response.body).not.toContain("synthetic-legacy-header-token");
   });
 
   it("preserves the existing Slack webhook url when updating a channel without a url field", async () => {
+    const lookups: string[] = [];
     const updates: unknown[] = [];
     app = await buildApp({
       readiness,
       auth: adminAuth,
       alerts: {
+        getNotificationChannel: async (id) => {
+          lookups.push(id);
+          return notificationChannel({
+            id,
+            type: "slack",
+            url: "https://hooks.slack.com/services/T0/B1/existingtoken",
+            secretHeaderName: null,
+            secretHeaderValue: null,
+            hasSecret: false
+          });
+        },
         updateNotificationChannel: async (id, input) => {
           updates.push({ id, input });
           return notificationChannel({
@@ -633,6 +665,7 @@ describe("admin alert routes", () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(lookups).toEqual(["chn_slack"]);
     expect(updates).toEqual([{ id: "chn_slack", input: { name: "Slack renamed" } }]);
     expect(response.json().channel).toMatchObject({ type: "slack", hasUrl: true });
     expect(response.json().channel.url).toBeNull();
@@ -640,11 +673,23 @@ describe("admin alert routes", () => {
   });
 
   it("replaces the Slack webhook url when updating a channel with a new url", async () => {
+    const lookups: string[] = [];
     const updates: unknown[] = [];
     app = await buildApp({
       readiness,
       auth: adminAuth,
       alerts: {
+        getNotificationChannel: async (id) => {
+          lookups.push(id);
+          return notificationChannel({
+            id,
+            type: "slack",
+            url: "https://hooks.slack.com/services/T0/B1/existingtoken",
+            secretHeaderName: null,
+            secretHeaderValue: null,
+            hasSecret: false
+          });
+        },
         updateNotificationChannel: async (id, input) => {
           updates.push({ id, input });
           return notificationChannel({
@@ -666,6 +711,7 @@ describe("admin alert routes", () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(lookups).toEqual(["chn_slack"]);
     expect(updates).toEqual([
       { id: "chn_slack", input: { url: "https://hooks.slack.com/services/T9/B9/newtoken" } }
     ]);
@@ -791,11 +837,16 @@ describe("admin alert routes", () => {
   });
 
   it("updates and redacts notification channels", async () => {
+    const lookups: string[] = [];
     const updates: unknown[] = [];
     app = await buildApp({
       readiness,
       auth: adminAuth,
       alerts: {
+        getNotificationChannel: async (id) => {
+          lookups.push(id);
+          return notificationChannel({ id });
+        },
         updateNotificationChannel: async (id, input) => {
           updates.push({ id, input });
           return notificationChannel({ id, name: input.name, secretHeaderValue: "new-secret" });
@@ -812,6 +863,7 @@ describe("admin alert routes", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().channel).toMatchObject({ id: "chn_1", name: "Primary Ops", hasSecret: true });
     expect(response.json().channel.secretHeaderValue).toBeUndefined();
+    expect(lookups).toEqual(["chn_1"]);
     expect(updates).toEqual([{ id: "chn_1", input: { name: "Primary Ops" } }]);
   });
 
@@ -864,11 +916,16 @@ describe("admin alert routes", () => {
   });
 
   it("clears the secret value when clearing a notification channel secret header name", async () => {
+    const lookups: string[] = [];
     const updates: unknown[] = [];
     app = await buildApp({
       readiness,
       auth: adminAuth,
       alerts: {
+        getNotificationChannel: async (id) => {
+          lookups.push(id);
+          return notificationChannel({ id });
+        },
         updateNotificationChannel: async (id, input) => {
           updates.push({ id, input });
           return notificationChannel({
@@ -888,15 +945,25 @@ describe("admin alert routes", () => {
     });
 
     expect(response.statusCode).toBe(200);
+    expect(lookups).toEqual(["chn_1"]);
     expect(updates).toEqual([{ id: "chn_1", input: { secretHeaderName: null, secretHeaderValue: null } }]);
   });
 
-  it("returns 404 when updating a missing notification channel", async () => {
+  it("returns 404 without updating when a notification channel is missing during preflight", async () => {
+    const lookups: string[] = [];
+    const updates: unknown[] = [];
     app = await buildApp({
       readiness,
       auth: adminAuth,
       alerts: {
-        updateNotificationChannel: async () => null
+        getNotificationChannel: async (id) => {
+          lookups.push(id);
+          return null;
+        },
+        updateNotificationChannel: async (id, input) => {
+          updates.push({ id, input });
+          return notificationChannel({ id });
+        }
       }
     });
 
@@ -908,6 +975,38 @@ describe("admin alert routes", () => {
 
     expect(response.statusCode).toBe(404);
     expect(response.json()).toEqual({ error: "notification_channel_not_found" });
+    expect(lookups).toEqual(["chn_missing"]);
+    expect(updates).toEqual([]);
+  });
+
+  it("returns 404 when a notification channel disappears after preflight", async () => {
+    const lookups: string[] = [];
+    const updates: unknown[] = [];
+    app = await buildApp({
+      readiness,
+      auth: adminAuth,
+      alerts: {
+        getNotificationChannel: async (id) => {
+          lookups.push(id);
+          return notificationChannel({ id });
+        },
+        updateNotificationChannel: async (id, input) => {
+          updates.push({ id, input });
+          return null;
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/admin/notification-channels/chn_missing",
+      payload: { name: "Primary Ops" }
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toEqual({ error: "notification_channel_not_found" });
+    expect(lookups).toEqual(["chn_missing"]);
+    expect(updates).toEqual([{ id: "chn_missing", input: { name: "Primary Ops" } }]);
   });
 
   it("archives notification channels", async () => {

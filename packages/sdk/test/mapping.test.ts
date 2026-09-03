@@ -4,6 +4,7 @@ import {
   createClickSignal,
   createErrorSignal,
   createEventSignal,
+  createFeedbackSignal,
   createIdentifyTenantSignal,
   createIdentifyUserSignal,
   createLlmSignal,
@@ -58,6 +59,24 @@ describe("payload mapping", () => {
     expect(serializeDate(new Date(iso))).toBe(iso);
     expect(serializeDate(iso)).toBe(iso);
     expect(serializeDate(undefined)).toBeUndefined();
+  });
+
+  it("redacts feedback URL query values and fragments before queueing", () => {
+    expect(
+      createFeedbackSignal({
+        message: "Export wording is unclear",
+        pageUrl: "https://app.test/reports?tab=exports#details",
+        path: "/reports?tab=exports#details"
+      })
+    ).toMatchObject({
+      kind: "feedback",
+      endpointPath: "/v1/feedback",
+      payload: {
+        message: "Export wording is unclear",
+        page_url: "https://app.test/reports?tab=%5BREDACTED%5D",
+        path: "/reports?tab=%5BREDACTED%5D"
+      }
+    });
   });
 
   it("maps events to /v1/events with snake_case context", () => {

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@sigmon/telemetry": "workspace:*",
     "zod": "^4.4.2"
   }
 }

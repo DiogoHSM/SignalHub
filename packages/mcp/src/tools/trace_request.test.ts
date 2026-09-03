@@ -5,7 +5,10 @@ import { traceRequestHandler } from "./trace_request.js";
 function fakeClient(overrides: Partial<Record<keyof SigmonClient, unknown>> = {}) {
   return {
     listTraces: vi.fn(async () => ({ data: [{ id: "trace_1", traceName: "checkout" }], cursor: null })),
-    listTraceSpans: vi.fn(async () => ({ data: [{ id: "span_1", body: "big span body" }], cursor: null })),
+    listTraceSpans: vi.fn(async () => ({
+      data: [{ id: "span_1", body: "big span body", pageUrl: "/checkout?token=secret", attributes: { authorization: "Bearer secret" } }],
+      cursor: null
+    })),
     ...overrides
   } as unknown as SigmonClient;
 }
@@ -25,12 +28,23 @@ describe("traceRequestHandler", () => {
     expect(result.truncated).toBeUndefined();
   });
 
-  it("keeps the span body when includeRawDetail opts in", async () => {
+  it("prunes span bodies when only the tool call opts in", async () => {
     const client = fakeClient();
 
     const result = await traceRequestHandler(client, { traceId: "trace_1", includeRawDetail: true });
 
-    expect(result.spans!.items[0]).toMatchObject({ body: "big span body" });
+    expect(result.spans!.items[0]).not.toHaveProperty("body");
+  });
+
+  it("returns sanitized span bodies only after both gates opt in", async () => {
+    const result = await traceRequestHandler(fakeClient(), { traceId: "trace_1", includeRawDetail: true }, { allowRawDetail: true });
+
+    expect(result.spans!.items[0]).toMatchObject({
+      body: "big span body",
+      pageUrl: "/checkout?token=%5BREDACTED%5D",
+      attributes: { authorization: "[REDACTED]" }
+    });
+    expect(result).toMatchObject({ rawDetailIncluded: true });
   });
 
   it("searches for traces by filters when no traceId is given", async () => {

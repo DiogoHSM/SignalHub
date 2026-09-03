@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { sanitizePreviewText, sanitizeValue } from "../src/sanitization.js";
+import { sanitizePreviewText, sanitizeTelemetryUrl, sanitizeValue } from "../src/sanitization.js";
+
+function valueWithContainerDepth(containerLevels: number): Record<string, unknown> {
+  let value: Record<string, unknown> = { leaf: true };
+  for (let depth = 1; depth < containerLevels; depth += 1) value = { child: value };
+  return value;
+}
+
+function valueWithNodeCount(firstArrayLength: number): Record<string, unknown> {
+  return {
+    values: Array.from({ length: 512 }, (_, index) => {
+      if (index === 0) return Array(firstArrayLength).fill(1);
+      if (index < 511) return Array(3).fill(1);
+      return [];
+    })
+  };
+}
 
 describe("sanitizeValue", () => {
   it("recursively masks sensitive object keys", () => {
@@ -30,6 +46,60 @@ describe("sanitizeValue", () => {
 
     expect(original.token).toBe("secret");
     expect(sanitized).toEqual({ token: "[REDACTED]" });
+  });
+
+  it("preserves sparse array length and holes in a fresh clone", () => {
+    const original: unknown[] = new Array(3);
+    original[1] = { password: "secret" };
+
+    const sanitized = sanitizeValue(original) as unknown[];
+
+    expect(sanitized).not.toBe(original);
+    expect(sanitized).toHaveLength(3);
+    expect(0 in sanitized).toBe(false);
+    expect(sanitized[1]).toEqual({ password: "[REDACTED]" });
+    expect(2 in sanitized).toBe(false);
+  });
+
+  it("rejects a 20,000-level input without overflowing the call stack", () => {
+    let value: Record<string, unknown> = { leaf: true };
+    for (let depth = 0; depth < 20_000; depth += 1) value = { child: value };
+
+    expect(() => sanitizeValue(value)).toThrow("unsafe_recursive_value:depth");
+  });
+
+  it("rejects cyclic input", () => {
+    const value: Record<string, unknown> = {};
+    value.self = value;
+
+    expect(() => sanitizeValue(value)).toThrow("unsafe_recursive_value:cycle");
+  });
+
+  it("rejects a ninth container level", () => {
+    expect(() => sanitizeValue(valueWithContainerDepth(9))).toThrow("unsafe_recursive_value:depth");
+  });
+
+  it("rejects 2,049 nodes", () => {
+    expect(() => sanitizeValue(valueWithNodeCount(5))).toThrow("unsafe_recursive_value:nodes");
+  });
+
+  it("rejects 513 object keys", () => {
+    expect(() => sanitizeValue(Object.fromEntries(Array.from({ length: 513 }, (_, index) => [`key_${index}`, index])))).toThrow(
+      "unsafe_recursive_value:keys"
+    );
+  });
+
+  it("rejects arrays with 513 items", () => {
+    expect(() => sanitizeValue({ values: Array(513).fill(1) })).toThrow("unsafe_recursive_value:array_length");
+  });
+
+  it("masks sensitive nested keys in ordinary arrays and objects", () => {
+    expect(
+      sanitizeValue({ nested: { password: "secret" }, values: [{ token: "secret" }, { visible: true }] })
+    ).toEqual({
+      nested: { password: "[REDACTED]" },
+      values: [{ token: "[REDACTED]" }, { visible: true }]
+    });
   });
 
   it("masks common credential key variants conservatively", () => {
@@ -130,5 +200,33 @@ describe("sanitizePreviewText", () => {
     expect(sanitizePreviewText("Summarize dashboard metrics for paid users")).toBe(
       "Summarize dashboard metrics for paid users"
     );
+  });
+});
+
+describe("sanitizeTelemetryUrl", () => {
+  it("redacts every absolute URL query value and removes its fragment", () => {
+    expect(sanitizeTelemetryUrl("https://app.test/reset?token=abc&next=%2Fhome#done")).toBe(
+      "https://app.test/reset?token=%5BREDACTED%5D&next=%5BREDACTED%5D"
+    );
+  });
+
+  it("redacts every relative URL query value and removes its fragment", () => {
+    expect(sanitizeTelemetryUrl("/callback?code=secret#fragment")).toBe("/callback?code=%5BREDACTED%5D");
+  });
+
+  it("redacts duplicate keys and blank values", () => {
+    expect(sanitizeTelemetryUrl("/search?tag=one&tag=&page=2")).toBe(
+      "/search?tag=%5BREDACTED%5D&page=%5BREDACTED%5D"
+    );
+  });
+
+  it("removes delimiter suffixes when an absolute URL is malformed", () => {
+    expect(sanitizeTelemetryUrl("http://[invalid?token=secret#fragment")).toBe("http://[invalid");
+  });
+
+  it("preserves URLs without a query or fragment", () => {
+    expect(sanitizeTelemetryUrl("https://app.test/reports")).toBe("https://app.test/reports");
+    expect(sanitizeTelemetryUrl("/reports")).toBe("/reports");
+    expect(sanitizeTelemetryUrl(undefined)).toBeUndefined();
   });
 });

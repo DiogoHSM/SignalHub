@@ -212,6 +212,56 @@ describe("TopBar", () => {
     expect(onOpenSearch).toHaveBeenCalledTimes(1);
   });
 
+  it("opens search from the keyboard through a native button", async () => {
+    const onOpenSearch = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <TopBar
+        projects={PROJECTS}
+        project={PROJECT}
+        environments={ENVIRONMENTS}
+        env={ENV}
+        onSelectProject={() => {}}
+        onSelectEnv={() => {}}
+        crumb={CRUMB}
+        railCollapsed={false}
+        onToggleRail={() => {}}
+        onRefresh={() => {}}
+        onOpenSearch={onOpenSearch}
+      />
+    );
+
+    const search = screen.getByRole("button", { name: /search events/i });
+    expect(search).toHaveAttribute("type", "button");
+    search.focus();
+    expect(search).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(onOpenSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the shared hit target for every visible top-bar action and omits notifications", () => {
+    const { container } = render(
+      <TopBar
+        projects={PROJECTS}
+        project={PROJECT}
+        environments={ENVIRONMENTS}
+        env={ENV}
+        onSelectProject={() => {}}
+        onSelectEnv={() => {}}
+        crumb={[{ label: "Overview", onClick: () => {} }, { label: "Incidents" }]}
+        railCollapsed={false}
+        onToggleRail={() => {}}
+        onRefresh={() => {}}
+        onOpenSearch={() => {}}
+      />
+    );
+
+    expect(screen.queryByTitle("Notifications")).not.toBeInTheDocument();
+    const actions = Array.from(container.querySelectorAll("button"));
+    expect(actions.length).toBeGreaterThan(0);
+    expect(actions.every((action) => action.classList.contains("sh-hit-target"))).toBe(true);
+  });
+
   it("renders .tb root element and .tb-actions", () => {
     const { container } = render(
       <TopBar

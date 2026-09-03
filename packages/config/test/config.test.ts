@@ -2,6 +2,52 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/index.js";
 
 describe("loadConfig", () => {
+  const currentDataEncryptionKey = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+  const previousDataEncryptionKey = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=";
+
+  it("loads login abuse-control defaults", () => {
+    expect(loadConfig(baseEnv()).auth.login).toEqual({
+      sourceMaxAttempts: 10,
+      sourceWindowMs: 60_000,
+      accountMaxAttempts: 8,
+      accountWindowMs: 15 * 60_000,
+      argon2Concurrency: 4,
+      progressiveDelayMaxMs: 2_000
+    });
+  });
+
+  it("loads and validates explicit login abuse-control settings", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      LOGIN_SOURCE_MAX_ATTEMPTS: "12",
+      LOGIN_SOURCE_WINDOW_MS: "30000",
+      LOGIN_ACCOUNT_MAX_ATTEMPTS: "6",
+      LOGIN_ACCOUNT_WINDOW_MS: "600000",
+      LOGIN_ARGON2_CONCURRENCY: "2",
+      LOGIN_PROGRESSIVE_DELAY_MAX_MS: "1500"
+    });
+
+    expect(config.auth.login).toEqual({
+      sourceMaxAttempts: 12,
+      sourceWindowMs: 30_000,
+      accountMaxAttempts: 6,
+      accountWindowMs: 600_000,
+      argon2Concurrency: 2,
+      progressiveDelayMaxMs: 1_500
+    });
+  });
+
+  it.each([
+    "LOGIN_SOURCE_MAX_ATTEMPTS",
+    "LOGIN_SOURCE_WINDOW_MS",
+    "LOGIN_ACCOUNT_MAX_ATTEMPTS",
+    "LOGIN_ACCOUNT_WINDOW_MS",
+    "LOGIN_ARGON2_CONCURRENCY",
+    "LOGIN_PROGRESSIVE_DELAY_MAX_MS"
+  ] as const)("rejects non-positive %s", (fieldName) => {
+    expect(() => loadConfig({ ...baseEnv(), [fieldName]: "0" })).toThrow();
+  });
+
   const validEnv = {
     NODE_ENV: "production",
     PORT: "3000",
@@ -9,6 +55,7 @@ describe("loadConfig", () => {
     REDIS_URL: "redis://localhost:6379",
     SESSION_SECRET: "a-secure-session-secret-with-enough-length",
     API_KEY_PEPPER: "a-secure-api-key-pepper-with-enough-length",
+    DATA_ENCRYPTION_KEY: currentDataEncryptionKey,
     BOOTSTRAP_ADMIN_EMAIL: "admin@example.com",
     BOOTSTRAP_ADMIN_PASSWORD: "correct-horse-battery-staple-long-enough",
     GOOGLE_OAUTH_ENABLED: "false"
@@ -21,6 +68,128 @@ describe("loadConfig", () => {
     GOOGLE_REDIRECT_URI: "http://localhost:3000/auth/google/callback"
   };
   const baseEnv = () => ({ ...validEnv });
+
+  it("defaults outbound private CIDRs and loopback access to disabled", () => {
+    expect(loadConfig(baseEnv()).outbound).toEqual({
+      privateCidrs: [],
+      allowLoopback: false
+    });
+  });
+
+  it("loads strict private IPv4 and ULA CIDRs", () => {
+    expect(
+      loadConfig({
+        ...baseEnv(),
+        OUTBOUND_PRIVATE_CIDRS: "10.20.0.0/16, fd12:3456::/32"
+      }).outbound
+    ).toEqual({
+      privateCidrs: ["10.20.0.0/16", "fd12:3456::/32"],
+      allowLoopback: false
+    });
+  });
+
+  it("allows loopback opt-in only outside production", () => {
+    expect(
+      loadConfig({
+        ...baseEnv(),
+        NODE_ENV: "development",
+        ALLOW_LOOPBACK_OUTBOUND: "true"
+      }).outbound.allowLoopback
+    ).toBe(true);
+
+    expect(() => loadConfig({ ...baseEnv(), ALLOW_LOOPBACK_OUTBOUND: "true" })).toThrow(
+      "outbound_loopback_production_forbidden"
+    );
+  });
+
+  it.each([
+    "10.0.0.0/8,,fd00::/8",
+    "10.0.0.1/8",
+    "10.0.0.0/7",
+    "0.0.0.0/0",
+    "127.0.0.0/8",
+    "100.64.0.0/10",
+    "169.254.0.0/16",
+    "192.0.2.0/24",
+    "224.0.0.0/4",
+    "8.8.8.0/24",
+    "::/0",
+    "::1/128",
+    "fe80::/10",
+    "2001:db8::/32",
+    "ff00::/8",
+    "::ffff:10.0.0.0/104",
+    "not-a-cidr"
+  ])("rejects non-private, broad, non-canonical, or malformed private CIDR %s", (cidr) => {
+    expect(() => loadConfig({ ...baseEnv(), OUTBOUND_PRIVATE_CIDRS: cidr })).toThrow(
+      "outbound_private_cidr_invalid"
+    );
+  });
+
+  it("loads the current and previous data-encryption keys", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      DATA_ENCRYPTION_KEY_PREVIOUS: previousDataEncryptionKey
+    });
+
+    expect(config.dataEncryption).toEqual({
+      currentKey: currentDataEncryptionKey,
+      previousKey: previousDataEncryptionKey
+    });
+  });
+
+  it("allows data-encryption keys to be omitted outside production", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      NODE_ENV: "test",
+      DATA_ENCRYPTION_KEY: undefined
+    });
+
+    expect(config.dataEncryption).toEqual({ currentKey: undefined, previousKey: undefined });
+  });
+
+  it("requires the current data-encryption key in production", () => {
+    expect(() => loadConfig({ ...baseEnv(), DATA_ENCRYPTION_KEY: undefined })).toThrow(
+      "DATA_ENCRYPTION_KEY is required in production"
+    );
+  });
+
+  it.each([
+    ["invalid base64", "not-base64!"],
+    ["noncanonical base64", "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"],
+    ["short", Buffer.alloc(31, 1).toString("base64")],
+    ["long", Buffer.alloc(33, 1).toString("base64")]
+  ])("rejects an %s current data-encryption key", (_label, value) => {
+    expect(() => loadConfig({ ...baseEnv(), DATA_ENCRYPTION_KEY: value })).toThrow(
+      "DATA_ENCRYPTION_KEY_invalid"
+    );
+  });
+
+  it("rejects an invalid previous data-encryption key", () => {
+    expect(() => loadConfig({ ...baseEnv(), DATA_ENCRYPTION_KEY_PREVIOUS: "not-base64!" })).toThrow(
+      "DATA_ENCRYPTION_KEY_PREVIOUS_invalid"
+    );
+  });
+
+  it("rejects a previous data-encryption key without a current key", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        NODE_ENV: "test",
+        DATA_ENCRYPTION_KEY: undefined,
+        DATA_ENCRYPTION_KEY_PREVIOUS: previousDataEncryptionKey
+      })
+    ).toThrow("DATA_ENCRYPTION_KEY is required when DATA_ENCRYPTION_KEY_PREVIOUS is set");
+  });
+
+  it("rejects equal current and previous data-encryption key material", () => {
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        DATA_ENCRYPTION_KEY_PREVIOUS: currentDataEncryptionKey
+      })
+    ).toThrow("DATA_ENCRYPTION_KEY_PREVIOUS_must_differ");
+  });
 
   it("parses required runtime configuration", () => {
     const config = loadConfig({
@@ -38,6 +207,11 @@ describe("loadConfig", () => {
     expect(config.port).toBe(4000);
     expect(config.googleOAuth.enabled).toBe(false);
     expect(config.worker.role).toBe("all");
+    expect(config.mcp.allowRawDetail).toBe(false);
+  });
+
+  it("requires an explicit true value to authorize MCP raw detail", () => {
+    expect(loadConfig({ ...validEnv, MCP_ALLOW_RAW_DETAIL: "true" }).mcp.allowRawDetail).toBe(true);
   });
 
   it.each(["all", "queue", "scheduler"] as const)("loads worker role %s", (role) => {
@@ -72,6 +246,69 @@ describe("loadConfig", () => {
       "https://microerp.example.com"
     ]);
   });
+
+  it("defaults trusted proxy CIDRs to an empty list", () => {
+    expect(loadConfig(baseEnv()).trustedProxyCidrs).toEqual([]);
+  });
+
+  it("loads literal trusted proxy addresses and CIDRs in configured order", () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      TRUSTED_PROXY_CIDRS: " 10.0.0.4/32, fd00::4/128, 192.0.2.10, 2001:db8::10 "
+    });
+
+    expect(config.trustedProxyCidrs).toEqual([
+      "10.0.0.4/32",
+      "fd00::4/128",
+      "192.0.2.10",
+      "2001:db8::10"
+    ]);
+  });
+
+  it.each([
+    "true",
+    "false",
+    "1",
+    "10.0.0.0/33",
+    "fd00::/129",
+    "10.0.0.1/not-a-prefix",
+    "proxy.internal",
+    "10.0.0.1,,10.0.0.2"
+  ])("rejects malformed trusted proxy entry %s", (entry) => {
+    expect(() => loadConfig({ ...baseEnv(), TRUSTED_PROXY_CIDRS: entry })).toThrow(
+      "trusted_proxy_invalid"
+    );
+  });
+
+  it.each(["0.0.0.0/0", "::/0", "10.0.0.1/0", "2001:db8::1/0"])(
+    "rejects production trust-all CIDR %s",
+    (entry) => {
+      expect(() => loadConfig({ ...baseEnv(), TRUSTED_PROXY_CIDRS: entry })).toThrow(
+        "trusted_proxy_too_broad"
+      );
+    }
+  );
+
+  it.each([
+    "::ffff:0:0/96",
+    "0:0:0:0:0:ffff:0:0/96",
+    "::ffff:0.0.0.0/96",
+    "::fffe:0:0/95",
+    "::/80"
+  ])("rejects production CIDR %s that trusts every mapped IPv4 peer", (entry) => {
+    expect(() => loadConfig({ ...baseEnv(), TRUSTED_PROXY_CIDRS: entry })).toThrow(
+      "trusted_proxy_too_broad"
+    );
+  });
+
+  it.each(["::ffff:0:0/97", "::ffff:192.0.2.0/120"])(
+    "allows narrower production mapped-IPv4 proxy CIDR %s",
+    (entry) => {
+      expect(loadConfig({ ...baseEnv(), TRUSTED_PROXY_CIDRS: entry }).trustedProxyCidrs).toEqual([
+        entry
+      ]);
+    }
+  );
 
   it("loads retention defaults", () => {
     const config = loadConfig({
@@ -149,6 +386,57 @@ describe("loadConfig", () => {
       intervalMinutes: 30,
       lookbackDays: 200
     });
+  });
+
+  it("loads coherent bounded warehouse export deadline defaults and overrides", () => {
+    expect(loadConfig(baseEnv()).warehouseExports).toEqual({
+      enabled: true,
+      intervalMinutes: 15,
+      connectionTimeoutMs: 5_000,
+      statementTimeoutMs: 30_000,
+      lockTimeoutMs: 5_000,
+      queryTimeoutMs: 35_000,
+      totalTimeoutMs: 60_000
+    });
+
+    expect(loadConfig({
+      ...baseEnv(),
+      WAREHOUSE_CONNECTION_TIMEOUT_MS: "2000",
+      WAREHOUSE_STATEMENT_TIMEOUT_MS: "12000",
+      WAREHOUSE_LOCK_TIMEOUT_MS: "3000",
+      WAREHOUSE_QUERY_TIMEOUT_MS: "15000",
+      WAREHOUSE_TOTAL_TIMEOUT_MS: "25000"
+    }).warehouseExports).toMatchObject({
+      connectionTimeoutMs: 2_000,
+      statementTimeoutMs: 12_000,
+      lockTimeoutMs: 3_000,
+      queryTimeoutMs: 15_000,
+      totalTimeoutMs: 25_000
+    });
+  });
+
+  it.each([
+    "WAREHOUSE_CONNECTION_TIMEOUT_MS",
+    "WAREHOUSE_STATEMENT_TIMEOUT_MS",
+    "WAREHOUSE_LOCK_TIMEOUT_MS",
+    "WAREHOUSE_QUERY_TIMEOUT_MS",
+    "WAREHOUSE_TOTAL_TIMEOUT_MS"
+  ] as const)("rejects non-positive or excessive %s", (fieldName) => {
+    expect(() => loadConfig({ ...baseEnv(), [fieldName]: "0" })).toThrow();
+    expect(() => loadConfig({ ...baseEnv(), [fieldName]: "900001" })).toThrow();
+  });
+
+  it("rejects warehouse deadline combinations whose total cannot cover an inner stage", () => {
+    expect(() => loadConfig({
+      ...baseEnv(),
+      WAREHOUSE_STATEMENT_TIMEOUT_MS: "60000",
+      WAREHOUSE_TOTAL_TIMEOUT_MS: "60000"
+    })).toThrow("warehouse_export_timeouts_incoherent");
+    expect(() => loadConfig({
+      ...baseEnv(),
+      WAREHOUSE_STATEMENT_TIMEOUT_MS: "40000",
+      WAREHOUSE_QUERY_TIMEOUT_MS: "30000"
+    })).toThrow("warehouse_export_timeouts_incoherent");
   });
 
   it("loads breadcrumb retention config with defaults and overrides", () => {

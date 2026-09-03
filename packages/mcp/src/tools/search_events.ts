@@ -16,7 +16,7 @@
  */
 
 import type { EventGroupParams, SigmonClient, WindowLimitParams } from "../client.js";
-import { DEFAULT_SENSITIVE_FIELDS, pruneSection, type TruncatedInfo } from "../budget.js";
+import { DEFAULT_SENSITIVE_FIELDS, isRawDetailEnabled, pruneSection, type RawDetailOptions, type TruncatedInfo } from "../budget.js";
 
 export interface McpToolSchema {
   name: string;
@@ -87,15 +87,19 @@ export const searchEventsTool: McpToolSchema = {
       catalogLimit: { type: "integer", minimum: 1 },
       includeRawDetail: {
         type: "boolean",
-        description: "Keep the raw event properties/metadata payload instead of pruning it. Defaults to false."
+        description: "Requires MCP_ALLOW_RAW_DETAIL=true; keep the raw event properties/metadata payload instead of pruning it. Defaults to false."
       }
     },
     additionalProperties: false
   }
 };
 
-export async function handleSearchEvents(client: SigmonClient, input: SearchEventsInput = {}): Promise<Record<string, unknown>> {
-  const fieldOptions = { includeRawDetail: input.includeRawDetail };
+export async function handleSearchEvents(
+  client: SigmonClient,
+  input: SearchEventsInput = {},
+  rawDetailOptions: RawDetailOptions = {}
+): Promise<Record<string, unknown>> {
+  const fieldOptions = { includeRawDetail: input.includeRawDetail, allowRawDetail: rawDetailOptions.allowRawDetail };
   const sensitiveFields = [...DEFAULT_SENSITIVE_FIELDS, "properties", "metadata"];
 
   const listParams: EventGroupParams = {
@@ -146,6 +150,9 @@ export async function handleSearchEvents(client: SigmonClient, input: SearchEven
 
   if (truncated.length > 0) {
     result.truncated = truncated;
+  }
+  if (isRawDetailEnabled(fieldOptions)) {
+    result.rawDetailIncluded = true;
   }
 
   return result;

@@ -87,7 +87,7 @@ The CI workflow runs automatically on pull requests to `main` and pushes to `mai
 
 Automatic CI does not replace the local gate. Run the release-readiness baseline before every push: `pnpm test`, `pnpm build`, `docker compose config --quiet`, and `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve`.
 
-The workflow uses GitHub-maintained actions that run on the Node 24 action runtime (`actions/checkout@v6` and `actions/setup-node@v6`). This is separate from the application runtime, which remains Node.js 22.
+The workflow pins the GitHub-maintained `actions/checkout v6.1.0` release to commit `d23441a48e516b6c34aea4fa41551a30e30af803` and `actions/setup-node v6.5.0` to commit `249970729cb0ef3589644e2896645e5dc5ba9c38`; both use the Node 24 action runtime. This is separate from the application runtime, which remains Node.js 22.
 
 The CI smoke job validates the Docker Compose install path with generated local-only secrets. It preserves smoke resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. It does not publish images or create releases.
 
@@ -167,7 +167,7 @@ Set `RETENTION_ENABLED=false` to stop scheduled deletion while keeping the queue
 
 ## Event Rollups
 
-The `event_actor_daily` daily rollup is built into the scheduler role and backs long-range retention queries (`range_days` beyond `RETENTION_EVENTS_DAYS`). Set `EVENT_ROLLUPS_ENABLED`, `EVENT_ROLLUPS_INTERVAL_MINUTES`, and `EVENT_ROLLUPS_LOOKBACK_DAYS` in `.env` to control it. After running `pnpm db:migrate` for the migrations that add `event_actor_daily`/`event_rollup_state`, restart the worker so the new scheduler picks up the change. Keep `EVENT_ROLLUPS_LOOKBACK_DAYS` comfortably larger than `RETENTION_EVENTS_DAYS` so the rollup always finishes covering a day before raw retention purges it.
+The `event_actor_daily` daily rollup is built into the scheduler role and backs cohort requests whose range crosses the installation `RETENTION_EVENTS_DAYS` routing threshold. That threshold is not the effective raw-row lifetime: a scoped events policy can delete raw `events` sooner or keep them longer, and cohort routing is not scope-aware. Set `EVENT_ROLLUPS_ENABLED`, `EVENT_ROLLUPS_INTERVAL_MINUTES`, and `EVENT_ROLLUPS_LOOKBACK_DAYS` in `.env` to control the rollup. After running `pnpm db:migrate` for the migrations that add `event_actor_daily`/`event_rollup_state`, restart the worker so the new scheduler picks up the change. Configure `EVENT_ROLLUPS_LOOKBACK_DAYS` to cover the longest effective scoped events window or cohort range the installation must answer; `event_actor_daily` itself is not removed by raw telemetry retention.
 
 ## Simple Alerts
 

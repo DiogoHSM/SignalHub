@@ -15,12 +15,23 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `POSTGRES_PASSWORD_URLENCODED` | Sometimes | `example-local-password-change-me` | URL-encoded password for Compose internal `DATABASE_URL` when the raw password has URL-reserved characters. |
 | `POSTGRES_PORT` | No | `5432` | Host port for Compose Postgres binding. |
 | `REDIS_PORT` | No | `6379` | Host port for Compose Redis binding. |
-| `SESSION_SECRET` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used to sign human session cookies. |
+| `SESSION_SECRET` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. HMAC key for normalized-account login quota identifiers. Human session cookies contain opaque random tokens and are not signed payloads. |
+| `DATA_ENCRYPTION_KEY` | Production | `base64-encoded 32-byte secret (redacted)` | Current AES-256-GCM key for privileged integration credentials. Store it only in the deployment secret manager. New writes always use this key. |
+| `DATA_ENCRYPTION_KEY_PREVIOUS` | During rotation only | `base64-encoded previous 32-byte secret (redacted)` | Previous AES-256-GCM key accepted for reads during one-step rotation. It must differ from the current key and should be removed only after all old-key values are rewrapped. |
 | `API_KEY_PEPPER` | Yes | `replace-with-32-plus-random-characters` | At least 32 characters outside tests. Used for ingestion API key hashing. |
+| `LOGIN_SOURCE_MAX_ATTEMPTS` | No | `10` | Non-secret. Maximum password-login attempts admitted from one trusted `request.ip` during the source window. |
+| `LOGIN_SOURCE_WINDOW_MS` | No | `60000` | Non-secret. Source-IP password-login quota window in milliseconds. |
+| `LOGIN_ACCOUNT_MAX_ATTEMPTS` | No | `8` | Non-secret. Maximum password-login attempts admitted for one normalized-account HMAC during the shared Redis window. |
+| `LOGIN_ACCOUNT_WINDOW_MS` | No | `900000` | Non-secret. Shared normalized-account quota window in milliseconds. |
+| `LOGIN_ARGON2_CONCURRENCY` | No | `4` | Non-secret. Maximum concurrent password Argon2 verifications in each API process. |
+| `LOGIN_PROGRESSIVE_DELAY_MAX_MS` | No | `2000` | Non-secret. Maximum progressive delay in milliseconds after a quota-admitted invalid credential. |
 | `CONSOLE_ENABLED` | No | `true` | Enables serving the built Integration Console from the API. Defaults to `true` in production. |
 | `SIGMON_PUBLIC_ENDPOINT` | No | `https://sigmon.example.com` | Public API origin used in console snippets and, when set, in the alert email's "View in Sigmon" deep link. Defaults to the browser origin when blank; the alert email link is omitted when unset. |
 | `LANDING_HOSTS` | No | `sigmon.app,www.sigmon.app` | Non-secret. Comma-separated bare hostnames (no scheme or port) that receive the public landing page at `GET /`. Every other host is redirected from `/` to `/console` when the console is enabled. Defaults to `sigmon.app,www.sigmon.app`. |
 | `BROWSER_CORS_ORIGINS` | No | `https://app.example.com` | Optional non-secret global browser origin allowlist for public ingestion endpoints. Prefer project-scoped origins in Project Settings for normal setup. |
+| `TRUSTED_PROXY_CIDRS` | No | `(empty)` | Non-secret. Exact comma-separated immediate reverse-proxy IP/CIDRs. Empty means forwarded identity is not trusted. Never use booleans, hop counts, trust-all/mapped trust-all ranges, or a guessed broad Docker/cloud range. |
+| `OUTBOUND_PRIVATE_CIDRS` | No | `(empty)` | Non-secret. Exact comma-separated RFC 1918 or IPv6 ULA CIDRs that privileged outbound integrations may reach. Public destinations remain the default; prefer `/32` or `/128` for one host. |
+| `ALLOW_LOOPBACK_OUTBOUND` | No | `false` | Non-secret. Development/test-only loopback opt-in for local integrations. Production startup rejects `true`. |
 | `SIGMON_SOURCE_MAP_TOKEN` | CI only | `shsmap_example` | Source-map upload token created from the Artifacts console. Store only in CI secret storage. |
 | `SIGMON_URL` | `@sigmon/mcp` only | `https://my.sigmon.app` | Not a secret itself. Sigmon instance base URL the `sigmon-mcp` stdio server calls. Set in the coding agent's MCP client config, not on the Sigmon instance. |
 | `SIGMON_READ_TOKEN` | `@sigmon/mcp` only | `shread_example` | Read token created from Project Settings → Read tokens, scoped to one project/environment and revocable. `sigmon-mcp` fails fast at startup if unset. Store only in the coding agent's local MCP client config, never committed. |
@@ -47,7 +58,7 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `RETENTION_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled telemetry deletion in the worker. |
 | `RETENTION_INTERVAL_MINUTES` | No | `60` | Non-secret operational config. Minutes between scheduled retention runs. |
 | `RETENTION_BATCH_SIZE` | No | `1000` | Non-secret operational config. Maximum rows deleted per telemetry table per delete batch. |
-| `RETENTION_EVENTS_DAYS` | No | `90` | Non-secret operational config. Event retention window. |
+| `RETENTION_EVENTS_DAYS` | No | `90` | Non-secret operational config. Installation fallback for events, clicks, replays, and web-vitals deletion, and the fixed cohort raw-versus-rollup routing threshold. A valid scoped category value replaces its deletion fallback. |
 | `RETENTION_ERRORS_DAYS` | No | `180` | Non-secret operational config. Error retention window. |
 | `RETENTION_TRACES_DAYS` | No | `90` | Non-secret operational config. Trace retention window. |
 | `RETENTION_SPANS_DAYS` | No | `90` | Non-secret operational config. Span retention window. |
@@ -57,12 +68,18 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 | `RETENTION_DEAD_LETTER_JOBS_DAYS` | No | `30` | Non-secret operational config. Dead-letter job retention window; action history remains in `dead_letter_job_actions`. |
 | `EVENT_ROLLUPS_ENABLED` | No | `true` | Non-secret operational config. Enables the worker's daily `event_actor_daily` rollup job used to serve long-range retention queries. |
 | `EVENT_ROLLUPS_INTERVAL_MINUTES` | No | `60` | Non-secret operational config. Minutes between scheduled event rollup runs. |
-| `EVENT_ROLLUPS_LOOKBACK_DAYS` | No | `400` | Non-secret operational config. Backfill window on the rollup's first run; intentionally longer than `RETENTION_EVENTS_DAYS` so the rollup finishes covering a day before raw events for it are purged. |
+| `EVENT_ROLLUPS_LOOKBACK_DAYS` | No | `400` | Non-secret operational config. First-run actor-rollup backfill window. Set it to cover the longest effective scoped events window or cohort range operators rely on; it is not derived from `RETENTION_EVENTS_DAYS`. |
 | `ALERTS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled alert evaluation in the worker. |
 | `ALERTS_INTERVAL_MINUTES` | No | `1` | Non-secret operational config. Minutes between scheduled alert evaluation runs. |
-| `ALERTS_WEBHOOK_TIMEOUT_MS` | No | `5000` | Non-secret operational config. Timeout for generic webhook alert deliveries. |
+| `ALERTS_WEBHOOK_TIMEOUT_MS` | No | `5000` | Non-secret operational config. Total generic/Slack/Discord webhook delivery budget in milliseconds, including bounded retries and backoff. |
+| `MONITORS_HTTP_TIMEOUT_MS` | No | `5000` | Non-secret operational config. Default HTTP monitor request budget in milliseconds; a saved per-monitor timeout replaces it. |
 | `WAREHOUSE_EXPORTS_ENABLED` | No | `true` | Non-secret scheduler config. Enables scheduled warehouse exports; set it on the scheduler service in split deployments. |
 | `WAREHOUSE_EXPORTS_INTERVAL_MINUTES` | No | `15` | Non-secret scheduler config. Minutes between scheduled warehouse export passes; set it on the scheduler service in split deployments. |
+| `WAREHOUSE_CONNECTION_TIMEOUT_MS` | No | `5000` | Non-secret scheduler config. PostgreSQL connection-establishment deadline in milliseconds. |
+| `WAREHOUSE_STATEMENT_TIMEOUT_MS` | No | `30000` | Non-secret scheduler config. Server-side PostgreSQL statement timeout in milliseconds. |
+| `WAREHOUSE_LOCK_TIMEOUT_MS` | No | `5000` | Non-secret scheduler config. Server-side PostgreSQL lock-wait timeout in milliseconds. |
+| `WAREHOUSE_QUERY_TIMEOUT_MS` | No | `35000` | Non-secret scheduler config. Client-side timeout for each PostgreSQL query in milliseconds. Must be at least the statement timeout. |
+| `WAREHOUSE_TOTAL_TIMEOUT_MS` | No | `60000` | Non-secret scheduler config. Total per-destination budget from before DNS/connect through transaction commit; expiry forces socket/client teardown. Must be greater than every component timeout. |
 | `BACKUPS_ENABLED` | No | `true` | Non-secret operational config. Enables scheduled Postgres logical backups in the worker. |
 | `BACKUPS_INTERVAL_HOURS` | No | `24` | Non-secret operational config. Hours between scheduled backup runs. |
 | `BACKUPS_LOCAL_DIR` | No | `/var/lib/sigmon/backups` | Non-secret operational config. Local directory for backup dump files. |
@@ -77,7 +94,8 @@ Root-level `SECRETS.md` is ignored and may be used for local private notes.
 
 Operational rules:
 
-- Generate new values for `SESSION_SECRET`, `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_PASSWORD`, and `POSTGRES_PASSWORD` outside disposable local use.
+- Generate new values for `SESSION_SECRET`, `DATA_ENCRYPTION_KEY`, `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_PASSWORD`, and `POSTGRES_PASSWORD` outside disposable local use. Create encryption keys directly in an approved secret manager; do not use commands or logs that print them.
+- `DATA_ENCRYPTION_KEY` and `DATA_ENCRYPTION_KEY_PREVIOUS` must each be canonical base64 encoding of exactly 32 random bytes. Production requires the current key. During rotation, deploy the new key as current and the old key as previous; keep both until the migration reports no previous-key values.
 - Do not commit `.env`.
 - Do not commit root-level `SECRETS.md`.
 - S3-compatible backup credentials must remain environment-only or in the deployment secret manager. Do not place real `BACKUPS_S3_ACCESS_KEY_ID` or `BACKUPS_S3_SECRET_ACCESS_KEY` values in committed docs.
@@ -85,7 +103,10 @@ Operational rules:
 - Coolify deploy webhook URLs can trigger production deploys. They are called manually by the operator; store them only in the uncommitted root `SECRETS.md`, never in committed files, GitHub Actions secrets, or shared shell history.
 - SDK publishing uses npm Trusted Publishing through GitHub Actions OIDC. Do not create or store a long-lived npm publish token for the SDK workflow.
 - Source-map upload tokens are separate from ingestion API keys. They should be stored only in CI secret storage and never shipped to browser clients.
-- Webhook notification channel secret header values are write-only. The API and console only expose whether a secret is saved; saved values are redacted.
+- Generic, Slack, and Discord notification delivery URLs are write-only credentials, as are optional webhook secret-header values. The API and console expose only configured flags and persisted redacted URL previews; saved values and ciphertext are never returned.
+- Secret-bearing generic webhooks, Slack/Discord, S3-compatible endpoints, and non-loopback warehouse connections require verified TLS. Public HTTP is allowed only for non-secret generic webhooks and HTTP monitors; webhook and monitor redirects are not followed. Every actual socket lookup validates every DNS answer against the public-by-default policy and exact `OUTBOUND_PRIVATE_CIDRS` allowlist.
+- S3 backup upload has a fixed 30,000 ms application deadline (not an environment variable) covering sidecar validation, both uploads, and bounded retries; expiry aborts the operation and triggers cleanup. Warehouse timeout values are positive, capped at 900,000 ms, and must satisfy total greater than every component plus query greater than or equal to statement.
+- Safe error examples are `outbound_address_forbidden`, `Webhook delivery timed out`, `backup_s3_upload_failed`, and `warehouse_destination_timeout`. Never place a real secret, secret header, or credential-bearing URL in an error example, issue, or log.
 - Source-map settings are not secrets. Uploaded source maps may contain sensitive source paths or embedded `sourcesContent`; SignalMonitor stores them locally and the console displays resolved frame metadata only, not source content.
 - Source-map retention deletes local source-map files, artifact metadata, and cached stack resolutions. It does not configure object-storage lifecycle policies.
 - `RETENTION_BREADCRUMBS_DAYS` is not a secret. Breadcrumb payloads can still contain sensitive application data if callers misuse the API, so SDK/browser helpers sanitize aggressively and documentation forbids secrets, form values, bodies, cookies, and headers.

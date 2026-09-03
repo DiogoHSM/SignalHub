@@ -1,5 +1,6 @@
 import type { Selectable, Transaction } from "kysely";
 import { sql } from "kysely";
+import type { SecretBox } from "@sigmon/config";
 import { createId } from "../../../telemetry/src/ids.js";
 import type { Db } from "../client.js";
 import type {
@@ -190,7 +191,7 @@ function redactConnectionQuery(rawUrl: string): string {
   return `${rawUrl.slice(0, queryIndex + 1)}${redacted}${rawUrl.slice(queryEnd)}`;
 }
 
-function redactConnectionUrl(rawUrl: string): string {
+export function redactWarehouseConnectionUrl(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
     if (url.password) url.password = "***";
@@ -200,15 +201,45 @@ function redactConnectionUrl(rawUrl: string): string {
   }
 }
 
-function toDestination(row: DestinationRow, includeSecret = false): WarehouseDestinationRecord {
+function readConnectionUrl(row: DestinationRow, secretBox: SecretBox | undefined, privileged: boolean): string {
+  if (row.connection_url_encrypted !== null) {
+    if (!secretBox) throw new Error("secret_box_required");
+    return secretBox.decrypt(row.connection_url_encrypted, {
+      table: "warehouse_destinations",
+      rowId: row.id,
+      field: "connection_url"
+    });
+  }
+  if (row.connection_url !== null) {
+    if (privileged) throw new Error("legacy_plaintext_secret_present");
+    return row.connection_url;
+  }
+  throw new Error("warehouse_connection_secret_missing");
+}
+
+function connectionUrlPreview(row: DestinationRow, preview?: string): string {
+  if (preview !== undefined) return preview;
+  if (row.connection_url_preview !== null) return row.connection_url_preview;
+  if (row.connection_url !== null) return redactWarehouseConnectionUrl(row.connection_url);
+  if (row.connection_url_encrypted !== null) return "encrypted://***";
+  throw new Error("warehouse_connection_secret_missing");
+}
+
+function toDestination(
+  row: DestinationRow,
+  options: { includeSecret?: boolean; secretBox?: SecretBox; preview?: string } = {}
+): WarehouseDestinationRecord {
+  const connectionUrl = options.includeSecret
+    ? readConnectionUrl(row, options.secretBox, true)
+    : undefined;
   return {
     id: row.id,
     projectId: row.project_id,
     environmentId: row.environment_id,
     name: row.name,
     destinationType: row.destination_type,
-    connectionUrlPreview: redactConnectionUrl(row.connection_url),
-    ...(includeSecret ? { connectionUrl: row.connection_url } : {}),
+    connectionUrlPreview: connectionUrlPreview(row, options.preview),
+    ...(connectionUrl !== undefined ? { connectionUrl } : {}),
     datasets: normalizeDatasets(row.datasets),
     cursor: normalizeCursor(row.cursor),
     batchSize: row.batch_size,
@@ -243,17 +274,27 @@ function toRun(row: RunRow): WarehouseExportRunRecord {
 
 export async function createWarehouseDestination(
   db: WarehouseDb,
-  input: CreateWarehouseDestinationInput
+  input: CreateWarehouseDestinationInput,
+  secretBox: SecretBox
 ): Promise<WarehouseDestinationRecord> {
+  if (!secretBox) throw new Error("secret_box_required");
+  const id = createId("whdst");
+  const connectionUrl = input.connectionUrl.trim();
   const row = await db
     .insertInto("warehouse_destinations")
     .values({
-      id: createId("whdst"),
+      id,
       project_id: input.projectId,
       environment_id: input.environmentId,
       name: input.name.trim(),
       destination_type: input.destinationType,
-      connection_url: input.connectionUrl.trim(),
+      connection_url: null,
+      connection_url_encrypted: secretBox.encrypt(connectionUrl, {
+        table: "warehouse_destinations",
+        rowId: id,
+        field: "connection_url"
+      }),
+      connection_url_preview: redactWarehouseConnectionUrl(connectionUrl),
       datasets: jsonb(normalizeDatasets(input.datasets)),
       cursor: jsonb({}),
       batch_size: normalizeBatchSize(input.batchSize),
@@ -262,12 +303,16 @@ export async function createWarehouseDestination(
     .returningAll()
     .executeTakeFirstOrThrow();
 
-  return toDestination(row);
+  return toDestination(row, { preview: redactWarehouseConnectionUrl(connectionUrl) });
 }
 
 export async function listWarehouseDestinations(
   db: WarehouseDb,
-  input: { projectId: string; environmentId: string; includeDisabled?: boolean; includeSecret?: boolean }
+  input: {
+    projectId: string;
+    environmentId: string;
+    includeDisabled?: boolean;
+  }
 ): Promise<WarehouseDestinationRecord[]> {
   let query = db
     .selectFrom("warehouse_destinations")
@@ -279,12 +324,12 @@ export async function listWarehouseDestinations(
   if (!input.includeDisabled) query = query.where("enabled", "=", true);
 
   const rows = await query.orderBy("created_at", "asc").execute();
-  return rows.map((row) => toDestination(row, input.includeSecret));
+  return rows.map((row) => toDestination(row));
 }
 
 export async function getWarehouseDestination(
   db: WarehouseDb,
-  input: { id: string; projectId: string; environmentId: string; includeSecret?: boolean }
+  input: { id: string; projectId: string; environmentId: string; includeSecret?: boolean; secretBox?: SecretBox }
 ): Promise<WarehouseDestinationRecord | undefined> {
   const row = await db
     .selectFrom("warehouse_destinations")
@@ -295,10 +340,13 @@ export async function getWarehouseDestination(
     .where("archived_at", "is", null)
     .executeTakeFirst();
 
-  return row ? toDestination(row, input.includeSecret) : undefined;
+  return row ? toDestination(row, input) : undefined;
 }
 
-export async function listActiveWarehouseDestinations(db: WarehouseDb): Promise<WarehouseDestinationRecord[]> {
+export async function listActiveWarehouseDestinations(
+  db: WarehouseDb,
+  secretBox?: SecretBox
+): Promise<WarehouseDestinationRecord[]> {
   const rows = await db
     .selectFrom("warehouse_destinations")
     .selectAll()
@@ -307,18 +355,35 @@ export async function listActiveWarehouseDestinations(db: WarehouseDb): Promise<
     .orderBy("created_at", "asc")
     .execute();
 
-  return rows.map((row) => toDestination(row, true));
+  if (!secretBox && rows.length > 0) throw new Error("secret_box_required");
+  return rows.map((row) => toDestination(row, { includeSecret: true, secretBox }));
 }
 
 export async function updateWarehouseDestination(
   db: WarehouseDb,
-  input: UpdateWarehouseDestinationInput
+  input: UpdateWarehouseDestinationInput,
+  secretBox?: SecretBox
 ): Promise<WarehouseDestinationRecord | undefined> {
+  if (input.connectionUrl !== undefined && !secretBox) throw new Error("secret_box_required");
+  const encryptedConnectionUrl = input.connectionUrl !== undefined
+    ? secretBox!.encrypt(input.connectionUrl.trim(), {
+        table: "warehouse_destinations",
+        rowId: input.id,
+        field: "connection_url"
+      })
+    : undefined;
+  const preview = input.connectionUrl !== undefined ? redactWarehouseConnectionUrl(input.connectionUrl.trim()) : undefined;
   const row = await db
     .updateTable("warehouse_destinations")
     .set({
       ...(input.name !== undefined ? { name: input.name.trim() } : {}),
-      ...(input.connectionUrl !== undefined ? { connection_url: input.connectionUrl.trim() } : {}),
+      ...(encryptedConnectionUrl !== undefined
+        ? {
+            connection_url: null,
+            connection_url_encrypted: encryptedConnectionUrl,
+            connection_url_preview: preview!
+          }
+        : {}),
       ...(input.datasets !== undefined ? { datasets: jsonb(normalizeDatasets(input.datasets)) } : {}),
       ...(input.batchSize !== undefined ? { batch_size: normalizeBatchSize(input.batchSize) } : {}),
       ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
@@ -331,7 +396,7 @@ export async function updateWarehouseDestination(
     .returningAll()
     .executeTakeFirst();
 
-  return row ? toDestination(row) : undefined;
+  return row ? toDestination(row, { preview }) : undefined;
 }
 
 export async function archiveWarehouseDestination(

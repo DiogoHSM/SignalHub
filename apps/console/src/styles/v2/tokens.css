@@ -16,8 +16,9 @@
   /* Text */
   --fg: oklch(0.97 0.004 240);
   --fg-secondary: oklch(0.78 0.010 240);
-  --fg-muted: oklch(0.58 0.012 240);
-  --fg-faint: oklch(0.46 0.012 240);
+  --fg-muted: oklch(0.73 0.020 240);
+  --fg-faint: oklch(0.71 0.040 270);
+  --focus-ring: oklch(0.82 0.17 145);
 
   /* Accent — Signal green */
   --accent: oklch(0.82 0.17 145);
@@ -45,6 +46,17 @@
 
   --sev-violet: oklch(0.74 0.15 295);
   --sev-violet-bg: oklch(0.30 0.08 295);
+
+  /* Data visualization and low-emphasis interactive surfaces */
+  --viz-series-blue: #58a6ff;
+  --viz-series-violet: #d2a8ff;
+  --viz-series-orange: #ffa657;
+  --tenant-avatar-bg: linear-gradient(135deg, oklch(0.66 0.14 290), oklch(0.58 0.16 230));
+  --tenant-avatar-fg: white;
+  --account-avatar-bg: linear-gradient(135deg, oklch(0.56 0.14 290), oklch(0.54 0.16 230));
+  --account-avatar-fg: white;
+  --interactive-selected-bg: rgba(87, 242, 135, 0.12);
+  --row-highlight-subtle: rgba(255, 255, 255, 0.015);
 
   /* Type */
   /* "Geist Sans" is the family @fontsource/geist-sans registers; "Geist" kept for parity with the design source. */

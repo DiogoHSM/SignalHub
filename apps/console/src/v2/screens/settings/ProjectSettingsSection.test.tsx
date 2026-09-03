@@ -45,6 +45,7 @@ const apiKey: ApiKey = {
   environmentId: environment.id,
   name: "browser-production",
   prefix: "sh_live_ab",
+  capability: "browser",
   createdAt: "2026-01-02T00:00:00.000Z",
   revokedAt: null,
 };
@@ -134,6 +135,7 @@ const run: WarehouseExportRun = {
 function makeClient(overrides: Partial<ApiClient> = {}): ApiClient {
   return {
     listApiKeys: vi.fn().mockResolvedValue({ apiKeys: [apiKey] }),
+    createApiKey: vi.fn().mockResolvedValue({ apiKey: { ...apiKey, id: "key_2", secret: "sh_live_new" } }),
     updateApiKey: vi.fn().mockResolvedValue({ apiKey: { ...apiKey, name: "renamed-key" } }),
     revokeApiKey: vi.fn().mockResolvedValue(undefined),
     listBrowserOrigins: vi.fn().mockResolvedValue({ origins: [browserOrigin] }),
@@ -253,6 +255,39 @@ describe("ProjectSettingsSection", () => {
     await waitFor(() => expect(client.revokeApiKey).toHaveBeenCalledWith("key_1"));
   });
 
+  it("creates an API key with an explicit browser or server capability", async () => {
+    const client = makeClient();
+    render(<ProjectSettingsSection ctx={makeCtx(client)} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New API key" }));
+    expect(screen.getByLabelText("API key capability")).toHaveValue("browser");
+    expect(screen.getByText(/Browser keys are public by design/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("API key name"), { target: { value: "backend-identify" } });
+    fireEvent.change(screen.getByLabelText("API key capability"), { target: { value: "server" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create API key" }));
+
+    await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith(project.id, {
+      environmentId: environment.id,
+      name: "backend-identify",
+      capability: "server",
+    }));
+  });
+
+  it("resets API key creation fields when cancelled and reopened", async () => {
+    const client = makeClient();
+    render(<ProjectSettingsSection ctx={makeCtx(client)} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New API key" }));
+    fireEvent.change(screen.getByLabelText("API key name"), { target: { value: "backend-identify" } });
+    fireEvent.change(screen.getByLabelText("API key capability"), { target: { value: "server" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "New API key" }));
+    expect(screen.getByLabelText("API key name")).toHaveValue("");
+    expect(screen.getByLabelText("API key capability")).toHaveValue("browser");
+  });
+
   it("adds and archives browser origins with explicit project scope", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const client = makeClient();
@@ -299,6 +334,17 @@ describe("ProjectSettingsSection", () => {
         }),
       ),
     );
+  });
+
+  it("explains that scoped retention overrides installation defaults in either direction", async () => {
+    render(<ProjectSettingsSection ctx={makeCtx()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Data governance" }));
+
+    expect(
+      await screen.findByText(/override installation defaults.*shorter or longer/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/hard maximum|maximum retention boundary/i)).not.toBeInTheDocument();
   });
 
   it("creates, edits, runs, and archives warehouse destinations", async () => {
@@ -378,6 +424,73 @@ describe("ProjectSettingsSection", () => {
     expect(client.updateDataGovernancePolicy).toHaveBeenLastCalledWith(
       expect.objectContaining({ retentionPolicy: expect.objectContaining({ events: 45 }) }),
     );
+  });
+
+  it("preserves an exact partial retention policy when adding and removing property rules", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const partialPolicy: DataGovernancePolicy = {
+      ...governancePolicy,
+      retentionPolicy: { clicks: 7 },
+    };
+    const client = makeClient({
+      getDataGovernancePolicy: vi.fn().mockResolvedValue({ policy: partialPolicy }),
+      updateDataGovernancePolicy: vi.fn().mockImplementation(async (input) => ({
+        policy: { ...partialPolicy, retentionPolicy: input.retentionPolicy, propertyRules: input.propertyRules },
+      })),
+    });
+    render(<ProjectSettingsSection ctx={makeCtx(client)} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Data governance" }));
+    expect(await screen.findByLabelText("Click maps retention days")).toHaveValue(7);
+    expect(screen.getByLabelText("Events retention days")).toHaveValue(90);
+    expect(screen.getByLabelText("Session replays retention days")).toHaveValue(90);
+
+    fireEvent.change(screen.getByLabelText("Property path"), { target: { value: "headers.authorization" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add masking rule" }));
+
+    await waitFor(() => expect(client.updateDataGovernancePolicy).toHaveBeenCalledTimes(1));
+    expect(client.updateDataGovernancePolicy).toHaveBeenLastCalledWith({
+      projectId: project.id,
+      environmentId: environment.id,
+      retentionPolicy: { clicks: 7 },
+      propertyRules: [
+        { target: "event.properties", path: "user.email", action: "mask" },
+        { target: "event.properties", path: "headers.authorization", action: "mask" },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove event.properties.user.email" }));
+    await waitFor(() => expect(client.updateDataGovernancePolicy).toHaveBeenCalledTimes(2));
+    expect(client.updateDataGovernancePolicy).toHaveBeenLastCalledWith({
+      projectId: project.id,
+      environmentId: environment.id,
+      retentionPolicy: { clicks: 7 },
+      propertyRules: [
+        { target: "event.properties", path: "headers.authorization", action: "mask" },
+      ],
+    });
+  });
+
+  it("preserves a retention edit made as the governance panel becomes interactive", async () => {
+    const client = makeClient();
+    let edited = false;
+    const observer = new MutationObserver(() => {
+      const events = screen.queryByLabelText("Events retention days");
+      if (!(events instanceof HTMLInputElement) || edited) return;
+      edited = true;
+      fireEvent.change(events, { target: { value: "60" } });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    try {
+      render(<ProjectSettingsSection ctx={makeCtx(client)} />);
+      fireEvent.click(screen.getByRole("button", { name: "Data governance" }));
+
+      await waitFor(() => expect(edited).toBe(true));
+      expect(screen.getByLabelText("Events retention days")).toHaveValue(60);
+    } finally {
+      observer.disconnect();
+    }
   });
 
   it("does not remove a governance rule when confirmation is declined", async () => {

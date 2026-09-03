@@ -107,7 +107,7 @@ describe("useReadTokens hook", () => {
 
   it("ignores a secret created by another credential surface", async () => {
     const client = fakeClient();
-    const ctx = fakeCtx({ client, createdSecret: { value: "sh_live_browser_secret", kind: "apiKey" } });
+    const ctx = fakeCtx({ client, createdSecret: { value: "sh_live_browser_secret", kind: "browserApiKey" } });
     const { result } = renderHook(() => useReadTokens({ client, ctx, projectId: "prj_1", environmentId: "env_1" }));
     await waitFor(() => expect(result.current.status).toBe("ok"));
 

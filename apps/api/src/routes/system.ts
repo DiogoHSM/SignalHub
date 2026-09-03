@@ -137,7 +137,7 @@ export type SystemHealthSampleResponse = {
 
 export type SystemActionResponse = {
   ok: true;
-  action: "doctor" | "backup" | "retention";
+  action: "doctor" | "retention";
   status: "success" | "skipped";
   message: string;
   ran?: boolean;
@@ -145,11 +145,20 @@ export type SystemActionResponse = {
   generatedAt: string;
 };
 
+export type SystemBackupActionResponse = {
+  ok: true;
+  action: "backup";
+  status: "accepted";
+  message: "Backup queued.";
+  jobId: string;
+  generatedAt: string;
+};
+
 export type SystemHealthDependencies = {
   getHealth?: () => Promise<SystemHealthSnapshot>;
   getHistory?: (input: { limit: number }) => Promise<SystemHealthSampleResponse[]>;
   runDoctor?: () => Promise<Omit<SystemActionResponse, "ok" | "action" | "generatedAt">>;
-  runBackup?: () => Promise<Omit<SystemActionResponse, "ok" | "action" | "generatedAt">>;
+  enqueueBackup?: (input: { requestedBy: string; requestedAt: string }) => Promise<{ jobId: string }>;
   runRetention?: () => Promise<Omit<SystemActionResponse, "ok" | "action" | "generatedAt">>;
 };
 
@@ -255,12 +264,22 @@ export function registerSystemRoutes(
     const user = await requireAdmin(request, reply, options.auth);
     if (!user) return;
 
-    if (!options.system?.runBackup) {
+    if (!options.system?.enqueueBackup) {
       return reply.code(501).send({ error: "system_backup_unavailable" });
     }
 
+    const generatedAt = new Date().toISOString();
     try {
-      return actionPayload("backup", await options.system.runBackup());
+      const { jobId } = await options.system.enqueueBackup({ requestedBy: user.id, requestedAt: generatedAt });
+      const response: SystemBackupActionResponse = {
+        ok: true,
+        action: "backup",
+        status: "accepted",
+        message: "Backup queued.",
+        jobId,
+        generatedAt
+      };
+      return reply.code(202).send(response);
     } catch {
       return reply.code(503).send({ error: "system_backup_failed" });
     }

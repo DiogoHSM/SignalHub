@@ -1,7 +1,15 @@
 import { z } from "zod";
+import { BlockList, isIP } from "node:net";
+import { SecretBox } from "./secret-box.js";
+import { parseOutboundPrivateCidrs } from "./network-security.js";
 
 export * from "./logger.js";
 export * from "./network-security.js";
+export { isRetryableOutboundError } from "./outbound-error.js";
+export * from "./safe-lookup.js";
+export * from "./safe-http-client.js";
+export * from "./secret-box.js";
+export * from "./warehouse-security.js";
 
 const emptyStringToUndefined = (value: unknown) => (value === "" ? undefined : value);
 const optionalEnvString = z.preprocess(emptyStringToUndefined, z.string().optional());
@@ -12,6 +20,8 @@ const optionalTrimmedEnvString = z.preprocess(
 const optionalEnvUrl = z.preprocess(emptyStringToUndefined, z.string().url().optional());
 const optionalPositiveInteger = (defaultValue: number) =>
   z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(1).default(defaultValue));
+const optionalBoundedPositiveInteger = (defaultValue: number, maximum = 900_000) =>
+  z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(1).max(maximum).default(defaultValue));
 const optionalNonNegativeInteger = (defaultValue: number) =>
   z.preprocess(emptyStringToUndefined, z.coerce.number().int().min(0).default(defaultValue));
 
@@ -89,6 +99,63 @@ function parseOriginList(value: string | undefined): string[] {
     });
 }
 
+function trustsEveryMappedIpv4Peer(address: string, prefixLength: number): boolean {
+  const subnet = new BlockList();
+  subnet.addSubnet(address, prefixLength, "ipv6");
+  return (
+    subnet.check("::ffff:0.0.0.0", "ipv6") &&
+    subnet.check("::ffff:255.255.255.255", "ipv6")
+  );
+}
+
+function parseTrustedProxyCidrs(value: string | undefined, nodeEnv: string): string[] {
+  if (value === undefined || value.trim() === "") {
+    return [];
+  }
+
+  const entries = value.split(",").map((entry) => entry.trim());
+  for (const entry of entries) {
+    if (entry.length === 0) {
+      throw new Error("trusted_proxy_invalid");
+    }
+
+    const parts = entry.split("/");
+    if (parts.length > 2) {
+      throw new Error("trusted_proxy_invalid");
+    }
+
+    const address = parts[0] ?? "";
+    const addressVersion = isIP(address);
+    if (addressVersion === 0) {
+      throw new Error("trusted_proxy_invalid");
+    }
+
+    const prefix = parts[1];
+    if (prefix === undefined) {
+      continue;
+    }
+    if (!/^\d+$/.test(prefix)) {
+      throw new Error("trusted_proxy_invalid");
+    }
+
+    const prefixLength = Number(prefix);
+    const maxPrefixLength = addressVersion === 4 ? 32 : 128;
+    if (prefixLength > maxPrefixLength) {
+      throw new Error("trusted_proxy_invalid");
+    }
+    if (nodeEnv === "production") {
+      if (prefixLength === 0) {
+        throw new Error("trusted_proxy_too_broad");
+      }
+      if (addressVersion === 6 && trustsEveryMappedIpv4Peer(address, prefixLength)) {
+        throw new Error("trusted_proxy_too_broad");
+      }
+    }
+  }
+
+  return entries;
+}
+
 const rawConfigSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   WORKER_ROLE: z.enum(["all", "queue", "scheduler"]).default("all"),
@@ -97,6 +164,8 @@ const rawConfigSchema = z.object({
   REDIS_URL: z.string().url(),
   SESSION_SECRET: z.string(),
   API_KEY_PEPPER: z.string(),
+  DATA_ENCRYPTION_KEY: optionalEnvString,
+  DATA_ENCRYPTION_KEY_PREVIOUS: optionalEnvString,
   BOOTSTRAP_ADMIN_EMAIL: z.string().email(),
   BOOTSTRAP_ADMIN_PASSWORD: z.string(),
   GOOGLE_OAUTH_ENABLED: z
@@ -110,9 +179,19 @@ const rawConfigSchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((value) => (value === undefined ? undefined : value === "true")),
+  MCP_ALLOW_RAW_DETAIL: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   SIGMON_PUBLIC_ENDPOINT: optionalEnvUrl,
   LANDING_HOSTS: optionalEnvString,
   BROWSER_CORS_ORIGINS: optionalEnvString,
+  TRUSTED_PROXY_CIDRS: optionalEnvString,
+  OUTBOUND_PRIVATE_CIDRS: optionalEnvString,
+  ALLOW_LOOPBACK_OUTBOUND: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   RETENTION_ENABLED: z
     .enum(["true", "false"])
     .default("true")
@@ -151,6 +230,11 @@ const rawConfigSchema = z.object({
     .default("true")
     .transform((value) => value === "true"),
   WAREHOUSE_EXPORTS_INTERVAL_MINUTES: optionalPositiveInteger(15),
+  WAREHOUSE_CONNECTION_TIMEOUT_MS: optionalBoundedPositiveInteger(5_000),
+  WAREHOUSE_STATEMENT_TIMEOUT_MS: optionalBoundedPositiveInteger(30_000),
+  WAREHOUSE_LOCK_TIMEOUT_MS: optionalBoundedPositiveInteger(5_000),
+  WAREHOUSE_QUERY_TIMEOUT_MS: optionalBoundedPositiveInteger(35_000),
+  WAREHOUSE_TOTAL_TIMEOUT_MS: optionalBoundedPositiveInteger(60_000),
   SMTP_HOST: optionalTrimmedEnvString,
   SMTP_PORT: optionalPositiveInteger(587),
   SMTP_USERNAME: optionalTrimmedEnvString,
@@ -194,6 +278,12 @@ const rawConfigSchema = z.object({
     .transform((value) => value === "true"),
   SYSTEM_HEALTH_SAMPLE_INTERVAL_MINUTES: optionalPositiveInteger(5),
   SYSTEM_HEALTH_HISTORY_RETENTION_HOURS: optionalPositiveInteger(48),
+  LOGIN_SOURCE_MAX_ATTEMPTS: optionalPositiveInteger(10),
+  LOGIN_SOURCE_WINDOW_MS: optionalPositiveInteger(60_000),
+  LOGIN_ACCOUNT_MAX_ATTEMPTS: optionalPositiveInteger(8),
+  LOGIN_ACCOUNT_WINDOW_MS: optionalPositiveInteger(15 * 60_000),
+  LOGIN_ARGON2_CONCURRENCY: optionalPositiveInteger(4),
+  LOGIN_PROGRESSIVE_DELAY_MAX_MS: optionalPositiveInteger(2_000),
   // PER-449: statement_timeout (ms) for the API's request-serving Postgres pool. 0 disables it.
   // Migrations run on a separate, timeout-free pool (see apps/api/src/main.ts) so a slow one-time
   // migration on a large table can't be killed by this value.
@@ -226,6 +316,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   requireNoProductionPlaceholder("BOOTSTRAP_ADMIN_PASSWORD", parsed.BOOTSTRAP_ADMIN_PASSWORD, parsed.NODE_ENV);
   requireProductionDatabasePasswordIsNotPlaceholder(parsed.DATABASE_URL, parsed.NODE_ENV);
 
+  if (parsed.NODE_ENV === "production" && parsed.ALLOW_LOOPBACK_OUTBOUND) {
+    throw new Error("outbound_loopback_production_forbidden");
+  }
+
+  if (parsed.NODE_ENV === "production" && !parsed.DATA_ENCRYPTION_KEY) {
+    throw new Error("DATA_ENCRYPTION_KEY is required in production");
+  }
+  if (parsed.DATA_ENCRYPTION_KEY_PREVIOUS && !parsed.DATA_ENCRYPTION_KEY) {
+    throw new Error("DATA_ENCRYPTION_KEY is required when DATA_ENCRYPTION_KEY_PREVIOUS is set");
+  }
+  if (parsed.DATA_ENCRYPTION_KEY) {
+    new SecretBox({
+      currentKey: parsed.DATA_ENCRYPTION_KEY,
+      previousKey: parsed.DATA_ENCRYPTION_KEY_PREVIOUS
+    });
+  }
+
   if (parsed.GOOGLE_OAUTH_ENABLED) {
     if (!parsed.GOOGLE_CLIENT_ID) throw new Error("GOOGLE_CLIENT_ID is required when Google OAuth is enabled");
     if (!parsed.GOOGLE_CLIENT_SECRET) throw new Error("GOOGLE_CLIENT_SECRET is required when Google OAuth is enabled");
@@ -241,6 +348,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     if (!parsed.BACKUPS_S3_SECRET_ACCESS_KEY) {
       throw new Error("BACKUPS_S3_SECRET_ACCESS_KEY is required when backup S3 upload is enabled");
     }
+  }
+
+  if (
+    parsed.WAREHOUSE_TOTAL_TIMEOUT_MS <= Math.max(
+      parsed.WAREHOUSE_CONNECTION_TIMEOUT_MS,
+      parsed.WAREHOUSE_STATEMENT_TIMEOUT_MS,
+      parsed.WAREHOUSE_LOCK_TIMEOUT_MS,
+      parsed.WAREHOUSE_QUERY_TIMEOUT_MS
+    ) ||
+    parsed.WAREHOUSE_QUERY_TIMEOUT_MS < parsed.WAREHOUSE_STATEMENT_TIMEOUT_MS
+  ) {
+    throw new Error("warehouse_export_timeouts_incoherent");
   }
 
   const smtpConfigured = Boolean(
@@ -268,6 +387,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     redisUrl: parsed.REDIS_URL,
     sessionSecret: parsed.SESSION_SECRET,
     apiKeyPepper: parsed.API_KEY_PEPPER,
+    dataEncryption: {
+      currentKey: parsed.DATA_ENCRYPTION_KEY,
+      previousKey: parsed.DATA_ENCRYPTION_KEY_PREVIOUS
+    },
     bootstrapAdmin: {
       email: parsed.BOOTSTRAP_ADMIN_EMAIL,
       password: parsed.BOOTSTRAP_ADMIN_PASSWORD
@@ -282,11 +405,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
       enabled: parsed.CONSOLE_ENABLED ?? (parsed.NODE_ENV === "production"),
       publicEndpoint: parsed.SIGMON_PUBLIC_ENDPOINT ?? ""
     },
+    mcp: {
+      allowRawDetail: parsed.MCP_ALLOW_RAW_DETAIL
+    },
     landing: {
       hosts: parseHostList(parsed.LANDING_HOSTS, ["sigmon.app", "www.sigmon.app"])
     },
     browserCors: {
       origins: parseOriginList(parsed.BROWSER_CORS_ORIGINS)
+    },
+    trustedProxyCidrs: parseTrustedProxyCidrs(parsed.TRUSTED_PROXY_CIDRS, parsed.NODE_ENV),
+    outbound: {
+      privateCidrs: parseOutboundPrivateCidrs(parsed.OUTBOUND_PRIVATE_CIDRS),
+      allowLoopback: parsed.ALLOW_LOOPBACK_OUTBOUND
+    },
+    auth: {
+      login: {
+        sourceMaxAttempts: parsed.LOGIN_SOURCE_MAX_ATTEMPTS,
+        sourceWindowMs: parsed.LOGIN_SOURCE_WINDOW_MS,
+        accountMaxAttempts: parsed.LOGIN_ACCOUNT_MAX_ATTEMPTS,
+        accountWindowMs: parsed.LOGIN_ACCOUNT_WINDOW_MS,
+        argon2Concurrency: parsed.LOGIN_ARGON2_CONCURRENCY,
+        progressiveDelayMaxMs: parsed.LOGIN_PROGRESSIVE_DELAY_MAX_MS
+      }
     },
     retention: {
       enabled: parsed.RETENTION_ENABLED,
@@ -319,7 +460,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     },
     warehouseExports: {
       enabled: parsed.WAREHOUSE_EXPORTS_ENABLED,
-      intervalMinutes: parsed.WAREHOUSE_EXPORTS_INTERVAL_MINUTES
+      intervalMinutes: parsed.WAREHOUSE_EXPORTS_INTERVAL_MINUTES,
+      connectionTimeoutMs: parsed.WAREHOUSE_CONNECTION_TIMEOUT_MS,
+      statementTimeoutMs: parsed.WAREHOUSE_STATEMENT_TIMEOUT_MS,
+      lockTimeoutMs: parsed.WAREHOUSE_LOCK_TIMEOUT_MS,
+      queryTimeoutMs: parsed.WAREHOUSE_QUERY_TIMEOUT_MS,
+      totalTimeoutMs: parsed.WAREHOUSE_TOTAL_TIMEOUT_MS
     },
     smtp: {
       enabled: smtpConfigured,

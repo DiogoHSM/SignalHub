@@ -12,7 +12,7 @@
  */
 
 import type { SigmonClient, Window } from "../client.js";
-import { pruneSection, type TruncatedInfo } from "../budget.js";
+import { isRawDetailEnabled, pruneSection, type RawDetailOptions, type TruncatedInfo } from "../budget.js";
 
 export interface McpToolSchema {
   name: string;
@@ -70,16 +70,20 @@ export const slowEndpointsTool: McpToolSchema = {
       },
       includeRawDetail: {
         type: "boolean",
-        description: "Keep fields the response budget would otherwise prune. Defaults to false."
+        description: "Requires MCP_ALLOW_RAW_DETAIL=true; keep fields the response budget would otherwise prune. Defaults to false."
       }
     },
     additionalProperties: false
   }
 };
 
-export async function handleSlowEndpoints(client: SigmonClient, input: SlowEndpointsInput = {}): Promise<Record<string, unknown>> {
+export async function handleSlowEndpoints(
+  client: SigmonClient,
+  input: SlowEndpointsInput = {},
+  rawDetailOptions: RawDetailOptions = {}
+): Promise<Record<string, unknown>> {
   const includeServiceMap = input.includeServiceMap ?? true;
-  const fieldOptions = { includeRawDetail: input.includeRawDetail };
+  const fieldOptions = { includeRawDetail: input.includeRawDetail, allowRawDetail: rawDetailOptions.allowRawDetail };
 
   const endpointsRaw = (await client.getApmEndpoints({ window: input.window, limit: input.limit })) as ApmEndpointsPayload;
   const endpointsSection = pruneSection(endpointsRaw.endpoints ?? [], "endpoints", fieldOptions);
@@ -108,6 +112,9 @@ export async function handleSlowEndpoints(client: SigmonClient, input: SlowEndpo
 
   if (truncated.length > 0) {
     result.truncated = truncated;
+  }
+  if (isRawDetailEnabled(fieldOptions)) {
+    result.rawDetailIncluded = true;
   }
 
   return result;

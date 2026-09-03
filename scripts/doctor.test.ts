@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import {
   buildDoctorResults,
@@ -14,6 +16,7 @@ import {
   renderResults,
   runCommandWithTimeout,
   runDoctor,
+  selectPnpmVersionCommand,
   type DoctorEnv
 } from "./doctor.js";
 
@@ -255,6 +258,114 @@ describe("doctor orchestration", () => {
         detail: "invalid compose file"
       })
     );
+  });
+
+  it("uses Node to run Corepack's pnpm entry point on Windows", async (context) => {
+    const corepackRoot = process.env.COREPACK_ROOT;
+    if (process.platform !== "win32" || !corepackRoot) {
+      context.skip();
+      return;
+    }
+
+    const commands: string[][] = [];
+    await buildDoctorResults({
+      options: { compose: false, envFile: ".env" },
+      fileExists: () => true,
+      readFile: () => buildEnvContent(validEnv),
+      runCommand: async (command) => {
+        commands.push(command);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+      fetchHealth: async () => ({ ok: true, status: 200 }),
+      checkDirectoryWritable: () => true
+    });
+
+    expect(commands[1]).toEqual([process.execPath, join(corepackRoot, "dist", "pnpm.js"), "--version"]);
+  });
+
+  it("reports the bare pnpm Windows no-shell failure without relying on PATH", async () => {
+    const command = selectPnpmVersionCommand({
+      platform: "win32",
+      execPath: "C:\\node.exe",
+      corepackRoot: "C:\\missing-corepack",
+      isFile: () => false
+    });
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: PassThrough;
+      stderr: PassThrough;
+      kill: (signal: NodeJS.Signals) => boolean;
+    };
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = () => true;
+    const spawned: Array<[string, string[]]> = [];
+
+    const result = await checkCommand("pnpm version check", command, (input) =>
+      runCommandWithTimeout(input, 1_000, {
+        spawnProcess: (program, args) => {
+          spawned.push([program, args]);
+          queueMicrotask(() => child.emit("error", new Error("spawn pnpm ENOENT")));
+          return child;
+        }
+      })
+    );
+
+    expect(spawned).toEqual([["pnpm", ["--version"]]]);
+    expect(result).toEqual(
+      expect.objectContaining({ status: "fail", message: "pnpm version check failed", detail: "spawn pnpm ENOENT" })
+    );
+  });
+
+  it("selects the validated Corepack pnpm entry point as literal Windows argv", () => {
+    const execPath = "C:\\Node Runtime & Tools\\node.exe";
+    const corepackRoot = "C:\\Corepack Root & Tools";
+    const entryPoint = join(corepackRoot, "dist", "pnpm.js");
+
+    expect(
+      selectPnpmVersionCommand({
+        platform: "win32",
+        execPath,
+        corepackRoot,
+        isFile: (path) => path === entryPoint
+      })
+    ).toEqual([execPath, entryPoint, "--version"]);
+  });
+
+  it("preserves the bare pnpm command outside Windows", () => {
+    expect(
+      selectPnpmVersionCommand({
+        platform: "linux",
+        execPath: "/usr/bin/node",
+        corepackRoot: "/opt/corepack",
+        isFile: () => true
+      })
+    ).toEqual(["pnpm", "--version"]);
+  });
+
+  it("falls back to the normal pnpm check when Corepack runtime data is missing or invalid", () => {
+    expect(selectPnpmVersionCommand({ platform: "win32", execPath: "C:\\node.exe", corepackRoot: "" })).toEqual([
+      "pnpm",
+      "--version"
+    ]);
+    expect(
+      selectPnpmVersionCommand({
+        platform: "win32",
+        execPath: "C:\\node.exe",
+        corepackRoot: "C:\\missing-corepack",
+        isFile: () => false
+      })
+    ).toEqual(["pnpm", "--version"]);
+  });
+
+  it("runs the installed Corepack pnpm entry point with the local Node runtime", (context) => {
+    if (process.platform !== "win32" || !process.env.COREPACK_ROOT) {
+      context.skip();
+      return;
+    }
+
+    const command = selectPnpmVersionCommand();
+    expect(command).toHaveLength(3);
+    expect(execFileSync(command[0]!, command.slice(1), { encoding: "utf8" }).trim()).toBe("9.15.4");
   });
 
   it("checks API health and readiness endpoints", async () => {

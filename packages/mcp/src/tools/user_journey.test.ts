@@ -66,7 +66,7 @@ function timelineItem(index: number) {
     release: null,
     title: `Step ${index}`,
     level: null,
-    data: { raw: "should be pruned" }
+    data: { raw: "should be pruned", pageUrl: "/checkout?token=secret", apiToken: "secret" }
   };
 }
 
@@ -162,13 +162,21 @@ describe("handleUserJourney", () => {
     expect(timeline.items[0]!.data).toBeUndefined();
   });
 
-  it("keeps item `data` when includeRawDetail is set", async () => {
+  it("prunes item data when only the tool call opts in", async () => {
     const client = makeFakeClient();
 
     const result = await handleUserJourney(client, { sessionId: "session-1", includeRawDetail: true });
 
     const timeline = result.timeline as { items: Array<Record<string, unknown>> };
-    expect(timeline.items[0]!.data).toEqual({ raw: "should be pruned" });
+    expect(timeline.items[0]!.data).toBeUndefined();
+  });
+
+  it("returns sanitized timeline data only after both gates opt in", async () => {
+    const result = await handleUserJourney(makeFakeClient(), { sessionId: "session-1", includeRawDetail: true }, { allowRawDetail: true });
+
+    const timeline = result.timeline as { items: Array<Record<string, unknown>> };
+    expect(timeline.items[0]!.data).toEqual({ raw: "should be pruned", pageUrl: "/checkout?token=%5BREDACTED%5D", apiToken: "[REDACTED]" });
+    expect(result).toMatchObject({ rawDetailIncluded: true });
   });
 
   it("marks truncated when the users section exceeds the response budget cap", async () => {

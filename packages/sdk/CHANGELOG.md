@@ -2,6 +2,14 @@
 
 All notable changes to `@sigmon/sdk` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this package follows semantic versioning.
 
+## 0.2.1
+
+### Fixed
+
+- Apply URL privacy sanitization consistently to captured browser context.
+- Rebuild packages from clean staged output and reject stale or private-workspace runtime artifacts.
+- Update vulnerable runtime dependencies without changing public exports.
+
 ## 0.2.0
 
 No exports were removed or changed shape from 0.1.0 — this release is additive.

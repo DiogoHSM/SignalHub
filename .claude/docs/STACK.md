@@ -10,7 +10,7 @@
 
 - Fastify 5.
 - Zod for payload and configuration validation.
-- `@fastify/cookie` for signed human session transport.
+- `@fastify/cookie` for parsing and setting opaque human-session tokens and the scoped OAuth state cookie.
 - `@fastify/multipart` for admin source-map artifact uploads.
 - `@jridgewell/trace-mapping` and `fflate` for source-map frame resolution and ZIP bundle extraction.
 - Optional Google OAuth uses Google authorization-code flow through Node `fetch` and links only existing local users.
@@ -27,7 +27,7 @@
 ## Security Libraries
 
 - Argon2 for password hashing.
-- HMAC session signing through Node `crypto`.
+- Node `crypto` for SHA-256 opaque-session token hashes and HMAC-SHA-256 normalized-account quota identifiers.
 - API key generation and verification in `@sigmon/telemetry`.
 - Shared webhook target validation in `@sigmon/config` blocks unsafe network ranges.
 - Backup SHA-256 sidecars use Node `crypto`.

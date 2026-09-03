@@ -8,6 +8,8 @@ type ProjectBrowserOriginRow = Selectable<ProjectBrowserOriginsTable>;
 type EnvironmentRow = Selectable<EnvironmentsTable>;
 type ApiKeyRow = Selectable<ApiKeysTable>;
 
+export type ApiKeyCapability = "browser" | "server";
+
 export interface Project {
   id: string;
   name: string;
@@ -40,6 +42,7 @@ export interface ApiKeyRecord {
   name: string;
   prefix: string;
   hash: string;
+  capability: ApiKeyCapability;
   createdAt: Date;
   revokedAt: Date | null;
 }
@@ -92,6 +95,7 @@ function toApiKeyRecord(row: ApiKeyRow): ApiKeyRecord {
     name: row.name,
     prefix: row.prefix,
     hash: row.hash,
+    capability: row.capability,
     createdAt: row.created_at,
     revokedAt: row.revoked_at
   };
@@ -207,13 +211,16 @@ export async function listProjectBrowserOrigins(db: Db, projectId: string): Prom
   return rows.map(toProjectBrowserOrigin);
 }
 
-export async function archiveProjectBrowserOrigin(db: Db, id: string): Promise<void> {
-  await db
+export async function archiveProjectBrowserOrigin(db: Db, id: string): Promise<ProjectBrowserOrigin | undefined> {
+  const row = await db
     .updateTable("project_browser_origins")
     .set({ archived_at: new Date() })
     .where("id", "=", id)
     .where("archived_at", "is", null)
-    .execute();
+    .returningAll()
+    .executeTakeFirst();
+
+  return row ? toProjectBrowserOrigin(row) : undefined;
 }
 
 export async function isBrowserOriginAllowed(db: Db, origin: string): Promise<boolean> {
@@ -310,7 +317,7 @@ export async function isScopeActive(db: Db, projectId: string, environmentId: st
 
 export async function createApiKeyRecord(
   db: Db,
-  input: { projectId: string; environmentId: string; name: string; prefix: string; hash: string }
+  input: { projectId: string; environmentId: string; name: string; prefix: string; hash: string; capability: ApiKeyCapability }
 ): Promise<ApiKeyRecord> {
   const activeScope = await db
     .selectFrom("projects")
@@ -333,7 +340,8 @@ export async function createApiKeyRecord(
       environment_id: input.environmentId,
       name: input.name,
       prefix: input.prefix,
-      hash: input.hash
+      hash: input.hash,
+      capability: input.capability
     })
     .returningAll()
     .executeTakeFirstOrThrow();

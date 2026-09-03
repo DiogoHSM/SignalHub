@@ -52,6 +52,7 @@ function key(id: string): ApiKey {
     environmentId: `env_${id}`,
     name: `Key ${id}`,
     prefix: `sh_${id}`,
+    capability: "browser",
     createdAt: "2026-01-01T00:00:00.000Z",
     revokedAt: null,
   };
@@ -234,6 +235,39 @@ describe("useProjectSettings", () => {
 
     create.resolve({ origin: { id: "origin_1", projectId: "prj_a", origin: "https://app.example.com", createdAt: "x", archivedAt: null } });
     await act(async () => first);
+  });
+
+  it("keeps a created server secret out of list state before and after one-time presentation dismissal", async () => {
+    const createdServerKey = {
+      ...key("server"),
+      projectId: "prj_a",
+      environmentId: "env_a",
+      capability: "server" as const,
+      secret: "sh_live_server_secret",
+    };
+    const api = client({
+      createApiKey: vi.fn().mockResolvedValue({ apiKey: createdServerKey }),
+    });
+    let presentedSecret: string | null = null;
+    const onSecretCreated = vi.fn((secret: string | null) => {
+      presentedSecret = secret;
+    });
+    const screenCtx = ctx("a", api);
+    screenCtx.onSecretCreated = onSecretCreated;
+    const { result } = renderHook(() => useProjectSettings(screenCtx));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.createApiKey({ name: "Backend", capability: "server" });
+    });
+
+    expect(onSecretCreated).toHaveBeenCalledWith("sh_live_server_secret", "serverApiKey");
+    expect(presentedSecret).toBe("sh_live_server_secret");
+    expect(result.current.apiKeys[0]).not.toHaveProperty("secret");
+
+    act(() => screenCtx.onSecretCreated(null, "serverApiKey"));
+    expect(presentedSecret).toBeNull();
+    expect(result.current.apiKeys[0]).not.toHaveProperty("secret");
   });
 
   it("loads capabilities independently and maps only the 501 panel to unavailable", async () => {

@@ -6,7 +6,7 @@ import { ApiError, type ApiClient } from "../../api/client";
 import type { Environment, Project, ReadToken } from "../../api/types";
 import type { NavSection } from "../nav";
 import { ReadTokensSection } from "./ReadTokensSection";
-import type { ScreenCtx } from "./registry";
+import type { ScreenCtx, SecretKind } from "./registry";
 
 afterEach(cleanup);
 
@@ -124,7 +124,7 @@ describe("ReadTokensSection", () => {
   });
 
   it("ignores a secret created by another credential surface (e.g. the Setup API key)", async () => {
-    const ctx = makeCtx({ createdSecret: { value: "sh_live_browser_secret", kind: "apiKey" } });
+    const ctx = makeCtx({ createdSecret: { value: "sh_live_browser_secret", kind: "browserApiKey" } });
     render(<ReadTokensSection ctx={ctx} />);
     await screen.findByText("mcp server");
     expect(screen.queryByText(/shown once/i)).not.toBeInTheDocument();
@@ -209,11 +209,11 @@ describe("ReadTokensSection", () => {
     });
 
     function Host() {
-      const [createdSecret, setCreatedSecret] = useState<{ value: string; kind: "apiKey" | "readToken" } | null>(null);
+      const [createdSecret, setCreatedSecret] = useState<{ value: string; kind: SecretKind } | null>(null);
       const ctx = makeCtx({
         client,
         createdSecret,
-        onSecretCreated: (secret: string | null, kind: "apiKey" | "readToken") =>
+        onSecretCreated: (secret: string | null, kind: SecretKind) =>
           setCreatedSecret(secret ? { value: secret, kind } : null),
       });
       return <ReadTokensSection ctx={ctx} />;

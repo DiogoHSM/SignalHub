@@ -7,9 +7,10 @@ The intended public website and domain is `sigmon.app`; the default deployed app
 ## Current Capabilities
 
 - Local admin login with a bootstrap admin seed.
-- Admin management for users, projects, environments, and scoped ingestion API keys.
+- Revocable opaque database sessions and bounded, enumeration-resistant password login.
+- Admin management for users, projects, environments, and browser/server-scoped ingestion API keys.
 - API-key ingestion for events, errors, breadcrumbs, LLM calls, traces, and spans.
-- API-key identify endpoints for project/environment-scoped user and tenant profile traits.
+- Server-key identify endpoints for project/environment-scoped user and tenant profile traits.
 - Browser-origin allowlists for direct browser telemetry and CORS preflight handling.
 - Zod payload validation and recursive sanitization before persistence.
 - Redis-backed ingestion queue with worker processing.
@@ -23,6 +24,7 @@ The intended public website and domain is `sigmon.app`; the default deployed app
 - Integration Console for setup, operations overview, investigation, alerts, monitors, experiments, artifacts, and system health.
 - Worker-owned retention, HTTP uptime checks, heartbeat monitors, and operational health reporting.
 - Worker-owned simple alerts with internal history and optional email or webhook delivery.
+- AES-256-GCM encrypted warehouse and webhook credentials with restartable migration and one-step key rotation.
 - Dead-letter job inspection, filtering, replay, delete, and audit history for permanently failed telemetry jobs.
 - Health and readiness endpoints for API, Postgres, and Redis checks.
 - Read-only operator doctor checks for local and Docker Compose installs.
@@ -48,10 +50,13 @@ Create `.env` from `.env.example` and replace the example values before running 
 | `REDIS_URL` | Yes | Redis URL used by local Node processes. |
 | `POSTGRES_PASSWORD` | Yes for Compose | Password for the Compose Postgres user. Set before first database start. |
 | `POSTGRES_PASSWORD_URLENCODED` | Sometimes | URL-encoded copy of `POSTGRES_PASSWORD` when it contains URL-reserved characters. |
-| `SESSION_SECRET` | Yes | At least 32 characters outside tests. Signs human session cookies. |
+| `SESSION_SECRET` | Yes | At least 32 characters outside tests. HMAC key for normalized-account login quota identifiers; human session cookies are opaque random tokens. |
+| `DATA_ENCRYPTION_KEY` | Production | Canonical base64 encoding of exactly 32 random bytes. Current AES-256-GCM key for privileged integration credentials. |
+| `DATA_ENCRYPTION_KEY_PREVIOUS` | During rotation only | Previous 32-byte encryption key, retained until a confirmation migration reports zero rotations. |
 | `API_KEY_PEPPER` | Yes | At least 32 characters outside tests. Used when hashing ingestion API keys. |
 | `CONSOLE_ENABLED` | No | Enables the built Integration Console from the API. Compose sets this to `true`. |
 | `SIGMON_PUBLIC_ENDPOINT` | No | Public API origin used in console snippets, for example `https://sigmon.example.com`. |
+| `MCP_ALLOW_RAW_DETAIL` | No | Defaults to `false`. Set to `true` only to authorize per-call MCP raw detail; that detail may be disclosed to an external AI provider. |
 | `BROWSER_CORS_ORIGINS` | No | Comma-separated browser app origins allowed to post SDK telemetry directly to `/v1/*`, for example `https://app.example.com`. |
 | `SOURCE_MAPS_LOCAL_DIR` | No | Local directory for uploaded source-map artifacts. Defaults to `/var/lib/sigmon/source-maps`. |
 | `SOURCE_MAPS_MAX_UPLOAD_MB` | No | Maximum source-map upload size in MiB. Defaults to `50`. |
@@ -68,13 +73,21 @@ To enable it, create a Google Cloud OAuth 2.0 **Web application** client and reg
 
 Do not commit real secrets. Root-level `SECRETS.md` is ignored for local operator notes. The committed `.claude/docs/SECRETS.md` contains sanitized variable names and safe examples only.
 
+## MCP Raw Detail
+
+MCP tools prune stacks, payloads, span bodies, and comparable raw detail by default. Returning that detail requires both `MCP_ALLOW_RAW_DETAIL=true` in the MCP process and `includeRawDetail: true` on the individual tool call. Enabling the process flag can disclose telemetry to an external AI provider; use it only with a trusted client. Even then, secret-shaped keys and URL query values are redacted and response sections remain capped.
+
 ## Operational Config
 
-Retention, alert scheduler, backup scheduler, source-map storage, and source-map retention settings are non-secret operational config. S3-compatible backup credentials are secrets. All variables are documented in `.env.example` and `.claude/docs/SECRETS.md`.
+Retention, alert scheduler, backup scheduler, source-map storage, source-map retention, and login-admission settings are non-secret operational config. S3-compatible backup credentials and the data-encryption keyring are secrets. All variables are documented in `.env.example` and `.claude/docs/SECRETS.md`; the exact session, migration, rotation, and recovery runbooks are in `docs/SELF-HOSTING.md`.
 
 ## Runtime Hardening
 
-Webhook notification URLs are rejected in every environment when they target local, private, link-local, multicast, loopback, or cloud metadata networks. In production, webhook delivery uses the resolved safe address to avoid DNS rebinding between validation and fetch.
+`TRUSTED_PROXY_CIDRS` defaults empty, so forwarded headers are ignored and the direct peer remains authoritative. Configure only exact immediate proxy IP/CIDRs. Trusted forwarding is evaluated right-to-left; booleans, hop counts, trust-all/mapped trust-all ranges, and guessed broad Docker or cloud ranges are unsafe. The global Redis-backed limiter runs before database-backed browser CORS lookup, while stricter login controls remain separate. Each API replica caches at most 1,000 positive and negative origin results for 60 seconds, so admin changes can take up to 60 seconds to converge across replicas.
+
+Outbound integrations allow public destinations by default. `OUTBOUND_PRIVATE_CIDRS` can admit only explicitly listed RFC 1918 or IPv6 ULA CIDRs, and `ALLOW_LOOPBACK_OUTBOUND=true` is limited to development/test. Link-local and metadata, CGNAT, documentation, benchmark, multicast, reserved, malformed numeric, and transition-encoded private targets remain forbidden. The lookup used by the actual socket validates every DNS answer; a preflight resolution is not trusted.
+
+Secret-bearing generic webhooks, Slack/Discord delivery, S3-compatible backups, and every non-loopback warehouse connection require verified TLS. HTTP monitors may check public HTTP but keep the same destination and deadline enforcement. Webhook and monitor redirects are not followed. Defaults are `ALERTS_WEBHOOK_TIMEOUT_MS=5000`, `MONITORS_HTTP_TIMEOUT_MS=5000`, and `WAREHOUSE_CONNECTION_TIMEOUT_MS=5000`, `WAREHOUSE_STATEMENT_TIMEOUT_MS=30000`, `WAREHOUSE_LOCK_TIMEOUT_MS=5000`, `WAREHOUSE_QUERY_TIMEOUT_MS=35000`, `WAREHOUSE_TOTAL_TIMEOUT_MS=60000`. The full proxy discovery, CIDR, timeout-coherence, sanitized-error, and PER-507/PER-508 verification contract is in [`docs/SELF-HOSTING.md`](docs/SELF-HOSTING.md#reverse-proxy).
 
 Telemetry queue retries are idempotent. Queue jobs use deterministic IDs derived from telemetry payload IDs, and database writes ignore duplicate telemetry IDs.
 
@@ -83,6 +96,10 @@ The API and worker use structured logs with redaction for secret-bearing fields.
 Docker images run as the non-root `sigmon` user under `tini`, and Docker Compose defines healthchecks for Postgres, Redis, API, and worker services. Production doctor checks reject local-only password placeholders.
 
 HTTP security headers are set on API responses. In production, the human session cookie uses the `__Host-sigmon_session` name with `Secure`, `HttpOnly`, `SameSite=Lax`, and `Path=/`.
+
+Human cookies carry only random opaque tokens, while Postgres stores only token hashes. Logout, password changes, and user archival revoke sessions; the upgrade from signed cookies intentionally requires one fresh login. Password login applies schema/byte validation and source/account admission before Argon2: invalid input returns `400`, quota rejection returns `429`, and unavailable quota state returns `503`. Each schema-valid, quota-admitted credential check performs exactly one real or dummy Argon2 verification; missing, archived, OAuth-only, and wrong-password accounts then share the same delayed `401 invalid_credentials` contract. An in-process semaphore bounds Argon2 concurrency.
+
+Warehouse connection URLs, all notification delivery URLs, and webhook secret-header values are encrypted at rest with record-bound AES-256-GCM. Operators must retain the matching keyring separately from database backups. See `docs/SELF-HOSTING.md` before upgrading or rotating a key.
 
 ## Operational Safety
 
@@ -100,7 +117,13 @@ Retention deletes telemetry rows, expired dead-letter jobs, and, when source-map
 | Breadcrumbs | 30 days |
 | Dead-letter jobs | 30 days |
 
-Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
+Project Settings can store category-specific retention for one project/environment. A valid scoped value overrides the installation default for that category whether it is shorter or longer. With a 30-day default, a 90-day events value preserves a 60-day event, a 7-day value deletes an 8-day event, and an absent category in a partial policy continues to use the default. Invalid legacy values also fall back to the default. Retention uses exact elapsed 24-hour days and a strict older-than cutoff, so a row exactly at its cutoff survives.
+
+Each physical table is deleted by one category only: `events` by events, `click_events` by clicks, and `session_replays` by replays. Clicks, replays, and web vitals inherit `RETENTION_EVENTS_DAYS` only when their scoped category is absent or invalid. Existing retention-run counters aggregate click and replay deletions into the `events` count.
+
+Before upgrading from a release with the former installation-boundary behavior, review scoped policies whose values exceed the installation defaults: those rows can now live longer. Already-deleted rows are not restored. Heartbeat check-ins also require the monitor, environment, and project to remain active; any of those archive states returns the same not-found response, and persistence rechecks lifecycle state transactionally.
+
+Source-map retention is worker-owned and local-storage-only. The API and worker must share the exact persistent `source_map_data:/var/lib/sigmon/source-maps` mount. The API initializes and validates `.sigmon-source-map-storage` before listening; the worker requires the existing marker. Missing or wrong authority fails closed with `source_map_storage_unavailable` before file or metadata deletion. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
 
 Set `RETENTION_ENABLED=false` to disable scheduled deletion, including scheduled source-map cleanup. The other retention variables configure the run interval, batch size, and per-table retention windows.
 
@@ -108,19 +131,19 @@ The console `System` mode is available to logged-in users. It shows API, queue w
 
 ## Backups and Restore
 
-The worker owns scheduled Postgres logical backups. When `BACKUPS_ENABLED=true`, it runs `pg_dump` in custom format and writes files named like `sigmon-YYYYMMDDTHHMMSSZ.dump` to `BACKUPS_LOCAL_DIR`.
+The worker scheduler role owns scheduled and queued manual Postgres logical backups. When `BACKUPS_ENABLED=true`, it runs scheduled `pg_dump` jobs in custom format and writes files named like `sigmon-YYYYMMDDTHHMMSSZ.dump` to `BACKUPS_LOCAL_DIR`. A scheduler-role maintenance consumer remains available for administrator-requested backups even when the schedule is disabled; a `WORKER_ROLE=queue` process does not consume those jobs.
 
 Docker Compose mounts the `backup_data` volume at `/var/lib/sigmon/backups` in the worker container. Each dump gets a SHA-256 sidecar file, and restore verifies the sidecar when present before running `pg_restore`. Local retention deletes old local backup files and sidecars according to `BACKUPS_RETENTION_DAYS`. Backup run metadata is stored in Postgres; the dump files and sidecars remain on local storage and, optionally, remote object storage.
 
 Failed `pg_dump` runs remove partial dump files before recording the sanitized failure. S3-compatible uploads retry transient network, timeout, rate-limit, and 5xx failures with a short bounded backoff; permanent 4xx authorization/configuration failures fail fast.
 
-Run a manual backup with:
+For an operator-controlled one-off backup, run the worker CLI with the intended database config and durable backup mount:
 
 ```sh
 docker compose run --rm worker pnpm backup:create
 ```
 
-Admins can also trigger a manual backup from the console System screen or through `POST /system/actions/backup` with a logged-in admin session.
+`pnpm backup:create` executes the worker path directly rather than enqueueing. Admins can instead trigger a backup from the console System screen or through `POST /system/actions/backup` with a logged-in admin session. The API returns `202 Accepted` after queue acceptance, not backup completion. Requests in the same UTC minute share one one-minute dedupe id. The returned `jobId` is correlation only; `/system/health` and the console System Health screen expose eventual backup run history. Scheduled, queued, and CLI runs share the same advisory lock, checksum, upload, retention, and run-recording path. Database credentials are passed to `pg_dump` and `pg_restore` through a scrubbed environment rather than process arguments.
 
 Restore is destructive. Stop the API and worker before restoring so no process writes to Postgres during `pg_restore`:
 
@@ -160,7 +183,11 @@ Telemetry jobs that exhaust worker retries are stored as sanitized dead-letter j
 
 Admins can upload frontend source-map artifacts from the console `Artifacts` mode for the active project and environment. Uploads support a single `.map` file or a `.zip` bundle of `.map` files. Artifacts are matched strictly by active project, active environment, release, and minified filename; SignalMonitor does not guess across scopes or releases.
 
-Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the `source_map_data` volume at `/var/lib/sigmon/source-maps`. Metadata and cached resolved frame locations are stored in Postgres. Cached stack resolutions are constrained to the same error scope, artifact scope, release, and minified file. Deleting a source-map artifact clears cached stack resolutions for errors that referenced that artifact and removes the local file.
+Source maps are local-first in this release line. The API stores files under `SOURCE_MAPS_LOCAL_DIR`, and Docker Compose mounts the same `source_map_data:/var/lib/sigmon/source-maps` volume into API and worker. The API creates and validates `.sigmon-source-map-storage` before listening, then the worker requires that existing authority marker. A missing, wrong, unreadable, or symlinked root/marker fails retention closed with `source_map_storage_unavailable`; files, metadata, and cached resolutions remain untouched. Split deployments must use one shared persistent backing store rather than separately named local volumes. Secure production storage uses the Linux `/proc/self/fd` descriptor boundary; native non-Linux production fails closed.
+
+Reconciliation never runs automatically. `pnpm source-maps:reconcile` is read-only by default; only the exact `--apply` mode mutates. It uses bounded pages of 100 and bounded output, gives unreferenced files a one-hour orphan grace, and shares the destructive source-map advisory lock with retention. Recover mounts and the marker offline, restart API before workers, and run the read-only command first. Never use volume deletion as repair; in particular, do not run `docker compose down -v`. See the self-hosting runbook for the Compose command forms and marker checks.
+
+Metadata and cached resolved frame locations are stored in Postgres. Cached stack resolutions are constrained to the same error scope, artifact scope, release, and minified file. Deleting a source-map artifact clears cached stack resolutions for errors that referenced that artifact and removes the local file.
 
 Source-map retention is worker-owned and local-storage-only. When `RETENTION_ENABLED=true` and `SOURCE_MAPS_RETENTION_ENABLED=true`, the worker deletes source-map artifacts older than `SOURCE_MAPS_RETENTION_DAYS` in batches of `SOURCE_MAPS_RETENTION_BATCH_SIZE`. Cleanup removes local files, artifact metadata, and cached stack resolutions.
 
@@ -229,7 +256,7 @@ SignalMonitor includes an error-first Incident view for grouped errors and raw o
    cp .env.example .env
    ```
 
-2. Edit `.env`. Replace `SESSION_SECRET`, `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_PASSWORD`, and `POSTGRES_PASSWORD` with strong values.
+2. Edit `.env`. Replace `SESSION_SECRET`, `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_PASSWORD`, and `POSTGRES_PASSWORD` with strong values. Provision `DATA_ENCRYPTION_KEY` through secret storage before using production mode or privileged integrations; do not print or commit it.
 
 3. Install dependencies:
 
@@ -332,7 +359,7 @@ Use `--project-name` or `SIGMON_SMOKE_PROJECT_NAME` when running multiple smoke 
 
 The GitHub Actions CI workflow runs on pull requests to `main`, on pushes to `main`, and on `workflow_dispatch`. Runs superseded by a newer push to the same ref are cancelled. The workflow installs dependencies with the repo-pinned pnpm version, then runs tests, build, Docker Compose config validation, and the Compose smoke harness. The same gate is still expected to run locally before every push.
 
-The workflow uses GitHub-maintained actions on the Node 24 action runtime (`actions/checkout@v6` and `actions/setup-node@v6`). SignalMonitor's application runtime remains Node.js 22.
+The workflow pins the GitHub-maintained `actions/checkout v6.1.0` release to commit `d23441a48e516b6c34aea4fa41551a30e30af803` and `actions/setup-node v6.5.0` to commit `249970729cb0ef3589644e2896645e5dc5ba9c38`; both use the Node 24 action runtime. SignalMonitor's application runtime remains Node.js 22.
 
 The smoke job runs `pnpm smoke:compose --project-name sigmon_ci_smoke --preserve` to validate the self-hosted Docker Compose install path in a clean GitHub-hosted runner. The workflow preserves resources long enough to collect failure diagnostics, then explicitly cleans them up with `docker compose -p sigmon_ci_smoke down -v || true`. The same `pnpm smoke:compose` command remains available for local release checks.
 
@@ -347,18 +374,7 @@ curl -s https://my.sigmon.app/health
 
 ## Upgrade Flow
 
-Create a backup before upgrading, stop writers during migration, then verify the upgraded stack:
-
-```sh
-docker compose run --rm worker pnpm backup:create
-git pull
-pnpm install
-docker compose build
-docker compose stop api worker
-docker compose run --rm api pnpm db:migrate
-docker compose up -d
-pnpm run doctor -- --compose --api-url http://localhost:3000
-```
+Create a backup before upgrading and stop every API, queue-worker, and scheduler writer during schema or secret migration. Releases that introduce or rotate `DATA_ENCRYPTION_KEY` require a restartable data migration and a zero-change confirmation pass; they also invalidate legacy signed human cookies. Follow the exact safe order, rollback constraints, and recovery table in `docs/SELF-HOSTING.md` rather than improvising from this overview.
 
 ## Restore Drill
 
@@ -419,11 +435,11 @@ Create an ingestion API key:
 ```sh
 curl -b cookies.txt \
   -H "Content-Type: application/json" \
-  -d '{"environmentId":"env_YOUR_ENVIRONMENT_ID","name":"Production ingest"}' \
+  -d '{"environmentId":"env_YOUR_ENVIRONMENT_ID","name":"Production browser ingest","capability":"browser"}' \
   http://localhost:3000/admin/projects/prj_YOUR_PROJECT_ID/api-keys
 ```
 
-Copy the one-time `apiKey.secret` from the response. The stored record keeps only a prefix and hash, so the full secret is not shown again.
+Copy the one-time `apiKey.secret` from the response. The stored record keeps only a prefix and hash, so the full secret is not shown again. Browser keys are safe to embed in browser clients; use `"capability":"server"` for a secret server integration, including all `identifyUser` and `identifyTenant` calls. Upgraded keys are browser-capability keys, so create or rotate a server key before upgrading an existing identify integration.
 
 ## Public Documentation
 
@@ -458,7 +474,20 @@ signalMonitor.track("checkout.started", {
 });
 ```
 
-Identify persistent user and tenant profiles when you know stable IDs. `identifyUser` and `identifyTenant` use the same project/environment ingestion API key as telemetry, sanitize traits before storage, and write to profile rows used by the Users and Entities investigation views.
+Identify persistent user and tenant profiles from server-side code only. Browser keys can send telemetry with `userId` or `tenantId`, updating the matching profile `last_seen` timestamp, but cannot overwrite stored traits. The older SDK `identify(context)` method only updates the client's in-memory default context for later telemetry calls. Identify payload `metadata` is accepted for envelope compatibility, but this MVP persists profile `traits`, timestamps, and identifiers only.
+
+Server-side code should import the node entrypoint. Server-side ingestion keys must stay in server secret storage and must not be bundled into browser code.
+
+```ts
+import { createSignalMonitorClient } from "@sigmon/sdk/node";
+
+const signalMonitor = createSignalMonitorClient({
+  endpoint: process.env.SIGMON_ENDPOINT ?? "https://sigmon.example.com",
+  apiKey: process.env.SIGMON_SERVER_INGESTION_KEY ?? ""
+});
+```
+
+Use this server client with a server-capability key for durable identity traits:
 
 ```ts
 signalMonitor.identifyUser("user_123", {
@@ -476,19 +505,6 @@ signalMonitor.identifyTenant("tenant_123", {
 });
 
 await signalMonitor.flush();
-```
-
-Telemetry that includes `userId` or `tenantId` updates the matching profile `last_seen` timestamp, but it does not overwrite stored traits. The older SDK `identify(context)` method only updates the client's in-memory default context for later telemetry calls; use `identifyUser` or `identifyTenant` when profile traits should persist. Identify payload `metadata` is accepted for envelope compatibility, but this MVP persists profile `traits`, timestamps, and identifiers only.
-
-Server-side code should import the node entrypoint. Server-side ingestion keys must stay in server secret storage and must not be bundled into browser code.
-
-```ts
-import { createSignalMonitorClient } from "@sigmon/sdk/node";
-
-const signalMonitor = createSignalMonitorClient({
-  endpoint: process.env.SIGMON_ENDPOINT ?? "https://sigmon.example.com",
-  apiKey: process.env.SIGMON_SERVER_INGESTION_KEY ?? ""
-});
 ```
 
 #### Experiments and A/B Tests
