@@ -196,6 +196,17 @@ function jobBlock(content: string, jobName: string): string {
   return lines.slice(start, end === -1 ? undefined : end).join("\n");
 }
 
+function auditNodeVersionInSource(content: string): unknown {
+  const root = asRecord(parse(content));
+  const auditJob = asRecord(asRecord(root?.jobs)?.audit);
+  const steps = Array.isArray(auditJob?.steps) ? auditJob.steps.map(asRecord) : [];
+  const setupNode = steps.find((step) =>
+    typeof step?.uses === "string" && step.uses.startsWith("actions/setup-node@")
+  );
+
+  return asRecord(setupNode?.with)?.["node-version"];
+}
+
 describe("immutable workflow dependencies", () => {
   it("pins every external action to an immutable digest and keeps repository release context", () => {
     const references = actionManifestPaths().flatMap(actionReferences);
@@ -469,7 +480,7 @@ describe("GitHub Actions CI workflow", () => {
   it("uses Node 24 actions, Node 22 app runtime, Corepack, and frozen pnpm installs in every build job", () => {
     const content = workflow();
 
-    for (const jobName of ["test", "build", "compose-config", "smoke-compose", "audit"]) {
+    for (const jobName of ["test", "build", "compose-config", "smoke-compose"]) {
       expectIncludesAll(jobBlock(content, jobName), [
         "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0",
         "actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0",
@@ -503,6 +514,25 @@ describe("GitHub Actions CI workflow", () => {
     ]);
     expect(jobBlock(content, "audit")).not.toContain("--ignore");
     expect(jobBlock(content, "audit")).not.toContain("--ignore-registry-errors");
+  });
+
+  it("requires the audit job to use Node 22.22 or newer without admitting Node 23", () => {
+    const requiredRange = ">=22.22.0 <23";
+    const genericNode22 = [
+      "jobs:",
+      "  audit:",
+      "    steps:",
+      "      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38",
+      "        with:",
+      "          node-version: 22"
+    ].join("\n");
+    const olderNode22 = genericNode22.replace("node-version: 22", "node-version: '>=22.21.0 <23'");
+    const missingNodeFloor = genericNode22.replace("          node-version: 22\n", "");
+
+    expect(auditNodeVersionInSource(workflow())).toBe(requiredRange);
+    expect(auditNodeVersionInSource(genericNode22)).not.toBe(requiredRange);
+    expect(auditNodeVersionInSource(olderNode22)).not.toBe(requiredRange);
+    expect(auditNodeVersionInSource(missingNodeFloor)).not.toBe(requiredRange);
   });
 
   it("collects best-effort smoke diagnostics only when the smoke job fails", () => {
