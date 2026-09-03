@@ -321,6 +321,15 @@ describe("immutable workflow dependencies", () => {
     expect(installedNpmVersionsInSource(fixture)).toEqual(["11.19.1", "<unversioned>"]);
   });
 
+  it("rejects option-before-command and shell-escaped mutable npm installs", () => {
+    const exact = "if false; then npm install -g npm@11.19.1; fi";
+
+    expect(installedNpmVersionsInSource(`${exact}\nnpm --global install npm`))
+      .toEqual(["11.19.1", "<unversioned>"]);
+    expect(installedNpmVersionsInSource(`${exact}\nnpm i -g npm\\@latest`))
+      .toEqual(["11.19.1", "latest"]);
+  });
+
   it("configures weekly reviewed GitHub Actions dependency updates", () => {
     const config = asRecord(parse(dependabot()));
     const updates = Array.isArray(config?.updates) ? config.updates.map(asRecord) : [];
