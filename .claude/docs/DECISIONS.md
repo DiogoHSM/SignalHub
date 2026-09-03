@@ -1,5 +1,13 @@
 # Decisions
 
+## 2026-09-01: Keep dense investigation honest below 900px
+
+Decision: preserve the incumbent dark desktop console. `/console/status` (including the normalized `/console/status/` path) remains an authenticated, phone-focused operational surface. Every other route owned by the dense console shell shows a clear handoff to `/console/status` at 899 CSS pixels and below, renders a reflowed dense workspace from 900 through 1279 pixels with wide tables scrolling inside their own aligned containers, and retains the incumbent desktop composition at 1280 pixels and above.
+
+Decision: unavailable actions are removed instead of producing simulated success toasts. An action may remain disabled only when the current screen can explain the unmet condition; otherwise it returns only with real behavior.
+
+Rationale: the investigation workspace is intentionally information-dense and cannot honestly support phone-sized interaction without a separate product design. A route-level boundary prevents clipping and unnecessary dense-workspace requests while keeping authentication and the purpose-built status view available. The middle-width reflow supports tablets and narrow desktops without changing the established desktop visual system, and removing nonfunctional affordances prevents operators from mistaking a demonstration for a completed action.
+
 ## 2026-09-01: Scoped retention values replace installation defaults
 
 Decision: a valid project/environment retention value replaces the installation default for that category, whether shorter or longer. An absent category, a missing policy row, or an invalid legacy value uses the installation default. This supersedes the 2026-07-02 global-first, hard-boundary model: retention now evaluates one effective cutoff for each physical table rather than deleting globally and then applying scoped passes.
