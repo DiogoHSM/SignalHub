@@ -61,7 +61,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "nanoid": "^5.1.11"
+    "nanoid": "^5.1.16"
   },
   "devDependencies": {
     "@sigmon/telemetry": "workspace:*",

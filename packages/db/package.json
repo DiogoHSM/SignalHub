@@ -11,7 +11,7 @@
   "dependencies": {
     "@sigmon/config": "workspace:*",
     "@sigmon/telemetry": "workspace:*",
-    "kysely": "^0.28.16",
+    "kysely": "^0.28.17",
     "pg": "^8.20.0"
   },
   "devDependencies": {
