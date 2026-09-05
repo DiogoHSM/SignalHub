@@ -33,6 +33,18 @@ For a small production install, run:
 
 Use split worker/scheduler services when ingestion volume or operational jobs need independent restarts and health checks. A queue-only worker does not consume maintenance jobs. Keep at least one scheduler-role worker running even when `BACKUPS_ENABLED=false`, because that flag disables the schedule but not administrator-requested backups.
 
+### Private split services on Coolify
+
+Only the API is an HTTP service. When API, queue worker, and scheduler are separate Coolify applications:
+
+- Configure the public domain and proxy routing only on the API application.
+- Leave **Domains** empty on the `WORKER_ROLE=queue` and `WORKER_ROLE=scheduler` applications.
+- Reset any stale custom proxy labels after clearing a previously generated domain. The running queue-worker and scheduler containers must not have Traefik or Caddy routing labels.
+- Redeploy each internal application after changing its domain or labels, then confirm the former public URL returns `404` and the container still reports its intended role.
+- Repeat the label and URL checks after a later normal redeploy. A generated `sslip.io` hostname on an internal application is a routing regression, not a required health endpoint.
+
+Do not add a public route merely to obtain platform health status. Verify the queue worker through its startup/processing logs and queue metrics, and verify the scheduler through its startup log and heartbeat on the System Health screen.
+
 ## Quick Start
 
 ```sh
