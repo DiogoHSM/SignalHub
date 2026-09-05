@@ -197,6 +197,20 @@ afterEach(() => {
 });
 
 describe("IncidentScreen", () => {
+  it("keeps all incident detail sections in the page scroll flow", () => {
+    mockUseIncident(MOCK_VM);
+
+    render(<IncidentScreen ctx={makeMockCtx()} groupId={MOCK_VM.groupId} errorId={undefined} />);
+
+    const details = screen.getByRole("region", { name: "Incident details" });
+    const primary = within(details).getByRole("region", { name: "Primary incident details" });
+    const supporting = within(details).getByRole("region", { name: "Incident context and triage" });
+
+    expect(details).not.toHaveStyle({ overflow: "hidden" });
+    expect(primary).not.toHaveStyle({ overflow: "auto" });
+    expect(supporting).not.toHaveStyle({ overflow: "auto" });
+  });
+
   it("shows paginated occurrence history without repeating the primary error", async () => {
     const loadMoreOccurrences = vi.fn().mockResolvedValue(undefined);
     mockUseIncident(MOCK_VM, {
