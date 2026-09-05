@@ -400,6 +400,7 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
     client: ctx.client,
   });
   const [runningAction, setRunningAction] = useState<"doctor" | "backup" | "retention" | null>(null);
+  const [doctorResult, setDoctorResult] = useState<{ message: string; tone: "ok" | "critical" } | null>(null);
 
   const [dlqExpandedId, setDlqExpandedId] = useState<string | null>(null);
   const [dlqPendingIds, setDlqPendingIds] = useState<Set<string>>(new Set());
@@ -420,10 +421,13 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
     setRunningAction(action);
     try {
       const result = await run();
+      if (action === "doctor") setDoctorResult({ message: result.message, tone: "ok" });
       ctx.pushToast(result.message);
       reload();
     } catch {
-      ctx.pushToast("System action failed. Check server logs and try again.");
+      const message = "System action failed. Check server logs and try again.";
+      if (action === "doctor") setDoctorResult({ message, tone: "critical" });
+      ctx.pushToast(message);
     } finally {
       setRunningAction(null);
     }
@@ -502,6 +506,33 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
           </>
         }
       />
+
+      {doctorResult ? (
+        <div
+          aria-label="Latest doctor result"
+          aria-live="polite"
+          className={`sh-card sh-stripe ${doctorResult.tone}`}
+          role={doctorResult.tone === "critical" ? "alert" : "status"}
+          style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: 14 }}
+        >
+          <span style={{ color: doctorResult.tone === "critical" ? "var(--sev-critical)" : "var(--accent)" }}>
+            <Icon name={doctorResult.tone === "critical" ? "alert" : "check"} size={16} />
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <strong style={{ fontSize: 13 }}>Latest doctor result</strong>
+            <div className="sh-muted" style={{ fontSize: 12, marginTop: 2 }}>{doctorResult.message}</div>
+          </div>
+          <button
+            aria-label="Dismiss latest doctor result"
+            className="sh-iconbtn-sm"
+            onClick={() => setDoctorResult(null)}
+            title="Dismiss"
+            type="button"
+          >
+            <Icon name="x" size={13} />
+          </button>
+        </div>
+      ) : null}
 
       {banner ? (
         <div className={`sh-card sh-stripe ${banner.tone}`} style={{ display: "flex", gap: 12, alignItems: "flex-start", padding: 14 }}>
