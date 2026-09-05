@@ -876,23 +876,24 @@ export function IncidentScreen({
 
       {/* ── Main two-column grid ──────────────────────────────────────────── */}
       <div
+        role="region"
+        aria-label="Incident details"
         style={{
           display: "grid",
           gridTemplateColumns: "1.6fr 1fr",
           gap: 16,
-          flex: 1,
-          minHeight: 0,
-          overflow: "hidden",
+          alignItems: "start",
         }}
       >
         {/* Left column */}
         <div
+          role="region"
+          aria-label="Primary incident details"
           style={{
             display: "flex",
             flexDirection: "column",
             gap: 16,
-            minHeight: 0,
-            overflow: "auto",
+            minWidth: 0,
           }}
         >
           {/* Occurrences summary */}
@@ -1149,12 +1150,13 @@ export function IncidentScreen({
 
         {/* Right column */}
         <div
+          role="region"
+          aria-label="Incident context and triage"
           style={{
             display: "flex",
             flexDirection: "column",
             gap: 16,
-            minHeight: 0,
-            overflow: "auto",
+            minWidth: 0,
           }}
         >
           {/* Impact */}
