@@ -175,7 +175,7 @@ describe("SystemScreen", () => {
     expect(screen.getByText(/Could not load/i)).toBeTruthy();
   });
 
-  it("renders the head status pill and runs doctor", async () => {
+  it("keeps the successful doctor result visible in the page", async () => {
     const reload = vi.fn();
     mockHook({ status: "ok", data: vm, reload });
     const ctx = makeCtx();
@@ -185,7 +185,36 @@ describe("SystemScreen", () => {
     await userEvent.click(screen.getByRole("button", { name: /Run doctor/i }));
     expect(ctx.client.runSystemDoctor).toHaveBeenCalled();
     expect(ctx.pushToast).toHaveBeenCalledWith("Doctor completed: system is operational.");
+    expect(await screen.findByRole("status", { name: "Latest doctor result" })).toHaveTextContent(
+      "Doctor completed: system is operational."
+    );
     expect(reload).toHaveBeenCalled();
+  });
+
+  it("keeps the failed doctor result visible in the page", async () => {
+    const runSystemDoctor = vi.fn().mockRejectedValue(new Error("doctor failed"));
+    mockHook({ status: "ok", data: vm });
+    const ctx = makeCtx({ client: { ...makeCtx().client, runSystemDoctor } as never });
+    render(<SystemScreen ctx={ctx} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /Run doctor/i }));
+
+    expect(await screen.findByRole("alert", { name: "Latest doctor result" })).toHaveTextContent(
+      "System action failed. Check server logs and try again."
+    );
+    expect(ctx.pushToast).toHaveBeenCalledWith("System action failed. Check server logs and try again.");
+  });
+
+  it("lets the operator dismiss the latest doctor result", async () => {
+    mockHook({ status: "ok", data: vm });
+    render(<SystemScreen ctx={makeCtx()} />);
+
+    await userEvent.click(screen.getByRole("button", { name: /Run doctor/i }));
+    expect(await screen.findByRole("status", { name: "Latest doctor result" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Dismiss latest doctor result" }));
+
+    expect(screen.queryByRole("status", { name: "Latest doctor result" })).not.toBeInTheDocument();
   });
 
   it("renders service cards — one with a sparkline, one without", () => {
