@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 
@@ -306,6 +307,15 @@ describe("API docs", () => {
       { required: ["file", "minified_file"] },
       { required: ["bundle"] }
     ]);
+    expect(spec.paths["/admin/source-maps"].post.responses).toMatchObject({
+      "404": expect.any(Object),
+      "413": expect.any(Object)
+    });
+    const segmentDefinition =
+      spec.paths["/admin/analytics-segments"].post.requestBody.content["application/json"].schema.properties.definition;
+    expect(segmentDefinition.oneOf[0].properties.root).toEqual({ $ref: "#/components/schemas/AnalyticsSegmentNode" });
+    expect(segmentDefinition.oneOf[1].anyOf).toEqual([{ required: ["eventName"] }, { required: ["propertyName"] }]);
+    expect(spec.components.schemas.AnalyticsSegmentNode.oneOf).toHaveLength(3);
     expect(spec.components.schemas.DeadLetterJob.properties.payload.description).toContain("sanitized");
     expect(spec.components.schemas.DeadLetterJob.properties.projectId.type).toEqual(["string", "null"]);
     expect(spec.components.schemas.DeadLetterJob.properties.environmentId.type).toEqual(["string", "null"]);
@@ -447,5 +457,12 @@ describe("API docs", () => {
     expect(response.body).toContain("createSignalMonitorNextClient");
     expect(response.body).toContain("@sigmon/sdk/browser");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("keeps the root README from duplicating stale experiment setup", async () => {
+    const rootReadme = await readFile(new URL("../../../README.md", import.meta.url), "utf8");
+
+    expect(rootReadme).not.toContain("Your app owns variant assignment");
+    expect(rootReadme).toContain("packages/sdk/README.md");
   });
 });

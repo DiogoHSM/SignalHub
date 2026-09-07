@@ -178,6 +178,7 @@ const adminOperation = (
     successDescription?: string;
     notFound?: string;
     conflict?: string;
+    payloadTooLarge?: string;
   } = {}
 ) => {
   const successStatus = options.successStatus ?? "200";
@@ -195,6 +196,7 @@ const adminOperation = (
       "403": { $ref: "#/components/responses/Forbidden" },
       ...(options.notFound ? { "404": { description: options.notFound } } : {}),
       ...(options.conflict ? { "409": { description: options.conflict } } : {}),
+      ...(options.payloadTooLarge ? { "413": { description: options.payloadTooLarge } } : {}),
       "501": { $ref: "#/components/responses/Unavailable" },
       "503": { $ref: "#/components/responses/Unavailable" }
     }
@@ -210,11 +212,14 @@ const analyticsSegmentDefinitionSchema = {
       properties: {
         version: { type: "integer", const: 2 },
         window: { type: "string", enum: ["24h", "7d", "30d"] },
-        root: { type: "object", description: "Validated group, event, or trait expression node." }
+        root: { $ref: "#/components/schemas/AnalyticsSegmentNode" }
       }
     },
     {
       type: "object",
+      anyOf: [{ required: ["eventName"] }, { required: ["propertyName"] }],
+      dependentRequired: { propertyValue: ["propertyName"] },
+      additionalProperties: false,
       properties: {
         window: { type: "string", enum: ["24h", "7d", "30d"], default: "30d" },
         eventName: { type: "string", maxLength: 256 },
@@ -427,6 +432,90 @@ export const openApiDocument = {
       }
     },
     schemas: {
+      AnalyticsSegmentLeafValue: {
+        oneOf: [
+          { type: "string", maxLength: 1024 },
+          { type: "number" },
+          { type: "boolean" },
+          { type: "array", maxItems: 64, items: { type: "string", maxLength: 1024 } }
+        ]
+      },
+      AnalyticsSegmentPropertyCondition: {
+        type: "object",
+        required: ["name", "operator"],
+        additionalProperties: false,
+        properties: {
+          name: { type: "string", pattern: "^[A-Za-z0-9_.:-]{1,64}$" },
+          operator: { type: "string", enum: ["eq", "neq", "contains", "gt", "gte", "lt", "lte", "in", "exists"] },
+          value: { $ref: "#/components/schemas/AnalyticsSegmentLeafValue" }
+        }
+      },
+      AnalyticsSegmentGroupNode: {
+        type: "object",
+        required: ["kind", "op", "children"],
+        additionalProperties: false,
+        properties: {
+          kind: { type: "string", const: "group" },
+          op: { type: "string", enum: ["and", "or", "not"] },
+          children: {
+            type: "array",
+            minItems: 1,
+            maxItems: 8,
+            items: { $ref: "#/components/schemas/AnalyticsSegmentNode" }
+          }
+        },
+        allOf: [
+          {
+            if: { properties: { op: { const: "not" } }, required: ["op"] },
+            then: { properties: { children: { maxItems: 1 } } }
+          }
+        ]
+      },
+      AnalyticsSegmentEventNode: {
+        type: "object",
+        required: ["kind"],
+        additionalProperties: false,
+        properties: {
+          kind: { type: "string", const: "event" },
+          eventName: { type: "string", minLength: 1, maxLength: 256 },
+          property: { $ref: "#/components/schemas/AnalyticsSegmentPropertyCondition" },
+          frequency: {
+            type: "object",
+            required: ["operator", "count"],
+            additionalProperties: false,
+            properties: {
+              operator: { type: "string", enum: ["gte", "lte", "eq"] },
+              count: { type: "integer", minimum: 0 }
+            }
+          },
+          recency: {
+            type: "object",
+            required: ["withinDays"],
+            additionalProperties: false,
+            properties: { withinDays: { type: "integer", minimum: 1, maximum: 3650 } }
+          }
+        }
+      },
+      AnalyticsSegmentTraitNode: {
+        type: "object",
+        required: ["kind", "source", "name", "operator"],
+        additionalProperties: false,
+        properties: {
+          kind: { type: "string", const: "trait" },
+          source: { type: "string", enum: ["user", "tenant"] },
+          name: { type: "string", pattern: "^[A-Za-z0-9_.:-]{1,64}$" },
+          operator: { type: "string", enum: ["eq", "neq", "contains", "gt", "gte", "lt", "lte", "in", "exists"] },
+          value: { $ref: "#/components/schemas/AnalyticsSegmentLeafValue" }
+        }
+      },
+      AnalyticsSegmentNode: {
+        description: "Recursive analytics segment expression. Definitions are limited to 32 nodes and depth 5.",
+        oneOf: [
+          { $ref: "#/components/schemas/AnalyticsSegmentGroupNode" },
+          { $ref: "#/components/schemas/AnalyticsSegmentEventNode" },
+          { $ref: "#/components/schemas/AnalyticsSegmentTraitNode" }
+        ]
+      },
       AcceptedResponse: {
         type: "object",
         required: ["accepted", "id"],
@@ -3606,7 +3695,9 @@ export const openApiDocument = {
             }
           }
         },
-        successDescription: "Source-map artifacts uploaded"
+        successDescription: "Source-map artifacts uploaded",
+        notFound: "Project or environment scope not found or archived",
+        payloadTooLarge: "Compressed upload, expanded archive, or archive entry count exceeds the configured limit"
       })
     },
     "/admin/source-maps/{id}": {
