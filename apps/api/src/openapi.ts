@@ -156,6 +156,186 @@ const queryReadRoute = (summary: string, description: string) => ({
   }
 });
 
+const adminIdParameter = { name: "id", in: "path", required: true, schema: { type: "string" } };
+const adminProjectIdParameter = { name: "projectId", in: "path", required: true, schema: { type: "string" } };
+const adminScopeParameters = [
+  { name: "project_id", in: "query", required: true, schema: { type: "string" } },
+  { name: "environment_id", in: "query", required: true, schema: { type: "string" } }
+];
+
+const inlineJsonBody = (schema: Record<string, unknown>) => ({
+  required: true,
+  content: { "application/json": { schema } }
+});
+
+const adminOperation = (
+  summary: string,
+  description: string,
+  options: {
+    parameters?: Array<Record<string, unknown>>;
+    requestBody?: Record<string, unknown>;
+    successStatus?: "200" | "201" | "204";
+    successDescription?: string;
+    notFound?: string;
+    conflict?: string;
+  } = {}
+) => {
+  const successStatus = options.successStatus ?? "200";
+  return {
+    tags: ["Session authenticated"],
+    summary,
+    description,
+    security: [{ sessionCookie: [] }],
+    ...(options.parameters ? { parameters: options.parameters } : {}),
+    ...(options.requestBody ? { requestBody: options.requestBody } : {}),
+    responses: {
+      [successStatus]: { description: options.successDescription ?? "Request succeeded" },
+      "400": { $ref: "#/components/responses/BadRequest" },
+      "401": { $ref: "#/components/responses/Unauthorized" },
+      "403": { $ref: "#/components/responses/Forbidden" },
+      ...(options.notFound ? { "404": { description: options.notFound } } : {}),
+      ...(options.conflict ? { "409": { description: options.conflict } } : {}),
+      "501": { $ref: "#/components/responses/Unavailable" },
+      "503": { $ref: "#/components/responses/Unavailable" }
+    }
+  };
+};
+
+const analyticsSegmentDefinitionSchema = {
+  description: "Saved user/tenant segment definition. Version 2 definitions use a recursive group/leaf expression tree; legacy definitions use event/property filters.",
+  oneOf: [
+    {
+      type: "object",
+      required: ["version", "root"],
+      properties: {
+        version: { type: "integer", const: 2 },
+        window: { type: "string", enum: ["24h", "7d", "30d"] },
+        root: { type: "object", description: "Validated group, event, or trait expression node." }
+      }
+    },
+    {
+      type: "object",
+      properties: {
+        window: { type: "string", enum: ["24h", "7d", "30d"], default: "30d" },
+        eventName: { type: "string", maxLength: 256 },
+        propertyName: { type: "string", maxLength: 128 },
+        propertyValue: { type: "string", maxLength: 512 }
+      }
+    }
+  ]
+};
+
+const analyticsSegmentInputSchema = {
+  type: "object",
+  required: ["projectId", "environmentId", "name", "actorType", "definition"],
+  additionalProperties: false,
+  properties: {
+    projectId: { type: "string" },
+    environmentId: { type: "string" },
+    name: { type: "string", minLength: 1, maxLength: 256 },
+    description: { type: ["string", "null"], maxLength: 1024 },
+    actorType: { type: "string", enum: ["user", "tenant"] },
+    definition: analyticsSegmentDefinitionSchema
+  }
+};
+
+const experimentInputProperties = {
+  projectId: { type: "string" },
+  environmentId: { type: "string" },
+  key: { type: "string", minLength: 1, maxLength: 80 },
+  name: { type: "string", minLength: 1, maxLength: 256 },
+  description: { type: ["string", "null"], maxLength: 1024 },
+  status: { type: "string", enum: ["draft", "running", "paused", "completed", "archived"], default: "draft" },
+  actorType: { type: "string", enum: ["user", "tenant", "session"], default: "user" },
+  exposureEvent: { type: "string", maxLength: 256, default: "sigmon.experiment.exposed" },
+  conversionEvent: { type: "string", minLength: 1, maxLength: 256 },
+  variants: {
+    type: "array",
+    minItems: 2,
+    maxItems: 20,
+    items: {
+      type: "object",
+      required: ["key", "name", "weight"],
+      properties: {
+        key: { type: "string", maxLength: 80 },
+        name: { type: "string", maxLength: 120 },
+        weight: { type: "integer", minimum: 0, maximum: 100 }
+      }
+    }
+  },
+  primaryMetric: {
+    type: "object",
+    required: ["eventName"],
+    properties: {
+      eventName: { type: "string", maxLength: 256 },
+      windowHours: { type: "integer", minimum: 1, maximum: 720, default: 24 }
+    }
+  }
+};
+
+const notificationChannelCommonProperties = {
+  name: { type: "string", minLength: 1, maxLength: 256 },
+  enabled: { type: "boolean", default: true }
+};
+
+const notificationChannelInputSchema = {
+  oneOf: [
+    ...(["webhook", "slack", "discord"] as const).map((type) => ({
+      type: "object",
+      required: ["name", "type", "url"],
+      additionalProperties: false,
+      properties: {
+        ...notificationChannelCommonProperties,
+        type: { type: "string", const: type },
+        url: { type: "string", format: "uri" },
+        secretHeaderName: { type: ["string", "null"], minLength: 1, maxLength: 128 },
+        secretHeaderValue: { type: ["string", "null"], minLength: 1, maxLength: 4096, writeOnly: true }
+      }
+    })),
+    {
+      type: "object",
+      required: ["name", "type", "emailRecipients"],
+      additionalProperties: false,
+      properties: {
+        ...notificationChannelCommonProperties,
+        type: { type: "string", const: "email" },
+        emailRecipients: { type: "array", minItems: 1, maxItems: 10, items: { type: "string", format: "email" } }
+      }
+    }
+  ]
+};
+
+const notificationChannelUpdateSchema = {
+  type: "object",
+  minProperties: 1,
+  additionalProperties: false,
+  properties: {
+    ...notificationChannelCommonProperties,
+    type: { type: "string", enum: ["webhook", "slack", "discord", "email"] },
+    url: { type: ["string", "null"], format: "uri" },
+    emailRecipients: { type: "array", minItems: 1, maxItems: 10, items: { type: "string", format: "email" } },
+    secretHeaderName: { type: ["string", "null"], minLength: 1, maxLength: 128 },
+    secretHeaderValue: { type: ["string", "null"], minLength: 1, maxLength: 4096, writeOnly: true }
+  }
+};
+
+const alertRuleInputProperties = {
+  projectId: { type: "string" },
+  environmentId: { type: "string" },
+  notificationChannelId: { type: ["string", "null"] },
+  escalationChannelId: { type: ["string", "null"] },
+  name: { type: "string", minLength: 1, maxLength: 256 },
+  type: { type: "string", enum: ["critical_errors", "error_count", "error_rate", "trace_p95_latency", "llm_cost", "dead_letter_count"] },
+  severity: { type: "string", enum: ["info", "warning", "critical"] },
+  windowMinutes: { type: "integer", minimum: 1 },
+  threshold: { type: "string", pattern: "^\\d+(\\.\\d{1,6})?$" },
+  cooldownMinutes: { type: "integer", minimum: 1 },
+  escalationMinutes: { type: ["integer", "null"], minimum: 1 },
+  routePattern: { type: ["string", "null"], maxLength: 256 },
+  minimumSampleSize: { type: "integer", minimum: 1, default: 1 },
+  enabled: { type: "boolean", default: true }
+};
+
 const systemActionOperation = (summary: string, description: string) => ({
   tags: ["Session authenticated"],
   summary,
@@ -3313,21 +3493,388 @@ export const openApiDocument = {
         }
       }
     },
+    "/admin/analytics-segments": {
+      get: adminOperation("List analytics segments", "List saved user or tenant segments for one project/environment.", {
+        parameters: adminScopeParameters
+      }),
+      post: adminOperation("Create an analytics segment", "Create a validated saved segment for reuse across analytics views.", {
+        requestBody: inlineJsonBody(analyticsSegmentInputSchema),
+        successStatus: "201",
+        successDescription: "Analytics segment created"
+      })
+    },
+    "/admin/analytics-segments/{id}": {
+      patch: adminOperation("Update an analytics segment", "Update the name, description, actor type, or validated definition of a saved segment.", {
+        parameters: [adminIdParameter],
+        requestBody: inlineJsonBody({
+          type: "object",
+          minProperties: 1,
+          additionalProperties: false,
+          properties: {
+            name: analyticsSegmentInputSchema.properties.name,
+            description: analyticsSegmentInputSchema.properties.description,
+            actorType: analyticsSegmentInputSchema.properties.actorType,
+            definition: analyticsSegmentDefinitionSchema
+          }
+        }),
+        notFound: "Analytics segment not found"
+      }),
+      delete: adminOperation("Archive an analytics segment", "Archive a saved analytics segment.", {
+        parameters: [adminIdParameter],
+        successStatus: "204",
+        successDescription: "Analytics segment archived"
+      })
+    },
+    "/admin/analytics-segments/{id}/preview": {
+      get: adminOperation("Preview an analytics segment", "Return a bounded sample of actors matching a saved segment.", {
+        parameters: [
+          adminIdParameter,
+          ...adminScopeParameters,
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 50 } }
+        ],
+        notFound: "Analytics segment not found"
+      })
+    },
+    "/admin/experiments": {
+      get: adminOperation("List experiments", "List experiments for one project/environment.", {
+        parameters: adminScopeParameters
+      }),
+      post: adminOperation("Create an experiment", "Create an experiment definition used with deterministic SDK assignment and exposure/conversion telemetry.", {
+        requestBody: inlineJsonBody({
+          type: "object",
+          required: ["projectId", "environmentId", "key", "name", "conversionEvent", "variants", "primaryMetric"],
+          additionalProperties: false,
+          properties: experimentInputProperties
+        }),
+        successStatus: "201",
+        successDescription: "Experiment created"
+      })
+    },
+    "/admin/experiments/{id}": {
+      patch: adminOperation("Update an experiment", "Update an experiment within its project/environment scope.", {
+        parameters: [adminIdParameter, ...adminScopeParameters],
+        requestBody: inlineJsonBody({
+          type: "object",
+          minProperties: 1,
+          additionalProperties: false,
+          properties: {
+            name: experimentInputProperties.name,
+            description: experimentInputProperties.description,
+            status: experimentInputProperties.status,
+            actorType: experimentInputProperties.actorType,
+            exposureEvent: experimentInputProperties.exposureEvent,
+            conversionEvent: experimentInputProperties.conversionEvent,
+            variants: experimentInputProperties.variants,
+            primaryMetric: experimentInputProperties.primaryMetric
+          }
+        }),
+        notFound: "Experiment not found"
+      }),
+      delete: adminOperation("Archive an experiment", "Archive an experiment within its project/environment scope.", {
+        parameters: [adminIdParameter, ...adminScopeParameters],
+        successStatus: "204",
+        successDescription: "Experiment archived"
+      })
+    },
+    "/admin/source-maps": {
+      get: adminOperation("List source-map artifacts", "List uploaded source-map artifacts for one project/environment, optionally filtered by release and paginated by cursor.", {
+        parameters: [
+          ...adminScopeParameters,
+          { name: "release", in: "query", required: false, schema: { type: "string" } },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 250 } },
+          { name: "cursor", in: "query", required: false, schema: { type: "string" } }
+        ]
+      }),
+      post: adminOperation("Upload source maps as an administrator", "Upload one source map or a bundle using the administrator session. Single-map uploads require `file` and `minified_file`; bundles require `bundle`.", {
+        requestBody: {
+          required: true,
+          content: {
+            "multipart/form-data": {
+              schema: {
+                type: "object",
+                required: ["project_id", "environment_id", "release"],
+                properties: {
+                  project_id: { type: "string" },
+                  environment_id: { type: "string" },
+                  release: { type: "string" },
+                  minified_file: { type: "string" },
+                  file: { type: "string", format: "binary" },
+                  bundle: { type: "string", format: "binary" }
+                },
+                oneOf: [{ required: ["file", "minified_file"] }, { required: ["bundle"] }]
+              }
+            }
+          }
+        },
+        successDescription: "Source-map artifacts uploaded"
+      })
+    },
+    "/admin/source-maps/{id}": {
+      delete: adminOperation("Delete a source-map artifact", "Delete one artifact within its project/environment scope.", {
+        parameters: [adminIdParameter, ...adminScopeParameters],
+        successStatus: "204",
+        successDescription: "Source-map artifact deleted"
+      })
+    },
+    "/admin/notification-channels": {
+      get: adminOperation("List notification channels", "List redacted email, webhook, Slack, and Discord notification channels."),
+      post: adminOperation("Create a notification channel", "Create an email or outbound webhook-compatible notification channel. Secret header values are write-only.", {
+        requestBody: inlineJsonBody(notificationChannelInputSchema),
+        successStatus: "201",
+        successDescription: "Notification channel created"
+      })
+    },
+    "/admin/notification-channels/{id}": {
+      patch: adminOperation("Update a notification channel", "Update a notification channel. Omitted secrets remain unchanged; clearing a secret header also clears its value.", {
+        parameters: [adminIdParameter],
+        requestBody: inlineJsonBody(notificationChannelUpdateSchema),
+        notFound: "Notification channel not found"
+      }),
+      delete: adminOperation("Archive a notification channel", "Archive a notification channel.", {
+        parameters: [adminIdParameter],
+        successStatus: "204",
+        successDescription: "Notification channel archived"
+      })
+    },
+    "/admin/alert-rules": {
+      get: adminOperation("List alert rules", "List alert rules, optionally filtered by project and environment.", {
+        parameters: adminScopeParameters.map((parameter) => ({ ...parameter, required: false }))
+      }),
+      post: adminOperation("Create an alert rule", "Create a threshold alert rule and optionally attach notification and escalation channels.", {
+        requestBody: inlineJsonBody({
+          type: "object",
+          required: ["projectId", "environmentId", "name", "type", "severity", "windowMinutes", "threshold", "cooldownMinutes"],
+          additionalProperties: false,
+          properties: alertRuleInputProperties
+        }),
+        successStatus: "201",
+        successDescription: "Alert rule created",
+        notFound: "Scope or notification channel not found"
+      })
+    },
+    "/admin/alert-rules/{id}": {
+      patch: adminOperation("Update an alert rule", "Update a threshold, routing, severity, status, or scope for an alert rule.", {
+        parameters: [adminIdParameter],
+        requestBody: inlineJsonBody({
+          type: "object",
+          minProperties: 1,
+          additionalProperties: false,
+          properties: alertRuleInputProperties
+        }),
+        notFound: "Alert rule, scope, or notification channel not found"
+      }),
+      delete: adminOperation("Archive an alert rule", "Archive an alert rule.", {
+        parameters: [adminIdParameter],
+        successStatus: "204",
+        successDescription: "Alert rule archived"
+      })
+    },
+    "/admin/users": {
+      get: adminOperation("List console users", "List active console administrators."),
+      post: adminOperation("Create a console user", "Create an administrator with an email address and password.", {
+        requestBody: inlineJsonBody({
+          type: "object",
+          required: ["email", "password"],
+          additionalProperties: false,
+          properties: {
+            email: { type: "string", format: "email" },
+            password: { type: "string", minLength: 12, maxLength: 256, writeOnly: true },
+            isAdmin: { type: "boolean", default: true, const: true }
+          }
+        }),
+        successStatus: "201",
+        successDescription: "Console user created"
+      })
+    },
+    "/admin/users/{id}": {
+      patch: adminOperation("Update a console user", "Change an administrator email, password, or administrator status.", {
+        parameters: [adminIdParameter],
+        requestBody: inlineJsonBody({
+          type: "object",
+          minProperties: 1,
+          additionalProperties: false,
+          properties: {
+            email: { type: "string", format: "email" },
+            password: { type: "string", minLength: 12, maxLength: 256, writeOnly: true },
+            isAdmin: { type: "boolean" }
+          }
+        }),
+        notFound: "User not found",
+        conflict: "The update would demote the current or last active administrator"
+      }),
+      delete: adminOperation("Archive a console user", "Archive an administrator. The current or last active administrator cannot be archived.", {
+        parameters: [adminIdParameter],
+        successStatus: "204",
+        successDescription: "Console user archived",
+        conflict: "The current or last active administrator cannot be archived"
+      })
+    },
     "/admin/projects": {
-      get: sessionRoute("List projects", "Admin route for listing projects visible to the current operator."),
-      post: sessionRoute("Create a project", "Admin route for creating a SignalMonitor project.")
+      get: adminOperation("List projects", "List active SignalMonitor projects."),
+      post: adminOperation("Create a project", "Create a SignalMonitor project.", {
+        requestBody: inlineJsonBody({
+          type: "object",
+          required: ["name"],
+          additionalProperties: false,
+          properties: { name: { type: "string", minLength: 1, maxLength: 256 } }
+        }),
+        successStatus: "201",
+        successDescription: "Project created"
+      })
+    },
+    "/admin/projects/{id}": {
+      get: adminOperation("Read a project", "Read one active SignalMonitor project.", {
+        parameters: [adminIdParameter],
+        notFound: "Project not found"
+      }),
+      patch: adminOperation("Update a project", "Rename an active SignalMonitor project.", {
+        parameters: [adminIdParameter],
+        requestBody: inlineJsonBody({
+          type: "object",
+          required: ["name"],
+          additionalProperties: false,
+          properties: { name: { type: "string", minLength: 1, maxLength: 256 } }
+        }),
+        notFound: "Project not found"
+      }),
+      delete: adminOperation("Archive a project", "Archive a project and invalidate its browser-origin cache entries.", {
+        parameters: [adminIdParameter],
+        successStatus: "204",
+        successDescription: "Project archived"
+      })
+    },
+    "/admin/projects/{projectId}/browser-origins": {
+      get: adminOperation("List browser origins", "List browser origins allowed to send telemetry for a project.", {
+        parameters: [adminProjectIdParameter]
+      }),
+      post: adminOperation("Allow a browser origin", "Allow an absolute HTTP or HTTPS origin to use browser-scoped ingestion keys for a project.", {
+        parameters: [adminProjectIdParameter],
+        requestBody: inlineJsonBody({
+          type: "object",
+          required: ["origin"],
+          additionalProperties: false,
+          properties: { origin: { type: "string", format: "uri", maxLength: 2048, examples: ["https://app.example.com"] } }
+        }),
+        successStatus: "201",
+        successDescription: "Browser origin allowed",
+        notFound: "Project not found"
+      })
+    },
+    "/admin/browser-origins/{id}": {
+      delete: adminOperation("Archive a browser origin", "Remove a project browser origin from the runtime allowlist.", {
+        parameters: [adminIdParameter],
+        successStatus: "204",
+        successDescription: "Browser origin archived"
+      })
     },
     "/admin/projects/{projectId}/environments": {
-      get: sessionRoute("List environments", "Admin route for listing environments under a project."),
-      post: sessionRoute("Create an environment", "Admin route for creating an environment under a project.")
+      get: adminOperation("List environments", "List active environments under a project.", {
+        parameters: [adminProjectIdParameter]
+      }),
+      post: adminOperation("Create an environment", "Create an environment under a project.", {
+        parameters: [adminProjectIdParameter],
+        requestBody: inlineJsonBody({
+          type: "object",
+          required: ["name"],
+          additionalProperties: false,
+          properties: { name: { type: "string", minLength: 1, maxLength: 256 } }
+        }),
+        successStatus: "201",
+        successDescription: "Environment created",
+        notFound: "Project not found"
+      })
+    },
+    "/admin/environments/{id}": {
+      patch: adminOperation("Update an environment", "Rename an active environment.", {
+        parameters: [adminIdParameter],
+        requestBody: inlineJsonBody({
+          type: "object",
+          required: ["name"],
+          additionalProperties: false,
+          properties: { name: { type: "string", minLength: 1, maxLength: 256 } }
+        }),
+        notFound: "Environment not found"
+      }),
+      delete: adminOperation("Archive an environment", "Archive an environment.", {
+        parameters: [adminIdParameter],
+        successStatus: "204",
+        successDescription: "Environment archived"
+      })
     },
     "/admin/projects/{projectId}/api-keys": {
-      get: sessionRoute("List ingestion API keys", "Admin route for listing ingestion API key records."),
-      post: sessionRoute("Create an ingestion API key", "Admin route that returns the full API key secret one time.")
+      get: adminOperation("List ingestion API keys", "List redacted ingestion API key records for a project.", {
+        parameters: [adminProjectIdParameter]
+      }),
+      post: adminOperation("Create an ingestion API key", "Create a browser- or server-scoped ingestion key. The full secret is returned only once.", {
+        parameters: [adminProjectIdParameter],
+        requestBody: inlineJsonBody({
+          type: "object",
+          required: ["environmentId", "name", "capability"],
+          additionalProperties: false,
+          properties: {
+            environmentId: { type: "string" },
+            name: { type: "string", minLength: 1, maxLength: 120 },
+            capability: { type: "string", enum: ["browser", "server"] }
+          }
+        }),
+        successStatus: "201",
+        successDescription: "API key created; the secret is shown only in this response",
+        notFound: "Project or environment not found"
+      })
+    },
+    "/admin/api-keys/{id}": {
+      patch: adminOperation("Rename an ingestion API key", "Rename an ingestion key without exposing its secret or stored hash.", {
+        parameters: [adminIdParameter],
+        requestBody: inlineJsonBody({
+          type: "object",
+          required: ["name"],
+          additionalProperties: false,
+          properties: { name: { type: "string", minLength: 1, maxLength: 256 } }
+        }),
+        notFound: "API key not found"
+      }),
+      delete: adminOperation("Revoke an ingestion API key", "Revoke an ingestion key immediately.", {
+        parameters: [adminIdParameter],
+        successStatus: "204",
+        successDescription: "API key revoked"
+      })
     },
     "/admin/source-map-upload-tokens": {
-      get: sessionRoute("List source-map upload tokens", "Admin route for CI source-map upload tokens."),
-      post: sessionRoute("Create a source-map upload token", "Admin route that returns a CI source-map upload token one time.")
+      get: adminOperation("List source-map upload tokens", "List redacted CI source-map upload tokens for one project/environment.", {
+        parameters: adminScopeParameters
+      }),
+      post: adminOperation("Create a source-map upload token", "Create a scoped CI upload token. The full secret is returned only once.", {
+        requestBody: inlineJsonBody({
+          type: "object",
+          required: ["projectId", "environmentId", "name"],
+          additionalProperties: false,
+          properties: {
+            projectId: { type: "string" },
+            environmentId: { type: "string" },
+            name: { type: "string", minLength: 1, maxLength: 256 }
+          }
+        }),
+        successStatus: "201",
+        successDescription: "Upload token created; the secret is shown only in this response",
+        notFound: "Project or environment not found"
+      })
+    },
+    "/admin/source-map-upload-tokens/{id}": {
+      patch: adminOperation("Rename a source-map upload token", "Rename a CI upload token within its project/environment scope.", {
+        parameters: [adminIdParameter, ...adminScopeParameters],
+        requestBody: inlineJsonBody({
+          type: "object",
+          required: ["name"],
+          additionalProperties: false,
+          properties: { name: { type: "string", minLength: 1, maxLength: 256 } }
+        }),
+        notFound: "Source-map upload token not found"
+      }),
+      delete: adminOperation("Revoke a source-map upload token", "Revoke a CI upload token within its project/environment scope.", {
+        parameters: [adminIdParameter, ...adminScopeParameters],
+        successStatus: "204",
+        successDescription: "Source-map upload token revoked"
+      })
     },
     "/admin/read-tokens": {
       get: {

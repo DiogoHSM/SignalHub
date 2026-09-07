@@ -27,6 +27,7 @@ RUN --mount=type=cache,id=sigmon-pnpm-store,target=/home/sigmon/.local/share/pnp
 
 COPY --chown=sigmon:sigmon apps ./apps
 COPY --chown=sigmon:sigmon packages ./packages
+COPY --chown=sigmon:sigmon docs/AGENT-SETUP.md ./docs/AGENT-SETUP.md
 COPY --chown=sigmon:sigmon scripts ./scripts
 COPY --chown=sigmon:sigmon tsconfig.base.json vitest.config.ts ./
 

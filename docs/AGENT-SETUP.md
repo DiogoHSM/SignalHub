@@ -2,7 +2,9 @@
 
 This document is instructions for an AI coding agent (Claude Code, Codex, Antigravity, or similar) working inside **a different codebase** — the project a developer wants to monitor with SignalMonitor ("Sigmon"). A developer points their agent at this file's public URL and the agent follows it end to end: detect the target project's stack, connect to the developer's Sigmon instance, provision project/environment/API keys where it's safe to do so, install and wire the SDK, and verify telemetry arrives.
 
-This is not the Sigmon install guide. If the developer doesn't have a running Sigmon instance yet, see [`SELF-HOSTING.md`](./SELF-HOSTING.md) first — this document assumes one is already reachable.
+This is not the Sigmon install guide. If the developer doesn't have a running Sigmon instance yet,
+use the repository's [self-hosting guide](https://github.com/DiogoHSM/sigmon/blob/main/docs/SELF-HOSTING.md)
+first — this document assumes one is already reachable.
 
 ## 0. Before doing anything
 
@@ -57,11 +59,19 @@ POST {endpoint}/admin/projects/:projectId/environments
      { "name": "local" }        # repeat per environment in scope
 
 POST {endpoint}/admin/projects/:projectId/api-keys
-     { "environmentId": "...", "name": "local agent setup" }
+     { "environmentId": "...", "name": "local server", "capability": "server" }
+     → { "apiKey": { "secret": "...", ... } }
+
+# Only when browser telemetry is in scope, create a separate public browser key:
+POST {endpoint}/admin/projects/:projectId/api-keys
+     { "environmentId": "...", "name": "local browser", "capability": "browser" }
      → { "apiKey": { "secret": "...", ... } }
 ```
 
-The `secret` field is returned once, at creation, and never again. Use it immediately; never log it, never write it into a commit message or code comment, and never persist the admin password or session cookie to disk.
+Each `secret` field is returned once, at creation, and never again. Use it immediately; never log it,
+never write it into a commit message or code comment, and never persist the admin password or session
+cookie to disk. Never substitute a server key for a browser key: the server key is confidential and
+must not enter a public bundle.
 
 For the production tier, skip this section entirely — the human supplies an already-created API key instead.
 
@@ -71,7 +81,11 @@ Detect the package manager from the lockfile and install `@sigmon/sdk`, then pic
 
 - `@sigmon/sdk/node` — Node backends.
 - `@sigmon/sdk/browser` — browser/SPA code.
-- `@sigmon/sdk/next` — Next.js apps (covers both sides; don't also add the plain `/node` or `/browser` entrypoint in the same app).
+- `@sigmon/sdk/next` — Next.js server routes and server actions.
+
+Next.js applications with client-side capture normally use both `@sigmon/sdk/next` on the server and
+`@sigmon/sdk/browser` in Client Components. Keep the clients and keys separate: never import the
+browser entrypoint into server-only code, and never expose the server ingestion key to a browser bundle.
 
 ## 5. Configure per environment
 
@@ -79,27 +93,67 @@ Standard variable names, one pair per environment, written to that environment's
 
 ```dotenv
 SIGMON_ENDPOINT=https://my.sigmon.app
-SIGMON_KEY=<the environment-scoped API key>
+SIGMON_API_KEY=<the server-scoped ingestion key>
+NEXT_PUBLIC_SIGMON_ENDPOINT=https://my.sigmon.app
+NEXT_PUBLIC_SIGMON_BROWSER_KEY=<the browser-scoped ingestion key>
+NEXT_PUBLIC_APP_VERSION=<release-or-deploy-id>
 ```
 
 - `local` → `.env.local` (confirm it's git-ignored before writing; if it isn't, stop and fix that first).
 - self-managed dev/stage → that host's env file or Compose override, if you have access to it.
 - production → do not write this yourself unless the human has approved the specific command; see the tier table in §2.
 
-`SIGMON_ENDPOINT` is normally identical across all environments of one codebase — it's the same Sigmon install receiving telemetry from every deploy stage. Only `SIGMON_KEY` changes per environment.
+`SIGMON_ENDPOINT` is normally identical across all environments of one codebase — it is the same
+Sigmon install receiving telemetry from every deploy stage. The scoped keys and release id change per
+environment. Omit the `NEXT_PUBLIC_*` variables entirely when browser telemetry is not in scope.
 
 ## 6. Wire instrumentation
 
-Initialize the client once, near the app's entry point, per side of the app:
+Initialize one client near each runtime entry point. For Node.js:
 
 ```ts
-import { createSignalMonitorClient } from "@sigmon/sdk/node"; // or /browser, /next
+import { createSignalMonitorClient } from "@sigmon/sdk/node";
 
 const signal = createSignalMonitorClient({
   endpoint: process.env.SIGMON_ENDPOINT!,
-  apiKey: process.env.SIGMON_KEY!
+  apiKey: process.env.SIGMON_API_KEY!
 });
 ```
+
+For a Next.js App Router route or server action:
+
+```ts
+import { createSignalMonitorNextClient, withSignalMonitorRoute } from "@sigmon/sdk/next";
+
+const signal = createSignalMonitorNextClient({
+  endpoint: process.env.SIGMON_ENDPOINT!,
+  apiKey: process.env.SIGMON_API_KEY!,
+  defaultContext: { release: process.env.NEXT_PUBLIC_APP_VERSION }
+});
+
+export const GET = withSignalMonitorRoute(async () => Response.json({ ok: true }), {
+  client: signal,
+  routeName: "GET /api/health"
+});
+```
+
+For client-side errors, Web Vitals, clicks, replay, or feedback in a browser or Next.js Client
+Component:
+
+```ts
+import { createSignalMonitorClient, installBrowserErrorCapture } from "@sigmon/sdk/browser";
+
+const signalBrowser = createSignalMonitorClient({
+  endpoint: process.env.NEXT_PUBLIC_SIGMON_ENDPOINT!,
+  apiKey: process.env.NEXT_PUBLIC_SIGMON_BROWSER_KEY!,
+  defaultContext: { release: process.env.NEXT_PUBLIC_APP_VERSION, source: "web" }
+});
+
+const stopErrorCapture = installBrowserErrorCapture(signalBrowser, { flush: true });
+```
+
+Store and invoke cleanup callbacks such as `stopErrorCapture` during hot reloads, tests, or component
+unmounts. Gracefully terminate long-running server processes with `await signal.shutdown()`.
 
 Then wire only the signals confirmed in §0 — error capture, trace propagation, product events, LLM call wrapping, Web Vitals. If the target has a browser-facing origin, remind the human to add it under `Project Settings > Browser origins` in the Sigmon console (or `BROWSER_CORS_ORIGINS` on the Sigmon instance) or browser telemetry will be rejected by CORS.
 
@@ -118,7 +172,7 @@ End with a short summary, one line per environment:
 ```
 - local:      configured, verified (event received)
 - dev:        configured, verified (event received)
-- prod:       key generated, waiting on you to set SIGMON_KEY in Cloud Run and redeploy
+- prod:       key generated, waiting on you to set SIGMON_API_KEY in Cloud Run and redeploy
 ```
 
 Include the console URL for the project so the human can open it directly.

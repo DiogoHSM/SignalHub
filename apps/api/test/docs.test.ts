@@ -430,7 +430,22 @@ describe("API docs", () => {
     expect(response.body).toContain("BROWSER_CORS_ORIGINS");
     expect(response.body).toContain("Production smoke tests");
     expect(response.body).toContain("SIGMON_UPLOAD_TIMEOUT_MS");
+    expect(response.body).toContain("shutdown()");
+    expect(response.body).not.toContain("does not assign variants");
     expect(response.headers["content-security-policy"]).toContain("script-src 'self'");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("serves the public setup guide for coding agents as Markdown", async () => {
+    const server = await createApp();
+
+    const response = await server.inject({ method: "GET", url: "/agents.md" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/markdown");
+    expect(response.body).toContain("SIGMON_API_KEY");
+    expect(response.body).toContain("createSignalMonitorNextClient");
+    expect(response.body).toContain("@sigmon/sdk/browser");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
   });
 });

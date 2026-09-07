@@ -50,6 +50,7 @@ describe("root route", () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers["content-type"]).toContain("text/html");
       expect(response.body).toContain("SignalMonitor");
+      expect(response.body).toContain('href="/agents.md"');
     }
   });
 

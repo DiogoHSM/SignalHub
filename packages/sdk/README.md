@@ -8,6 +8,7 @@ Public docs:
 
 - `https://my.sigmon.app/sdk`
 - `https://my.sigmon.app/docs`
+- `https://my.sigmon.app/agents.md` (step-by-step setup instructions for coding agents)
 
 ## Install
 
@@ -73,6 +74,33 @@ sigmon.captureError(new Error("Payment provider timeout"), {
 
 await sigmon.flush();
 ```
+
+### Client methods and delivery lifecycle
+
+Every runtime client exposes the same core methods. Runtime-specific entrypoints add helpers around
+this client rather than changing the ingestion contract.
+
+| Method | Purpose |
+| --- | --- |
+| `track` | Product events and conversion telemetry. |
+| `assignExperiment` | Deterministically select a weighted variant and record the exposure. |
+| `evaluateFlag` | Evaluate a local feature-flag snapshot with a safe fallback. |
+| `captureError` | Errors with stack, release, severity, and runtime context. |
+| `breadcrumb` | Bounded context leading up to an error or session event. |
+| `llm` | LLM provider/model, token, cost, status, and latency telemetry. |
+| `trace`, `startTrace`, `span` | Distributed trace and span telemetry, including W3C propagation helpers. |
+| `webVital` | Send one Web Vital sample directly; browser apps normally use `installBrowserWebVitals`. |
+| `click` | Send one privacy-safe click-map sample; browser apps normally use `installBrowserClickCapture`. |
+| `replay` | Send a privacy-safe replay timeline; browser apps normally use `createBrowserReplayRecorder`. |
+| `profile` | Send a bounded runtime CPU or memory profile. |
+| `submitSurvey`, `feedback` | Survey responses and user feedback. |
+| `identify`, `identifyUser`, `identifyTenant` | Persist stable actor traits and refresh identity activity. |
+| `flush` | Wait for telemetry currently queued by the client. |
+| `shutdown` | Stop accepting new telemetry and flush queued delivery before process exit. |
+
+Use `await sigmon.shutdown()` during graceful termination of a long-running process. Use
+`await sigmon.flush()` when the client will continue running but the current job or request must wait
+for queued telemetry.
 
 ### Event property hygiene
 
@@ -593,6 +621,7 @@ await fetch("https://worker.example.com/jobs", {
 ## Identify
 
 Use identify calls when stable user or tenant traits become known. Telemetry with matching `userId` or `tenantId` updates `last_seen_at`, but only identify calls update persisted traits.
+Repeated identify calls shallow-merge traits: supplied keys replace earlier values while omitted keys remain unchanged.
 
 ```ts
 sigmon.identifyUser("user_456", {
@@ -613,36 +642,26 @@ sigmon.identifyTenant("tenant_123", {
 await sigmon.flush();
 ```
 
-## Experiments and A/B Tests
+## Experiments, flags, surveys, and campaigns
 
-Sigmon experiments are derived from normal event telemetry. The SDK does not assign variants or change feature-flag behavior in your app; your application should choose a stable variant and send exposure and conversion events with consistent properties.
-
-Minimum event properties:
-
-- `experiment`: stable experiment key, for example `checkout_copy`.
-- `variant`: stable variant key, for example `control` or `short_copy`.
-
-Recommended event names:
-
-- Exposure event: `experiment.exposed` or a product-specific event such as `checkout.exposed`.
-- Conversion event: `experiment.converted` or a product-specific event such as `checkout.completed`.
+The SDK assigns weighted variants deterministically. Give `assignExperiment` a stable subject id and
+the same subject receives the same variant across calls. The helper also records the exposure event;
+send the conversion as normal product telemetry with the same experiment and actor context.
 
 ```ts
-const experiment = "checkout_copy";
-const variant = "short_copy";
-
-sigmon.track("checkout.exposed", {
-  experiment,
-  variant,
-  page: "checkout"
-}, {
-  tenantId: "tenant_123",
-  userId: "user_456"
+const assignment = sigmon.assignExperiment({
+  experimentKey: "checkout_copy",
+  subjectId: "user_456",
+  variants: [
+    { key: "control", weight: 50 },
+    { key: "short_copy", weight: 50 }
+  ],
+  properties: { page: "checkout" }
 });
 
 sigmon.track("checkout.completed", {
-  experiment,
-  variant,
+  experiment_key: "checkout_copy",
+  variant: assignment.variant,
   orderValueCents: 12900
 }, {
   tenantId: "tenant_123",
@@ -652,7 +671,10 @@ sigmon.track("checkout.completed", {
 await sigmon.flush();
 ```
 
-In the console, open `Experiments` and map the experiment property, variant property, exposure event, and conversion event. If your app already uses different names, keep them consistent and map them there.
+Create the matching experiment in the console with the same key, variants, exposure event, and
+conversion event. Experiment readouts are derived from exposure and conversion events, so keep actor
+identifiers and property names consistent. A custom exposure event such as `checkout.exposed` is valid
+when the console experiment and SDK assignment use the same name.
 
 ## Feature Flags
 
@@ -671,6 +693,10 @@ Beta programs live beside feature flags in the console. Create a program, link i
 then add user or tenant participants. Sigmon syncs those participants into flag targeting rules, while
 your application continues to call `evaluateFlag` with a safe fallback. Adoption is measured from normal
 event telemetry emitted by participating users or tenants.
+
+Message campaigns are created and updated through the console or `/admin/message-campaigns`. Campaign
+delivery and conversion reporting use the same project/environment and actor context as SDK telemetry;
+the SDK does not expose administrator credentials or campaign-management methods to monitored apps.
 
 ## Source Maps
 
@@ -699,7 +725,7 @@ When an incident still shows minified frames, use the source-map diagnostic in t
 
 For Vercel/Next.js, the most common failure is a release mismatch: browser/server errors must send the same `NEXT_PUBLIC_APP_VERSION` (or deploy id/commit SHA) that CI used in `pnpm source-maps:upload --release`.
 
-## Production Smoke Tests
+## Production smoke tests
 
 Use curl to validate a server key:
 
