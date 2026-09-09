@@ -12,10 +12,10 @@
     "@sigmon/config": "workspace:*",
     "@sigmon/telemetry": "workspace:*",
     "kysely": "^0.28.17",
-    "pg": "^8.20.0"
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@testcontainers/postgresql": "^12.1.0",
-    "@types/pg": "^8.20.0"
+    "@types/pg": "^8.23.1"
   }
 }

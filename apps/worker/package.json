@@ -24,11 +24,11 @@
     "ioredis": "^5.10.1",
     "kysely": "^0.28.17",
     "nodemailer": "^9.1.1",
-    "pg": "^8.20.0"
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@types/nodemailer": "^8.0.0",
-    "@types/pg": "^8.20.0",
+    "@types/pg": "^8.23.1",
     "vitest": "^4.1.11"
   }
 }
