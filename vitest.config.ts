@@ -41,6 +41,7 @@ export default defineConfig({
       "@sigmon/telemetry/sanitization": resolve(root, "packages/telemetry/src/sanitization.ts"),
       "@sigmon/db/migrate.js": resolve(root, "packages/db/src/migrate.ts"),
       "@sigmon/db/repositories/admin.js": resolve(root, "packages/db/src/repositories/admin.ts"),
+      "@sigmon/db/repositories/source-maps.js": resolve(root, "packages/db/src/repositories/source-maps.ts"),
       "@sigmon/db/repositories/analytics-segments.js": resolve(root, "packages/db/src/repositories/analytics-segments.ts"),
       "@sigmon/db/repositories/analytics-segment-compiler.js": resolve(
         root,
