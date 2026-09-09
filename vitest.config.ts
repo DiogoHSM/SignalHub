@@ -6,13 +6,29 @@ const root = import.meta.dirname;
 export default defineConfig({
   test: {
     environment: "node",
-    environmentMatchGlobs: [["apps/console/**/*.test.tsx", "jsdom"]],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "node",
+          include: ["apps/**/*.test.ts", "packages/**/*.test.ts", "scripts/**/*.test.ts"],
+          exclude: ["**/node_modules/**", "**/.git/**", "apps/console/**/*.test.tsx"]
+        }
+      },
+      {
+        extends: true,
+        test: {
+          name: "console-dom",
+          environment: "jsdom",
+          include: ["apps/console/**/*.test.tsx"]
+        }
+      }
+    ],
     environmentOptions: {
       jsdom: {
         url: "http://localhost/"
       }
     },
-    include: ["apps/**/*.test.ts", "apps/**/*.test.tsx", "packages/**/*.test.ts", "scripts/**/*.test.ts"],
     setupFiles: ["apps/console/src/test/setup.ts"],
     testTimeout: 30_000
   },
