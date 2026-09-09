@@ -443,6 +443,8 @@ Copy the one-time `apiKey.secret` from the response. The stored record keeps onl
 
 ## Public Documentation
 
+Planned requirements (not implemented): [CLI/MCP administration, LLM pricing and OpenTelemetry assessment](docs/superpowers/specs/2026-09-09-cli-mcp-llm-pricing-otel-requirements.md).
+
 Deployed SignalMonitor instances expose public SDK documentation at `/sdk`, API reference docs at `/docs`, and the raw OpenAPI 3.1 document at `/openapi.json`.
 
 For the hosted deployment, use:

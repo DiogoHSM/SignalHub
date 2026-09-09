@@ -6,6 +6,16 @@ This is not the Sigmon install guide. If the developer doesn't have a running Si
 use the repository's [self-hosting guide](https://github.com/DiogoHSM/sigmon/blob/main/docs/SELF-HOSTING.md)
 first — this document assumes one is already reachable.
 
+## CLI and MCP availability
+
+As checked on 2026-09-09, `@sigmon/cli` and `@sigmon/mcp` are not available from the public npm registry under those names (both return 404 and are marked private in this repository). The current CLI supports source-map uploads; the current MCP runs locally over stdio with investigation tools and a read token. `mcp.sigmon.app` does not currently resolve in DNS.
+
+Public CLI installation, hosted MCP, access-token generation and OAuth onboarding are planned. The proposed remote endpoint is `https://mcp.sigmon.app/mcp`; it is **not a working setup URL yet**. Do not attempt public package installation or tell users these capabilities are available based on this roadmap.
+
+The release must document installation and updates, supported agent clients, remote versus stdio configuration, token/OAuth authentication, project/environment permissions, credential revocation and an end-to-end verification step. Use the existing instructions below until that release. Future agent access tokens must remain distinct from the ingestion keys installed in the monitored application.
+
+The detailed requirements are in [CLI/MCP distribution and administration](https://github.com/DiogoHSM/sigmon/blob/main/docs/superpowers/specs/2026-09-09-cli-mcp-llm-pricing-otel-requirements.md). This file is the source for the instance's public `/agents.md` route; repository edits become publicly visible only after deployment.
+
 ## 0. Before doing anything
 
 Confirm with the human, in the target codebase:
