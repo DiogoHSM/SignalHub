@@ -32,7 +32,7 @@ function ServiceCard({ card }: { card: ServiceCardVM }) {
   const className = card.tone === "idle" ? "sh-card" : `sh-card sh-stripe ${card.tone}`;
   return (
     <div className={className} style={{ padding: 14 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
         <span style={{ color: toneColor(card.tone) }}>
           <Icon name={card.icon} size={16} />
         </span>
@@ -55,7 +55,7 @@ function ServiceCard({ card }: { card: ServiceCardVM }) {
 
 function QueueRow({ row }: { row: QueueRowVM }) {
   return (
-    <div className="sh-row" style={{ gridTemplateColumns: QUEUE_GRID }}>
+    <div className="sh-row" style={{ gridTemplateColumns: QUEUE_GRID, minWidth: 560 }}>
       <span className="sh-mono" style={{ fontSize: 12 }}>{row.name}</span>
       <span style={{ fontSize: 12 }}>{row.waiting} wait</span>
       <span style={{ fontSize: 12, color: row.active > 0 ? "var(--accent)" : "var(--fg-muted)" }}>{row.active} act</span>
@@ -107,7 +107,7 @@ function DeadLetterRow({
 }) {
   const rendered = detail ? formatPayload(detail.payload, payloadFull) : null;
   return (
-    <div style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+    <div style={{ borderBottom: "1px solid var(--border-subtle)", minWidth: 700 }}>
       <div
         role="button"
         tabIndex={0}
@@ -215,7 +215,7 @@ function DeadLetterQueueSection({
         <h2 className="sh-h2">Dead-letter queue</h2>
         <span className="sh-faint" style={{ fontSize: 11 }}>{dlq.jobs.length} job(s)</span>
       </div>
-      <div style={{ flex: 1 }}>
+      <div style={{ flex: 1, overflowX: "auto" }}>
         {dlq.status === "loading" && dlq.jobs.length === 0 ? (
           <EmptyHint icon="queue" title="Loading…" sub="Fetching dead-letter jobs." />
         ) : dlq.status === "error" ? (
@@ -394,7 +394,7 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
         </div>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: `repeat(${services.length}, 1fr)`, gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 190px), 1fr))", gap: 12 }}>
         {services.map((c) => (
           <ServiceCard key={c.name} card={c} />
         ))}
@@ -413,12 +413,12 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
         onDelete={(id) => void runDlqMutation(id, "delete")}
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 1fr", gap: 16 }}>
-        <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div className="system-health-panels">
+        <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0, gridColumn: "1 / -1" }}>
           <div className="sh-card__head">
             <h2 className="sh-h2">Queues</h2>
           </div>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, overflowX: "auto" }}>
             {queues.length === 0 ? (
               <EmptyHint icon="queue" title="No queues" sub="No background queues reported." />
             ) : (
@@ -429,7 +429,7 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
 
         <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div className="sh-card__head">
-            <h2 className="sh-h2">Retention</h2>
+            <h2 className="sh-h2" style={{ flexShrink: 0 }}>Retention</h2>
             <span className="sh-faint" style={{ fontSize: 11 }}>{retention.subLabel}</span>
           </div>
           <div style={{ flex: 1 }}>
@@ -475,7 +475,7 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
               <EmptyHint icon="archive" title="No backups yet" sub="No backup runs have been recorded." />
             ) : null}
           </div>
-          <div style={{ padding: "11px 16px", borderTop: "1px solid var(--border-subtle)", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <div style={{ padding: "11px 16px", borderTop: "1px solid var(--border-subtle)", display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
             <span className="sh-faint" style={{ fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{backups.subLabel}</span>
             <ConfirmButton
               label={runningAction === "backup" ? "Running…" : "Run backup now"}

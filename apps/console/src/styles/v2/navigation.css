@@ -40,6 +40,10 @@
 .sh-v2 details > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .sh-v2 .sh-input, .sh-v2 textarea { caret-color: var(--accent); }
 .sh-v2 .alert-row:focus-within .alert-row__actions { opacity: 1; }
+.sh-v2 .system-health-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1100px) {
+  .sh-v2 .system-health-panels { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-height: 850px) and (min-width: 900px) {
   .sh-v2 .nv-group { margin-bottom: 3px; }
   .sh-v2 .nv-group-label { padding-top: 4px; }
