@@ -413,7 +413,7 @@ export function SystemScreen({ ctx }: { ctx: ScreenCtx }) {
         onDelete={(id) => void runDlqMutation(id, "delete")}
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 340px), 1fr))", gap: 16 }}>
+      <div className="system-health-panels">
         <div className="sh-card" style={{ display: "flex", flexDirection: "column", minHeight: 0, gridColumn: "1 / -1" }}>
           <div className="sh-card__head">
             <h2 className="sh-h2">Queues</h2>
