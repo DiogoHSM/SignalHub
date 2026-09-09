@@ -196,14 +196,14 @@ describe("ErrorsScreen", () => {
       expect(errorsTab).toHaveClass("is-active");
     });
 
-    it("renders all 6 tabs: Events, Errors, Traces, LLM, Entities, Users", () => {
+    it("renders all 6 tabs: Events, Errors, Traces, AI calls, Accounts, Users", () => {
       mockUseErrors(ERRORS_VM);
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
       expect(screen.getByRole("button", { name: "Events" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Errors" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Traces" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "LLM" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Entities" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "AI calls" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Accounts" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Users" })).toBeInTheDocument();
     });
 
@@ -220,12 +220,12 @@ describe("ErrorsScreen", () => {
       expect(screen.getByText("31K")).toBeInTheDocument();
     });
 
-    it("navigates to overview when Events tab is clicked", async () => {
+    it("navigates to events when Events tab is clicked", async () => {
       mockUseErrors(ERRORS_VM);
       const navigate = vi.fn();
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={navigate} />);
       await userEvent.click(screen.getByRole("button", { name: "Events" }));
-      expect(navigate).toHaveBeenCalledWith("overview");
+      expect(navigate).toHaveBeenCalledWith("events");
     });
 
     it("navigates to traces when Traces tab is clicked", async () => {
@@ -240,7 +240,7 @@ describe("ErrorsScreen", () => {
       mockUseErrors(ERRORS_VM);
       const navigate = vi.fn();
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={navigate} />);
-      await userEvent.click(screen.getByRole("button", { name: "LLM" }));
+      await userEvent.click(screen.getByRole("button", { name: "AI calls" }));
       expect(navigate).toHaveBeenCalledWith("llm");
     });
 
@@ -248,7 +248,7 @@ describe("ErrorsScreen", () => {
       mockUseErrors(ERRORS_VM);
       const navigate = vi.fn();
       render(<ErrorsScreen ctx={makeMockCtx()} navigate={navigate} />);
-      await userEvent.click(screen.getByRole("button", { name: "Entities" }));
+      await userEvent.click(screen.getByRole("button", { name: "Accounts" }));
       expect(navigate).toHaveBeenCalledWith("entities");
     });
 

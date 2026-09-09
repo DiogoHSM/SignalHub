@@ -9,7 +9,7 @@ const PATHS = {
   bell: <><path d="M6 8a6 6 0 1112 0c0 7 3 8 3 8H3s3-1 3-8z"/><path d="M10 21a2 2 0 004 0"/></>,
   cube: <><path d="M12 3 3 8v8l9 5 9-5V8z"/><path d="M3 8l9 5 9-5M12 13v8"/></>,
   server: <><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 8h.01M7 17h.01"/></>,
-  settings: <><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></>,
+  settings: <><path d="m9 3-.5 2.2-1.4.8-2.2-.7-2 3.4L4.6 10v1.8L3 13.4l2 3.4 2.1-.7 1.5.9L9 19.5h4l.5-2.5 1.5-.9 2.1.7 2-3.4-1.6-1.6V10l1.7-1.3-2-3.4-2.2.7-1.4-.8L13 3z"/><circle cx="11" cy="11.3" r="3"/></>,
   search: <><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></>,
   plus: <><path d="M12 5v14M5 12h14"/></>,
   chev: <><path d="m9 6 6 6-6 6"/></>,

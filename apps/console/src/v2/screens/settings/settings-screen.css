@@ -1,0 +1,8 @@
+.sh-settings-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 20px; align-items: start; }
+.sh-settings-tasks { display: flex; flex-direction: column; gap: 6px; }
+.sh-settings-tasks .sh-btn { justify-content: flex-start; white-space: normal; text-align: left; }
+.sh-settings-content { display: grid; gap: 16px; min-width: 0; }
+@media (max-width: 760px) {
+  .sh-settings-layout { grid-template-columns: minmax(0, 1fr); }
+  .sh-settings-tasks { flex-direction: row; flex-wrap: wrap; }
+}

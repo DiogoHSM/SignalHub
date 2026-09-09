@@ -513,7 +513,7 @@ function TraceListView({
             <strong style={{ color: "var(--fg)" }}>
               {ctx.project?.name} · {ctx.environment?.name}
             </strong>{" "}
-            — {traces.length} traces shown.
+            — {traces.length} traces shown. Select an endpoint or trace to locate slow or failing spans.
           </>
         }
         actions={
@@ -550,7 +550,7 @@ function TraceListView({
         </div>
         <div className="sh-scroll-fill">
           {traces.length === 0 ? (
-            <EmptyHint icon="waterfall" title="No traces in this project" sub="Traces will appear here as they are ingested." />
+            <EmptyHint icon="waterfall" title="No traces in this view" sub="Nothing matches the current scope and filters. Clear a filter or check trace capture in your integration." />
           ) : (
             traces.map((t) => <TraceListRow key={t.id} trace={t} onOpen={() => onOpen(t.id)} />)
           )}
@@ -705,7 +705,7 @@ function SpanDetailPanel({ span, traceIdLabel, ctx }: { span: SpanNodeVM; traceI
 }
 
 function TraceDetailView({ ctx, trace, onBack }: { ctx: ScreenCtx; trace: TraceListItemVM; onBack: () => void }) {
-  const { data: detail, status } = useTraceSpans({
+  const { data: detail, status, reload } = useTraceSpans({
     client: ctx.client,
     projectId: ctx.project?.id,
     environmentId: ctx.environment?.id,
@@ -800,7 +800,7 @@ function TraceDetailView({ ctx, trace, onBack }: { ctx: ScreenCtx; trace: TraceL
           {status === "loading" && !detail ? (
             <EmptyHint icon="waterfall" title="Loading…" sub="Fetching spans." />
           ) : status === "error" ? (
-            <EmptyHint icon="alert" title="Could not load spans" sub="Check your connection or try again." />
+            <EmptyHint icon="alert" title="Could not load spans" sub="Retry to inspect this trace; your selection is preserved." cta={<button className="sh-btn" onClick={reload}>Retry spans</button>} />
           ) : spans.length === 0 ? (
             <EmptyHint icon="waterfall" title="No spans for this trace" />
           ) : (
@@ -877,7 +877,7 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { ctx.clearPendingFilters?.(); }, []);
 
-  const { data, endpoints, serviceMap, webVitals, runtimeProfiles, totals, status } = useTraces({
+  const { data, endpoints, serviceMap, webVitals, runtimeProfiles, totals, status, reload } = useTraces({
     client: ctx.client,
     projectId,
     environmentId,
@@ -914,7 +914,7 @@ export function TracesScreen({ ctx }: { ctx: ScreenCtx }) {
   if (status === "error" || !data) {
     return (
       <div className="sh-empty-region">
-        <EmptyHint icon="alert" title="Could not load traces" sub="Check your connection or try again." />
+        <EmptyHint icon="alert" title="Could not load traces" sub="Retry this request. Your filters are preserved." cta={<button className="sh-btn" onClick={reload}>Retry traces</button>} />
       </div>
     );
   }

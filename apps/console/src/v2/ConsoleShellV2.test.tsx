@@ -99,7 +99,7 @@ afterEach(() => {
 // ─── tests ──────────────────────────────────────────────────────────────────
 
 describe("ConsoleShellV2", () => {
-  it("shows the mobile-status handoff instead of mounting any dense shell route at 899px", () => {
+  it("keeps navigation usable in a narrow viewport with an opening and closing drawer", async () => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
       value: vi.fn(() => ({
@@ -116,8 +116,15 @@ describe("ConsoleShellV2", () => {
 
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
-    expect(screen.getByRole("link", { name: /open mobile status/i })).toHaveAttribute("href", "/console/status");
-    expect(document.querySelector(".app")).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    expect(document.querySelector(".app")).toBeInTheDocument();
+    const navigation = screen.getByRole("navigation", { name: "Main navigation" });
+    expect(navigation).toHaveAttribute("data-mobile-open", "false");
+    await user.click(screen.getByRole("button", { name: "Open navigation" }));
+    expect(navigation).toHaveAttribute("data-mobile-open", "true");
+    await user.click(screen.getByTitle("Installation & SDK"));
+    expect(await screen.findByRole("heading", { name: "Installation & SDK" })).toBeInTheDocument();
+    expect(navigation).toHaveAttribute("data-mobile-open", "false");
   });
 
   it("opens a canonical section URL directly", async () => {
@@ -148,7 +155,7 @@ describe("ConsoleShellV2", () => {
 
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
-    expect(await screen.findByRole("heading", { name: "Operations" }, { timeout: 5_000 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Overview" }, { timeout: 5_000 })).toBeInTheDocument();
     await waitFor(() => expect(`${window.location.pathname}${window.location.search}`).toBe(
       "/console/overview?project_id=prj_1&environment_id=env_1",
     ));
@@ -157,9 +164,9 @@ describe("ConsoleShellV2", () => {
   it("pushes canonical scoped section URLs and restores them with browser back and forward", async () => {
     const user = userEvent.setup();
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
-    await screen.findByRole("heading", { name: "Operations" });
+    await screen.findByRole("heading", { name: "Overview" });
 
-    await user.click(screen.getByTitle("Settings"));
+    await user.click(screen.getByTitle("Project settings"));
     await waitFor(() => expect(window.location.pathname).toBe("/console/settings"));
     expect(window.location.search).toBe("?project_id=prj_1&environment_id=env_1");
 
@@ -168,7 +175,7 @@ describe("ConsoleShellV2", () => {
 
     window.history.back();
     await waitFor(() => expect(window.location.pathname).toBe("/console/settings"));
-    expect(await screen.findByRole("heading", { name: "Setup" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Project settings" })).toBeInTheDocument();
 
     window.history.forward();
     await waitFor(() => expect(window.location.pathname).toBe("/console/traces"));
@@ -184,7 +191,7 @@ describe("ConsoleShellV2", () => {
       })),
     });
     render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
-    await screen.findByRole("heading", { name: "Operations" });
+    await screen.findByRole("heading", { name: "Overview" });
 
     window.history.pushState({}, "", "/console/traces?project_id=prj_2&environment_id=env_2");
     window.dispatchEvent(new PopStateEvent("popstate"));
@@ -263,10 +270,10 @@ describe("ConsoleShellV2", () => {
     });
 
     render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
-    await screen.findByRole("heading", { name: "Operations" });
+    await screen.findByRole("heading", { name: "Overview" });
 
-    await user.click(screen.getByTitle("Settings"));
-    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(screen.getByTitle("Installation & SDK"));
+    await screen.findByRole("heading", { name: "Installation & SDK" });
 
     await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
     await waitFor(() => expect(client.createApiKey).toHaveBeenCalled());
@@ -285,8 +292,9 @@ describe("ConsoleShellV2", () => {
     });
 
     render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
-    await user.click(await screen.findByTitle("Settings"));
-    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(await screen.findByTitle("Project settings"));
+    await screen.findByRole("heading", { name: "Project settings" });
+    await user.click(screen.getByRole("button", { name: "Credentials & origins" }));
     await user.click(await screen.findByRole("button", { name: "New API key" }));
     await user.type(screen.getByLabelText("API key name"), "backend-identify");
     await user.selectOptions(screen.getByLabelText("API key capability"), "server");
@@ -301,6 +309,10 @@ describe("ConsoleShellV2", () => {
     expect(document.body.textContent).not.toContain(secret);
     await user.click(screen.getByTitle("Reveal"));
     expect(await screen.findByText(secret)).toBeInTheDocument();
+    await user.click(screen.getByTitle("Installation & SDK"));
+    await screen.findByRole("heading", { name: "Installation & SDK" });
+    expect(document.body.textContent).not.toContain(secret);
+    expect(await screen.findByRole("button", { name: /Generate API key/ })).toBeInTheDocument();
   });
 
   it("keeps a minted secret alive across a same-scope reload when the active environment is not first in the list", async () => {
@@ -319,15 +331,15 @@ describe("ConsoleShellV2", () => {
     });
 
     const { container } = render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
-    await screen.findByRole("heading", { name: "Operations" });
+    await screen.findByRole("heading", { name: "Overview" });
 
     // Explicitly switch to the second (non-first) environment before minting.
     await user.click(container.querySelectorAll(".sw-pill")[1]);
     await user.click(container.querySelectorAll(".sw-opt")[1] as HTMLElement);
     await waitFor(() => expect(container.querySelectorAll(".sw-pill")[1]?.textContent).toContain("canary"));
 
-    await user.click(screen.getByTitle("Settings"));
-    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(screen.getByTitle("Installation & SDK"));
+    await screen.findByRole("heading", { name: "Installation & SDK" });
 
     await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
     await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1b", name: "console-canary", capability: "browser" }));
@@ -347,14 +359,14 @@ describe("ConsoleShellV2", () => {
     });
 
     const { container } = render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
-    await screen.findByRole("heading", { name: "Operations" });
+    await screen.findByRole("heading", { name: "Overview" });
 
     await user.click(container.querySelectorAll(".sw-pill")[1]);
     await user.click(container.querySelectorAll(".sw-opt")[1] as HTMLElement);
     await waitFor(() => expect(container.querySelectorAll(".sw-pill")[1]?.textContent).toContain("canary"));
 
-    await user.click(screen.getByTitle("Settings"));
-    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(screen.getByTitle("Installation & SDK"));
+    await screen.findByRole("heading", { name: "Installation & SDK" });
     await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
     await waitFor(() => expect(client.createApiKey).toHaveBeenCalled());
     await screen.findByTitle("Reveal");
@@ -390,13 +402,13 @@ describe("ConsoleShellV2", () => {
     });
 
     const { container } = render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
-    await screen.findByRole("heading", { name: "Operations" });
+    await screen.findByRole("heading", { name: "Overview" });
     await waitFor(() => expect(window.location.search).toBe("?project_id=prj_1&environment_id=env_1"));
 
     // Leave a prj_1 history entry behind (nav is the shell's only pushState;
     // scope switches replaceState), then switch project and mint there.
-    await user.click(screen.getByTitle("Settings"));
-    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(screen.getByTitle("Installation & SDK"));
+    await screen.findByRole("heading", { name: "Installation & SDK" });
 
     await user.click(container.querySelectorAll(".sw-pill")[0]);
     await user.click(Array.from(container.querySelectorAll(".sw-opt"))
@@ -411,11 +423,11 @@ describe("ConsoleShellV2", () => {
 
     // The Operations heading only renders once the restore has settled the
     // shell back on prj_1 (an unsettled scope renders the loading state).
-    await screen.findByRole("heading", { name: "Operations" });
+    await screen.findByRole("heading", { name: "Overview" });
     await waitFor(() => expect(window.location.search).toBe("?project_id=prj_1&environment_id=env_1"));
 
-    await user.click(screen.getByTitle("Settings"));
-    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(screen.getByTitle("Installation & SDK"));
+    await screen.findByRole("heading", { name: "Installation & SDK" });
     expect(screen.queryByTitle("Reveal")).not.toBeInTheDocument();
     expect(screen.queryByText(secret)).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /Generate API key/ })).toBeInTheDocument();
@@ -448,10 +460,10 @@ describe("ConsoleShellV2", () => {
     });
 
     render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
-    await screen.findByRole("heading", { name: "Operations" });
+    await screen.findByRole("heading", { name: "Overview" });
 
-    await user.click(screen.getByTitle("Settings"));
-    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(screen.getByTitle("Installation & SDK"));
+    await screen.findByRole("heading", { name: "Installation & SDK" });
     await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
     await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1", name: "console-production", capability: "browser" }));
     await screen.findByTitle("Reveal");
@@ -480,18 +492,20 @@ describe("ConsoleShellV2", () => {
     });
 
     const { container } = render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
-    await screen.findByRole("heading", { name: "Operations" });
+    await screen.findByRole("heading", { name: "Overview" });
 
     await user.click(container.querySelectorAll(".sw-pill")[1]);
     await user.click(container.querySelectorAll(".sw-opt")[1] as HTMLElement);
     await waitFor(() => expect(container.querySelectorAll(".sw-pill")[1]?.textContent).toContain("canary"));
 
-    await user.click(screen.getByTitle("Settings"));
-    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(screen.getByTitle("Installation & SDK"));
+    await screen.findByRole("heading", { name: "Installation & SDK" });
     await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
     await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1b", name: "console-canary", capability: "browser" }));
     await screen.findByTitle("Reveal");
 
+    await user.click(screen.getByTitle("Project settings"));
+    await user.click(screen.getByRole("button", { name: "Environments" }));
     await user.click(await screen.findByRole("button", { name: "Archive canary" }));
     await user.click(await screen.findByRole("button", { name: "Confirm archive canary" }));
     await waitFor(() => expect(client.archiveEnvironment).toHaveBeenCalledWith("env_1b"));
@@ -500,7 +514,8 @@ describe("ConsoleShellV2", () => {
     // reload unmounts the screen for a moment, so "no Reveal on screen" is
     // true transiently no matter what the shell decides about the secret.
     await waitFor(() => expect(container.querySelectorAll(".sw-pill")[1]?.textContent).toContain("production"));
-    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(screen.getByTitle("Installation & SDK"));
+    await screen.findByRole("heading", { name: "Installation & SDK" });
     expect(await screen.findByRole("button", { name: /Generate API key/ })).toBeInTheDocument();
     expect(screen.queryByTitle("Reveal")).not.toBeInTheDocument();
     expect(screen.queryByText(secret)).not.toBeInTheDocument();
@@ -519,10 +534,10 @@ describe("ConsoleShellV2", () => {
     });
 
     const { container } = render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
-    await screen.findByRole("heading", { name: "Operations" });
+    await screen.findByRole("heading", { name: "Overview" });
 
-    await user.click(screen.getByTitle("Settings"));
-    await screen.findByRole("heading", { name: "Setup" });
+    await user.click(screen.getByTitle("Installation & SDK"));
+    await screen.findByRole("heading", { name: "Installation & SDK" });
     await user.click(await screen.findByRole("button", { name: /Generate API key/ }));
     await waitFor(() => expect(client.createApiKey).toHaveBeenCalledWith("prj_1", { environmentId: "env_1", name: "console-production", capability: "browser" }));
     await screen.findByTitle("Reveal");
@@ -535,7 +550,7 @@ describe("ConsoleShellV2", () => {
     await user.click(container.querySelectorAll(".sw-opt")[0] as HTMLElement);
     await waitFor(() => expect(container.querySelectorAll(".sw-pill")[1]?.textContent).toContain("production"));
 
-    await screen.findByRole("heading", { name: "Setup" });
+    await screen.findByRole("heading", { name: "Installation & SDK" });
     expect(await screen.findByRole("button", { name: /Generate API key/ })).toBeInTheDocument();
     expect(screen.queryByTitle("Reveal")).not.toBeInTheDocument();
     expect(screen.queryByText(secret)).not.toBeInTheDocument();
@@ -602,6 +617,7 @@ describe("ConsoleShellV2", () => {
     const user = userEvent.setup();
     render(<ConsoleShellV2 client={makeClient({ fetchFleet, fetchFleetProjectEnvironments })} user={ADMIN_USER} />);
 
+    await user.click(screen.getByTitle("Show project radar"));
     const expandButtons = await screen.findAllByRole("button", { name: "Expand environments" });
     await user.click(expandButtons[0]!);
     await user.click(expandButtons[1]!);
@@ -631,7 +647,7 @@ describe("ConsoleShellV2", () => {
     });
 
     // Click the Settings nav item
-    const settingsBtn = screen.getByTitle("Settings");
+    const settingsBtn = screen.getByTitle("Installation & SDK");
     await user.click(settingsBtn);
 
     // After navigation, the v2 SetupScreen renders its PageHead
@@ -644,7 +660,7 @@ describe("ConsoleShellV2", () => {
     const user = userEvent.setup();
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
-    await user.click(screen.getByTitle("LLM"));
+    await user.click(screen.getByTitle("AI calls"));
 
     await waitFor(() => {
       const stored = JSON.parse(localStorage.getItem("sh_v2_state") ?? "{}");
@@ -657,9 +673,9 @@ describe("ConsoleShellV2", () => {
     localStorage.setItem("sh_v2_state", JSON.stringify({ nav: "settings" }));
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
-    // Should restore to settings — the v2 SetupScreen renders its PageHead immediately
+    // Settings is ongoing project configuration, separate from installation.
     await waitFor(() => {
-      expect(screen.getByText(/Connect your application/i)).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Project settings" })).toBeInTheDocument();
     });
   });
 
@@ -668,6 +684,8 @@ describe("ConsoleShellV2", () => {
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
     const appEl = document.querySelector(".app");
+    expect(appEl?.getAttribute("data-rail")).toBe("collapsed");
+    await user.click(screen.getByTitle("Show project radar"));
     expect(appEl?.getAttribute("data-rail")).toBe("open");
 
     // The collapse button is inside the health rail
@@ -680,6 +698,42 @@ describe("ConsoleShellV2", () => {
 
     const stored = JSON.parse(localStorage.getItem("sh_v2_state") ?? "{}");
     expect(stored.railCollapsed).toBe(true);
+  });
+
+  it.each([
+    ["Pinned open", "open"], ["Pinned compact", "compact"], ["Automatic", "auto"],
+  ])("persists and restores the %s navigation preference", async (label, mode) => {
+    const user = userEvent.setup();
+    const mounted = render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+    await user.click(screen.getByRole("button", { name: "Navigation display" }));
+    await user.click(screen.getByRole("menuitemradio", { name: label }));
+    expect(document.querySelector(".app")).toHaveAttribute("data-nav", mode);
+    expect(JSON.parse(localStorage.getItem("sh_v2_state") ?? "{}").navMode).toBe(mode);
+    expect(screen.getByRole("button", { name: "Navigation display" })).toHaveFocus();
+    mounted.unmount();
+    render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+    expect(screen.getByRole("navigation", { name: "Main navigation" })).toHaveAttribute("data-mode", mode);
+    await user.click(screen.getByRole("button", { name: "Navigation display" }));
+    expect(screen.getByRole("menuitemradio", { name: label })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it.each(["Sigmon health", "Administration"])("shows instance context without project controls on %s", async (label) => {
+    const user = userEvent.setup();
+    const renderSection = registryModule.renderSection;
+    vi.spyOn(registryModule, "renderSection").mockImplementation((section, ctx) =>
+      section === "system" || section === "administration" ? <h1>Instance test screen</h1> : renderSection(section, ctx),
+    );
+    render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
+    await screen.findByRole("heading", { name: "Overview" });
+    expect(document.querySelectorAll(".sw-pill")).toHaveLength(2);
+    await user.click(screen.getByTitle(label));
+    expect(await screen.findByText("Sigmon instance")).toBeInTheDocument();
+    expect(document.querySelectorAll(".sw-pill")).toHaveLength(0);
+    expect(document.querySelector(".app")).toHaveAttribute("data-rail", "hidden");
+    expect(screen.queryByTitle("Show project radar")).not.toBeInTheDocument();
+    await user.click(screen.getByTitle("Overview"));
+    await screen.findByRole("heading", { name: "Overview" });
+    expect(document.querySelectorAll(".sw-pill")).toHaveLength(2);
   });
 
   it("project switch updates top bar and persists projectId", async () => {
@@ -772,8 +826,8 @@ describe("ConsoleShellV2", () => {
     await waitFor(() => {
       expect(document.querySelector(".command-palette")).toBeInTheDocument();
     });
-    expect(screen.getByRole("button", { name: "Open Operations" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Open Overview" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Overview" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open Operations" })).not.toBeInTheDocument();
 
     // Press Escape
     await user.keyboard("{Escape}");
@@ -783,11 +837,11 @@ describe("ConsoleShellV2", () => {
     });
   });
 
-  it("uses Operations in the default project breadcrumb", async () => {
+  it("uses Overview in the default project breadcrumb", async () => {
     render(<ConsoleShellV2 client={makeClient()} user={ADMIN_USER} />);
 
-    await waitFor(() => expect(document.querySelector(".bc")).toHaveTextContent("Operations"));
-    expect(document.querySelector(".bc")).not.toHaveTextContent("Overview");
+    await waitFor(() => expect(document.querySelector(".bc")).toHaveTextContent("Overview"));
+    expect(document.querySelector(".bc")).not.toHaveTextContent("Operations");
   });
 
   it("clicking the top bar search affordance opens the command palette", async () => {
@@ -945,7 +999,7 @@ describe("ConsoleShellV2", () => {
       });
 
       // Navigate to Investigate
-      await user.click(screen.getByTitle("Investigate"));
+      await user.click(screen.getByTitle("Errors"));
 
       // Error row should be visible
       await waitFor(() => {
@@ -979,7 +1033,7 @@ describe("ConsoleShellV2", () => {
       });
 
       // Navigate to Investigate and drill into incident
-      await user.click(screen.getByTitle("Investigate"));
+      await user.click(screen.getByTitle("Errors"));
       await waitFor(() => {
         const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
         expect(rows.length).toBeGreaterThan(0);
@@ -1006,7 +1060,7 @@ describe("ConsoleShellV2", () => {
 
       window.history.back();
       await waitFor(() => expect(window.location.pathname).toBe("/console/overview"));
-      expect(await screen.findByRole("heading", { name: "Operations" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
     });
 
     it("selecting a different NavRail section clears the detail view", async () => {
@@ -1020,7 +1074,7 @@ describe("ConsoleShellV2", () => {
       });
 
       // Navigate to Investigate and drill into incident
-      await user.click(screen.getByTitle("Investigate"));
+      await user.click(screen.getByTitle("Errors"));
       await waitFor(() => {
         const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
         expect(rows.length).toBeGreaterThan(0);
@@ -1034,7 +1088,7 @@ describe("ConsoleShellV2", () => {
       });
 
       // Click Operations in nav rail — should clear detail and go to the operational home
-      await user.click(screen.getByTitle("Operations"));
+      await user.click(screen.getByTitle("Overview"));
 
       // Should be on OverviewScreen (has h1.sh-h1, no incident back button)
       await waitFor(() => {
@@ -1054,7 +1108,7 @@ describe("ConsoleShellV2", () => {
       });
 
       // Navigate to Investigate and drill into incident
-      await user.click(screen.getByTitle("Investigate"));
+      await user.click(screen.getByTitle("Errors"));
       await waitFor(() => {
         const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
         expect(rows.length).toBeGreaterThan(0);
@@ -1091,7 +1145,7 @@ describe("ConsoleShellV2", () => {
       });
 
       // Navigate to Investigate and drill into incident
-      await user.click(screen.getByTitle("Investigate"));
+      await user.click(screen.getByTitle("Errors"));
       await waitFor(() => {
         const rows = screen.getAllByRole("button", { name: /TestError: drill navigation test/i });
         expect(rows.length).toBeGreaterThan(0);
@@ -1132,8 +1186,8 @@ describe("ConsoleShellV2", () => {
       render(<ConsoleShellV2 client={client} user={ADMIN_USER} />);
 
       // Navigate to the LLM section via the nav rail.
-      await waitFor(() => expect(screen.getByTitle("LLM")).toBeInTheDocument());
-      await user.click(screen.getByTitle("LLM"));
+      await waitFor(() => expect(screen.getByTitle("AI calls")).toBeInTheDocument());
+      await user.click(screen.getByTitle("AI calls"));
 
       // The top-tenants row appears; clicking it drills into TenantScreen.
       await waitFor(() => expect(screen.getByText("tenant_acme")).toBeInTheDocument());
@@ -1163,7 +1217,7 @@ describe("ConsoleShellV2", () => {
       expect(await screen.findByRole("heading", { level: 1, name: "Acme Corp" })).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: /^back$/i }));
 
-      expect(await screen.findByRole("heading", { name: "Tenants" })).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "Accounts" })).toBeInTheDocument();
       expect(`${window.location.pathname}${window.location.search}`).toBe(
         "/console/entities?project_id=prj_1&environment_id=env_1",
       );
@@ -1246,7 +1300,7 @@ describe("ConsoleShellV2", () => {
       );
 
       // A plain nav-rail click (no payload) to the same section clears the seed.
-      await user.click(screen.getByTitle("LLM"));
+      await user.click(screen.getByTitle("AI calls"));
       await waitFor(() =>
         expect(useLlmSpy).toHaveBeenLastCalledWith(
           expect.objectContaining({ tenantId: undefined, userId: undefined, provider: undefined, model: undefined, promptName: undefined, status: undefined })

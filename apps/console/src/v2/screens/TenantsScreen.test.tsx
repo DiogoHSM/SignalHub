@@ -102,8 +102,8 @@ describe("TenantsScreen", () => {
   it("renders the page head as the first node with a window selector", () => {
     mockUseTenants(vm);
     const { container } = render(<TenantsScreen ctx={makeCtx()} />);
-    expect(screen.getByText("Tenants")).toBeInTheDocument();
-    expect(container.firstElementChild?.querySelector("h1")?.textContent).toBe("Tenants");
+    expect(screen.getByText("Accounts")).toBeInTheDocument();
+    expect(container.firstElementChild?.querySelector("h1")?.textContent).toBe("Accounts");
     expect(screen.getAllByText("24h").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("7d")).toBeInTheDocument();
     expect(screen.getByText("30d")).toBeInTheDocument();

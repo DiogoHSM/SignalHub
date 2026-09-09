@@ -4,7 +4,7 @@ import type { FeedbackStatus } from "../../api/types";
 import type { ScreenCtx } from "./registry";
 import { useFeedback, type FeedbackItemRowVM, type FeedbackSettingsDraft } from "./useFeedback";
 
-export function FeedbackSection({ ctx }: { ctx: ScreenCtx }) {
+export function FeedbackSection({ ctx, view = "all" }: { ctx: ScreenCtx; view?: "configuration" | "recent" | "all" }) {
   const projectId = ctx.project?.id;
   const environmentId = ctx.environment?.id;
   const feedback = useFeedback({ client: ctx.client, projectId, environmentId });
@@ -21,7 +21,7 @@ export function FeedbackSection({ ctx }: { ctx: ScreenCtx }) {
   if (feedback.status === "loading" && !feedback.data) {
     return (
       <div style={{ display: "grid", gap: 16 }}>
-        <div className="sh-eyebrow">Feedback widget</div>
+        <div className="sh-eyebrow">{view === "recent" ? "Product feedback" : "Feedback widget"}</div>
         <div className="sh-card">
           <div className="sh-card__body">
             <EmptyHint icon="mail" title="Loading feedback…" />
@@ -35,7 +35,7 @@ export function FeedbackSection({ ctx }: { ctx: ScreenCtx }) {
   if (!vm) {
     return (
       <div style={{ display: "grid", gap: 16 }}>
-        <div className="sh-eyebrow">Feedback widget</div>
+        <div className="sh-eyebrow">{view === "recent" ? "Product feedback" : "Feedback widget"}</div>
         <div className="sh-card">
           <div className="sh-card__body">
             <EmptyHint icon="alert" title="Could not load feedback widget" sub="Try refreshing the page." />
@@ -61,11 +61,11 @@ export function FeedbackSection({ ctx }: { ctx: ScreenCtx }) {
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <div className="sh-eyebrow">Feedback widget</div>
+      <div className="sh-eyebrow">{view === "recent" ? "Product feedback" : "Feedback widget"}</div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: view === "all" ? "repeat(auto-fit, minmax(min(100%, 340px), 1fr))" : "minmax(0, 1fr)", gap: 16 }}>
         {/* Widget settings */}
-        <div className="sh-card">
+        {view !== "recent" && <div className="sh-card">
           <div className="sh-card__head">
             <h2 className="sh-h2">Widget settings</h2>
             <span className={`sh-tag ${vm.settings.enabled ? "ok" : ""}`}>{vm.settings.enabled ? "enabled" : "disabled"}</span>
@@ -130,10 +130,10 @@ export function FeedbackSection({ ctx }: { ctx: ScreenCtx }) {
               {feedback.busy ? "Saving" : "Save widget"}
             </button>
           </div>
-        </div>
+        </div>}
 
         {/* Recent feedback / triage */}
-        <div className="sh-card">
+        {view !== "configuration" && <div className="sh-card">
           <div className="sh-card__head">
             <h2 className="sh-h2">Recent feedback</h2>
             <span className="sh-tag">{vm.itemCount}</span>
@@ -190,7 +190,7 @@ export function FeedbackSection({ ctx }: { ctx: ScreenCtx }) {
               ))
             )}
           </div>
-        </div>
+        </div>}
       </div>
     </div>
   );

@@ -88,6 +88,20 @@ describe("MonitorsScreen — display", () => {
     expect(await screen.findByText("Monitors API unavailable")).toBeInTheDocument();
   });
 
+  it("recovers a failed monitor request locally with the same project and environment", async () => {
+    const listMonitors = vi.fn()
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValue({ monitors: [httpMonitor()] });
+    const ctx = makeCtx({ client: makeClient({ listMonitors }) });
+    render(<MonitorsScreen ctx={ctx} />);
+    const { fireEvent } = await import("@testing-library/react");
+    fireEvent.click(await screen.findByRole("button", { name: "Retry monitors" }));
+    expect(await screen.findByText("API health")).toBeInTheDocument();
+    expect(listMonitors).toHaveBeenCalledTimes(2);
+    expect(listMonitors.mock.calls[1]).toEqual(listMonitors.mock.calls[0]);
+    expect(listMonitors.mock.calls[1][0]).toEqual(expect.objectContaining({ projectId: "prj_1", environmentId: "env_1" }));
+  });
+
   it("shows an empty hint when there are no monitors", async () => {
     render(<MonitorsScreen ctx={makeCtx({ client: makeClient({ listMonitors: vi.fn().mockResolvedValue({ monitors: [] }) }) })} />);
     expect(await screen.findByText("No monitors yet")).toBeInTheDocument();
@@ -168,4 +182,18 @@ describe("MonitorsScreen — mutations", () => {
     fireEvent.click(screen.getByRole("button", { name: /Confirm/ })); // confirm
     await waitFor(() => expect(ctx.pushToast).toHaveBeenCalledWith("Could not archive monitor"));
   });
+});
+
+
+it("distinguishes an empty kind filter from no configured monitors and clears it", async () => {
+  render(<MonitorsScreen ctx={makeCtx({ client: makeClient({ listMonitors: vi.fn().mockResolvedValue({ monitors: [httpMonitor()] }) }) })} />);
+  await screen.findByText("API health");
+  const { fireEvent } = await import("@testing-library/react");
+  fireEvent.click(screen.getByRole("button", { name: "Heartbeat" }));
+  expect(screen.getByText("No heartbeat monitors")).toBeInTheDocument();
+  expect(screen.queryByText("No monitors yet")).not.toBeInTheDocument();
+  expect(screen.queryByText(/No monitor coverage/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Show all monitors" }));
+  expect(screen.getByText("API health")).toBeInTheDocument();
+  expect(screen.queryByText("No heartbeat monitors")).not.toBeInTheDocument();
 });

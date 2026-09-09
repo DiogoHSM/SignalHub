@@ -188,7 +188,7 @@ export function IncidentsScreen({ ctx }: { ctx: ScreenCtx }) {
   const [statusFilter, setStatusFilter] = useState<IncidentStatusFilter>("all");
   const [assigneeFilter, setAssigneeFilter] = useState<IncidentAssigneeFilter>("all");
 
-  const { data, status } = useIncidents({
+  const { data, status, reload } = useIncidents({
     client: ctx.client,
     projectId,
     environmentId,
@@ -216,7 +216,7 @@ export function IncidentsScreen({ ctx }: { ctx: ScreenCtx }) {
   if (status === "loading" && !data) {
     return (
       <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
-        <EmptyHint icon="activity" title="Loading…" sub="Fetching active incidents." />
+        <EmptyHint icon="activity" title="Loading…" sub={view === "history" ? "Fetching incident history." : "Fetching active incidents."} />
       </div>
     );
   }
@@ -228,7 +228,8 @@ export function IncidentsScreen({ ctx }: { ctx: ScreenCtx }) {
         <EmptyHint
           icon="alert"
           title="Could not load incidents"
-          sub="Check your connection or try again."
+          sub="Retry this request. Your view and filters are preserved."
+          cta={<button className="sh-btn" onClick={reload}>Retry incidents</button>}
         />
       </div>
     );
@@ -238,7 +239,13 @@ export function IncidentsScreen({ ctx }: { ctx: ScreenCtx }) {
   const statusOptions = view === "history"
     ? ["all", "resolved", "ignored"]
     : ["all", "open", "investigating"];
-  const modeLabel = view === "history" ? `${rows.length} historical.` : `${kpis.active} active.`;
+  const hasFilters = priorityFilter !== "all" || statusFilter !== "all" || assigneeFilter !== "all";
+  const clearFilters = () => {
+    setPriorityFilter("all");
+    setStatusFilter("all");
+    setAssigneeFilter("all");
+  };
+  const modeLabel = view === "history" ? `${rows.length} historical incidents shown.` : `${kpis.active} active.`;
 
   return (
     <>
@@ -250,7 +257,7 @@ export function IncidentsScreen({ ctx }: { ctx: ScreenCtx }) {
             <strong style={{ color: "var(--fg)" }}>
               {ctx.project.name} · {ctx.environment.name}
             </strong>{" "}
-            — {modeLabel}
+            — {modeLabel} {view === "history" ? "Review past outcomes and investigation notes." : "Open an incident to assess impact and assign the next action."}
           </>
         }
         actions={
@@ -331,19 +338,22 @@ export function IncidentsScreen({ ctx }: { ctx: ScreenCtx }) {
         style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
       >
         <div className="sh-card__head">
-          <h2 className="sh-h2">Active incidents</h2>
+          <h2 className="sh-h2">{view === "history" ? "Incident history" : "Active incidents"}</h2>
           <span className="sh-tag">sorted by priority</span>
         </div>
         <div style={{ overflow: "auto", flex: 1 }}>
           {rows.length === 0 ? (
             <EmptyHint
               icon="check"
-              title={view === "history" ? "No historical incidents" : "No active incidents"}
+              title={hasFilters ? "No matching incidents" : view === "history" ? "No historical incidents" : "No active incidents"}
               sub={
-                view === "history"
-                  ? "No resolved or ignored incidents match these filters."
-                  : "No open or investigating incidents match these filters."
+                hasFilters
+                  ? "Clear the filters to see the rest of this incident view."
+                  : view === "history"
+                    ? "Resolved and ignored incidents will appear here with their investigation history."
+                    : "No open or investigating incidents are recorded in this environment. Review alert rules to check coverage."
               }
+              cta={hasFilters ? <button className="sh-btn" onClick={clearFilters}>Clear incident filters</button> : undefined}
             />
           ) : (
             rows.map((row) => <IncidentRow key={row.id} row={row} ctx={ctx} />)

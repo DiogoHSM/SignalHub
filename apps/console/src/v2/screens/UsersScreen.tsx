@@ -374,7 +374,7 @@ export function UsersScreen({ ctx }: { ctx: ScreenCtx }) {
   const projectId = ctx.project?.id ?? "";
   const environmentId = ctx.environment?.id ?? "";
 
-  const { data, status, loadMore, loadingMore } = useUsers({
+  const { data, status, loadMore, loadingMore, reload } = useUsers({
     client: ctx.client,
     projectId,
     environmentId,
@@ -404,7 +404,7 @@ export function UsersScreen({ ctx }: { ctx: ScreenCtx }) {
   if (status === "error" || !data) {
     return (
       <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
-        <EmptyHint icon="alert" title="Could not load users" sub="Check your connection or try again." />
+        <EmptyHint icon="alert" title="Could not load users" sub="Retry this request. Your filters are preserved." cta={<button className="sh-btn" onClick={reload}>Retry users</button>} />
       </div>
     );
   }
@@ -416,7 +416,7 @@ export function UsersScreen({ ctx }: { ctx: ScreenCtx }) {
     <>
       <PageHead
         title="Users"
-        sub="Per-user activity, impact, and identity across this project and environment."
+        sub={`${ctx.project.name} · ${ctx.environment.name} — find users affected by failures or changes in activity. Choose a user to inspect identity, sessions, and timeline.`}
         actions={<Segmented options={WINDOW_OPTIONS} value={window} onChange={(v) => setWindow(v as UserWindow)} />}
       />
 
@@ -459,7 +459,7 @@ export function UsersScreen({ ctx }: { ctx: ScreenCtx }) {
           </div>
           <div style={{ overflow: "auto", flex: 1 }}>
             {rows.length === 0 ? (
-              <EmptyHint icon="users" title="No user activity" sub="No user activity in this window." />
+              <EmptyHint icon="users" title="No user activity" sub="No identified users match this window and filter selection. Clear a filter or widen the window; if you expected users, check identification in your integration." />
             ) : (
               rows.map((row) => (
                 <UserRow

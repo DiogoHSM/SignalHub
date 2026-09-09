@@ -90,7 +90,7 @@ export function EventsScreen({ ctx }: { ctx: ScreenCtx }) {
   if (status === "error" || !data) {
     return (
       <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
-        <EmptyHint icon="alert" title="Could not load events" sub="Check your connection or try again." />
+        <EmptyHint icon="alert" title="Could not load events" sub="Retry this request. Your filters are preserved." cta={<button className="sh-btn" onClick={reload}>Retry events</button>} />
       </div>
     );
   }
@@ -117,10 +117,10 @@ export function EventsScreen({ ctx }: { ctx: ScreenCtx }) {
         title="Events"
         sub={
           <>
-            Explore raw events for{" "}
+            Follow recorded activity for{" "}
             <strong style={{ color: "var(--fg)" }}>
               {ctx.project.name} · {ctx.environment.name}
-            </strong>
+            </strong>. Open an event to inspect its properties and related session or trace.
           </>
         }
         actions={
@@ -232,7 +232,7 @@ export function EventsScreen({ ctx }: { ctx: ScreenCtx }) {
           </div>
           <div style={{ overflow: "auto", flex: 1 }}>
             {rows.length === 0 ? (
-              <EmptyHint icon="activity" title="No events" sub="No events match the current filters." />
+              <EmptyHint icon="activity" title="No events" sub="No events match this window and filter selection. Widen the window or clear a filter; if you expected traffic, check SDK ingestion." />
             ) : (
               rows.map((row) => (
                 <EventRow

@@ -20,7 +20,7 @@ const pgHarness = vi.hoisted(() => ({
 const postgres = pgHarness.postgres;
 
 vi.mock("pg", () => ({
-  Client: vi.fn((config: Record<string, unknown>) => {
+  Client: vi.fn(function (config: Record<string, unknown>) {
     pgHarness.config = config;
     return postgres;
   })

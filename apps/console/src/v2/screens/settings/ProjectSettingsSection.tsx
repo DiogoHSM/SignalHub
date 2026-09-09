@@ -126,7 +126,7 @@ function ApiKeysPanel({
         </div>
       ) : null}
       {keys.length === 0 ? (
-        <EmptyHint icon="key" title="No active keys" sub="Generate the first key in the SDK installation panel above." />
+        <EmptyHint icon="key" title="No active keys" sub="Create an API key here, or open Installation & SDK for setup instructions." />
       ) : (
         <div style={{ display: "grid", gap: 6 }}>
           {keys.map((key) => (
@@ -720,8 +720,8 @@ function WarehousePanel({ model }: { model: SettingsModel }) {
   );
 }
 
-export function ProjectSettingsSection({ ctx }: { ctx: ScreenCtx }) {
-  const [tab, setTab] = useState<SettingsTab>("API keys");
+export function ProjectSettingsSection({ ctx, tabs = TABS }: { ctx: ScreenCtx; tabs?: readonly SettingsTab[] }) {
+  const [tab, setTab] = useState<SettingsTab>(tabs[0]);
   const model = useProjectSettings(ctx);
 
   if (!ctx.project || !ctx.environment) return null;
@@ -735,8 +735,9 @@ export function ProjectSettingsSection({ ctx }: { ctx: ScreenCtx }) {
             {ctx.project.name} / {ctx.environment.name} · ingestion, privacy, and data delivery
           </div>
         </div>
-        <Segmented options={[...TABS]} value={tab} onChange={(value) => setTab(value as SettingsTab)} />
+        <Segmented options={[...tabs]} value={tab} onChange={(value) => setTab(value as SettingsTab)} />
       </div>
+      {tab === "API keys" && ctx.createdSecret?.kind === "browserApiKey" ? <div className="sh-card__body"><strong>Browser API key created</strong><p className="sh-muted">Copy this key now. It is shown only once.</p><SecretField value={ctx.createdSecret.value} /><button className="sh-btn ghost" type="button" onClick={() => ctx.onSecretCreated(null, "browserApiKey")}>Dismiss browser key</button></div> : null}
       {model.error ? <div className="sh-alert bad" role="alert">{model.error}</div> : null}
       {model.loading ? (
         <div className="sh-card__body"><EmptyHint icon="activity" title="Loading settings…" sub="Reading the selected project and environment configuration." /></div>

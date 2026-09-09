@@ -147,8 +147,8 @@ describe("AlertsScreen", () => {
   it("renders the page head with active-rule and fires counts", () => {
     mockUseAlerts(vm);
     render(<AlertsScreen ctx={makeCtx()} />);
-    expect(screen.getByText("Alerts")).toBeInTheDocument();
-    expect(screen.getByText("2 active rules · 5 fires in the last 7 days")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Alert rules" })).toBeInTheDocument();
+    expect(screen.getByText(/2 active rules · 5 alerts fired in the last 7 days/)).toBeInTheDocument();
     expect(screen.getByText("New rule")).toBeInTheDocument();
     // "Channels" appears in the head action button AND the right-card head
     expect(screen.getAllByText("Channels").length).toBeGreaterThanOrEqual(2);

@@ -97,7 +97,7 @@ export function TenantsScreen({ ctx }: { ctx: ScreenCtx }) {
   const projectId = ctx.project?.id ?? "";
   const environmentId = ctx.environment?.id ?? "";
 
-  const { data, status, loadMore, loadingMore } = useTenants({
+  const { data, status, loadMore, loadingMore, reload } = useTenants({
     client: ctx.client,
     projectId,
     environmentId,
@@ -134,7 +134,7 @@ export function TenantsScreen({ ctx }: { ctx: ScreenCtx }) {
         <EmptyHint
           icon="alert"
           title="Could not load tenants"
-          sub="Check your connection or try again."
+          sub="Retry this request. Your filters are preserved." cta={<button className="sh-btn" onClick={reload}>Retry accounts</button>}
         />
       </div>
     );
@@ -145,8 +145,8 @@ export function TenantsScreen({ ctx }: { ctx: ScreenCtx }) {
   return (
     <>
       <PageHead
-        title="Tenants"
-        sub="Entities ranked by impact across events, errors, traces, and LLM cost."
+        title="Accounts"
+        sub={`${ctx.project.name} · ${ctx.environment.name} — accounts (tenants) ranked by recorded impact. Open an account to connect errors, activity, and AI cost.`}
         actions={
           <Segmented options={WINDOW_OPTIONS} value={window} onChange={(v) => setWindow(v as EntityWindow)} />
         }
@@ -196,7 +196,7 @@ export function TenantsScreen({ ctx }: { ctx: ScreenCtx }) {
             <EmptyHint
               icon="cube"
               title="No tenant activity"
-              sub="No tenants match the current filters in this window."
+              sub="No accounts match this window and filter selection. Widen the window or check that events include a tenant identifier."
             />
           ) : (
             rows.map((row) => <TenantRow key={row.key} row={row} ctx={ctx} />)

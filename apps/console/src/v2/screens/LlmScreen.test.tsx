@@ -105,7 +105,7 @@ describe("LlmScreen", () => {
   it("renders the page head with title and window selector", () => {
     mockUseLlm(vm);
     render(<LlmScreen ctx={makeCtx()} />);
-    expect(screen.getByText("LLM observability")).toBeInTheDocument();
+    expect(screen.getByText("AI calls")).toBeInTheDocument();
     // "24h" appears in the Segmented selector AND in the Top-tenants window badge
     expect(screen.getAllByText("24h").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("7d")).toBeInTheDocument();

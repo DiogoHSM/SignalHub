@@ -8,11 +8,12 @@ import { useSegments } from "./useSegments";
 import type { SaveSegmentForm } from "./useSegments";
 import { ConfirmButton, EmptyHint, Icon, PageHead, Segmented } from "../../components/ui/v2";
 import { runMutation } from "../lib/run-mutation";
+import { FeedbackSection } from "./FeedbackSection";
 import { TrendsTab } from "./analytics/TrendsTab";
 import { DashboardsTab } from "./analytics/DashboardsTab";
 
-type Tab = "trends" | "dashboards" | "funnel" | "retention" | "paths" | "clickMap" | "segments" | "properties";
-const TABS: Tab[] = ["trends", "dashboards", "funnel", "retention", "paths", "clickMap", "segments", "properties"];
+type Tab = "trends" | "dashboards" | "funnel" | "retention" | "paths" | "clickMap" | "segments" | "properties" | "feedback";
+const TABS: Tab[] = ["trends", "dashboards", "funnel", "retention", "paths", "clickMap", "segments", "properties", "feedback"];
 const TAB_LABEL: Record<Tab, string> = {
   trends: "Trends",
   dashboards: "Dashboards",
@@ -22,6 +23,7 @@ const TAB_LABEL: Record<Tab, string> = {
   clickMap: "Click map",
   segments: "Segments",
   properties: "Properties",
+  feedback: "Feedback",
 };
 
 // ---------------------------------------------------------------------------
@@ -539,8 +541,8 @@ export function AnalyticsScreen({ ctx }: { ctx: ScreenCtx }) {
         title="Analytics"
         sub={
           <>
-            Saved trends, dashboards, funnels, retention, paths, segments, and property governance for{" "}
-            <strong style={{ color: "var(--fg)" }}>{ctx.project.name} · {ctx.environment.name}</strong>
+            Understand behavior and conversion for{" "}
+            <strong style={{ color: "var(--fg)" }}>{ctx.project.name} · {ctx.environment.name}</strong>. Start with a saved trend or dashboard, then explore where users progress or drop off.
           </>
         }
       />
@@ -566,6 +568,7 @@ export function AnalyticsScreen({ ctx }: { ctx: ScreenCtx }) {
       {tab === "clickMap" ? <ClickMapPanel state={panels.clickMap.state} data={panels.clickMap.data} run={panels.clickMap.run} /> : null}
       {tab === "segments" ? <SegmentsPanel ctx={ctx} /> : null}
       {tab === "properties" ? <PropertiesPanel ctx={ctx} /> : null}
+      {tab === "feedback" ? <FeedbackSection key={`${projectId}:${environmentId}`} ctx={ctx} view="recent" /> : null}
     </>
   );
 }

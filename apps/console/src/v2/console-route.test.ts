@@ -4,10 +4,15 @@ import { buildConsoleUrl, parseConsoleRoute } from "./console-route";
 
 const SECTIONS: NavSection[] = [
   "overview", "investigate", "incidents", "llm", "traces", "entities", "users",
-  "events", "analytics", "alerts", "monitors", "experiments", "system", "settings",
+  "events", "analytics", "alerts", "monitors", "experiments", "settings", "installation",
 ];
 
 describe("console routes", () => {
+  it.each(["system", "administration"] as const)("keeps %s at instance scope", (section) => {
+    const url = buildConsoleUrl(section, null, { projectId: "p1", environmentId: "e1" });
+    expect(url).toBe(`/console/${section}`);
+    expect(parseConsoleRoute(new URL(url, "https://sigmon.example.com"))).toMatchObject({ nav: section, projectId: undefined, environmentId: undefined, valid: true });
+  });
   it.each(SECTIONS)("round-trips the %s section URL", (section) => {
     const url = buildConsoleUrl(section, null, { projectId: "prj/1", environmentId: "env 1" });
     const parsed = parseConsoleRoute(new URL(url, "https://sigmon.example.com"));

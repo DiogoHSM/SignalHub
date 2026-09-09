@@ -10,6 +10,7 @@ export default defineConfig({
       "/auth": "http://localhost:3000",
       "/admin": "http://localhost:3000",
       "/query": "http://localhost:3000",
+      "/system": "http://localhost:3000",
       "/console/config": "http://localhost:3000"
     }
   },

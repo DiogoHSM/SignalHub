@@ -545,6 +545,9 @@ export function IncidentScreen({
         >
           {vm.title}
         </h1>
+        <p className="sh-muted" style={{ margin: "0 0 6px", fontSize: 13 }}>
+          {ctx.project?.name} · {ctx.environment?.name} — {vm.occurrenceCount} occurrences, {vm.affectedUsers} users and {vm.affectedTenants} accounts affected. Review the evidence and record the next action in triage notes.
+        </p>
         {vm.origin ? (
           <p className="sh-muted" style={{ margin: 0, fontSize: 13 }}>
             Originated in <code style={{ color: "var(--fg)" }}>{vm.origin}</code> · {ctx.project?.name ?? ""} /{" "}

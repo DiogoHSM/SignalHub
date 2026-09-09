@@ -6,13 +6,29 @@ const root = import.meta.dirname;
 export default defineConfig({
   test: {
     environment: "node",
-    environmentMatchGlobs: [["apps/console/**/*.test.tsx", "jsdom"]],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: "node",
+          include: ["apps/**/*.test.ts", "packages/**/*.test.ts", "scripts/**/*.test.ts"],
+          exclude: ["**/node_modules/**", "**/.git/**", "apps/console/**/*.test.tsx"]
+        }
+      },
+      {
+        extends: true,
+        test: {
+          name: "console-dom",
+          environment: "jsdom",
+          include: ["apps/console/**/*.test.tsx"]
+        }
+      }
+    ],
     environmentOptions: {
       jsdom: {
         url: "http://localhost/"
       }
     },
-    include: ["apps/**/*.test.ts", "apps/**/*.test.tsx", "packages/**/*.test.ts", "scripts/**/*.test.ts"],
     setupFiles: ["apps/console/src/test/setup.ts"],
     testTimeout: 30_000
   },
@@ -25,6 +41,7 @@ export default defineConfig({
       "@sigmon/telemetry/sanitization": resolve(root, "packages/telemetry/src/sanitization.ts"),
       "@sigmon/db/migrate.js": resolve(root, "packages/db/src/migrate.ts"),
       "@sigmon/db/repositories/admin.js": resolve(root, "packages/db/src/repositories/admin.ts"),
+      "@sigmon/db/repositories/source-maps.js": resolve(root, "packages/db/src/repositories/source-maps.ts"),
       "@sigmon/db/repositories/analytics-segments.js": resolve(root, "packages/db/src/repositories/analytics-segments.ts"),
       "@sigmon/db/repositories/analytics-segment-compiler.js": resolve(
         root,

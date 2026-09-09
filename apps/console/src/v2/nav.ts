@@ -14,7 +14,9 @@ export type NavSection =
   | "monitors"
   | "experiments"
   | "system"
-  | "settings";
+  | "settings"
+  | "installation"
+  | "administration";
 
 export type NavItem = {
   id: NavSection;
@@ -23,22 +25,44 @@ export type NavItem = {
   badge?: boolean;
 };
 
-export const NAV: NavItem[] = [
-  { id: "overview",    icon: "home",      label: "Operations" },
-  { id: "investigate", icon: "activity",  label: "Investigate" },
-  { id: "incidents",   icon: "error",     label: "Incidents", badge: true },
-  { id: "llm",         icon: "sparkles",  label: "LLM" },
-  { id: "traces",      icon: "waterfall", label: "Traces" },
-  { id: "entities",    icon: "box",       label: "Entities" },
-  { id: "users",       icon: "users",     label: "Users" },
-  { id: "events",      icon: "activity",  label: "Events" },
-  { id: "analytics",   icon: "grid",      label: "Analytics" },
-  { id: "alerts",      icon: "bell",      label: "Alerts" },
-  { id: "monitors",    icon: "pulse",     label: "Monitors" },
-  { id: "experiments", icon: "flag",      label: "Experiments" },
+export type NavMode = "open" | "compact" | "auto";
+export type NavGroup = { id: string; label: string; items: NavItem[] };
+export const NAV_GROUPS: NavGroup[] = [
+  { id: "overview", label: "", items: [{ id: "overview", icon: "home", label: "Overview" }] },
+  { id: "operate", label: "Operate", items: [
+    { id: "incidents", icon: "error", label: "Incidents", badge: true },
+    { id: "monitors", icon: "pulse", label: "Monitors" },
+    { id: "alerts", icon: "bell", label: "Alert rules" },
+  ] },
+  { id: "investigate", label: "Investigate", items: [
+    { id: "investigate", icon: "alert", label: "Errors" },
+    { id: "events", icon: "activity", label: "Events" },
+    { id: "traces", icon: "waterfall", label: "Traces" },
+    { id: "llm", icon: "sparkles", label: "AI calls" },
+  ] },
+  { id: "understand", label: "Understand", items: [
+    { id: "analytics", icon: "grid", label: "Analytics" },
+    { id: "users", icon: "users", label: "Users" },
+    { id: "entities", icon: "cube", label: "Accounts" },
+    { id: "experiments", icon: "flag", label: "Experiments" },
+  ] },
+  { id: "configure", label: "Configure", items: [
+    { id: "settings", icon: "settings", label: "Project settings" },
+    { id: "installation", icon: "book", label: "Installation & SDK" },
+  ] },
+  { id: "instance", label: "Instance", items: [
+    { id: "system", icon: "server", label: "Sigmon health" },
+    { id: "administration", icon: "shield", label: "Administration" },
+  ] },
 ];
 
-export const NAV_BOTTOM: NavItem[] = [
-  { id: "system",   icon: "server",   label: "System" },
-  { id: "settings", icon: "settings", label: "Settings" },
-];
+export function navGroup(section: NavSection): NavGroup {
+  return NAV_GROUPS.find((group) => group.items.some((item) => item.id === section)) ?? NAV_GROUPS[0];
+}
+
+export function isInstanceSection(section: NavSection): boolean {
+  return section === "system" || section === "administration";
+}
+
+export const NAV: NavItem[] = NAV_GROUPS.filter((group) => group.id !== "instance").flatMap((group) => group.items);
+export const NAV_BOTTOM: NavItem[] = NAV_GROUPS.find((group) => group.id === "instance")!.items;

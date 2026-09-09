@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../../api/client";
 import type { Environment, FeedbackItem, FeedbackWidgetSettings, Project } from "../../api/types";
 import type { NavSection } from "../nav";
+import { SettingsScreen } from "./SettingsScreen";
+import { AdministrationScreen } from "./AdministrationScreen";
 import { SetupScreen } from "./SetupScreen";
 import type { CreatedSecret, ScreenCtx, SecretKind } from "./registry";
 
@@ -76,17 +78,86 @@ function renderInShell(client: ApiClient) {
 }
 
 describe("SetupScreen", () => {
+  it("starts settings with project identity and mounts only the chosen task", async () => {
+    const ctx = makeCtx();
+    render(<SettingsScreen ctx={ctx} />);
+    expect(screen.getByRole("heading", { name: "General" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New API key" })).not.toBeInTheDocument();
+    expect(ctx.client.listSourceMapArtifacts).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Data & retention" }));
+    await screen.findByRole("button", { name: "Save retention" });
+    expect(screen.queryByRole("button", { name: "New API key" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Installation & SDK" }));
+    expect(ctx.navigate).toHaveBeenCalledWith("installation");
+  });
+
+  it("preserves a project name draft when switching settings tasks", () => {
+    render(<SettingsScreen ctx={makeCtx()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Rename Acme" }));
+    fireEvent.change(screen.getByLabelText("Rename project"), { target: { value: "Draft project name" } });
+    fireEvent.click(screen.getByRole("button", { name: "Environments" }));
+    expect(screen.queryByRole("textbox", { name: "Rename project" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "General" }));
+    expect(screen.getByRole("textbox", { name: "Rename project" })).toHaveValue("Draft project name");
+  });
+
+  it("preserves an unrelated draft after a successful environment rename with shell refresh", async () => {
+    const client = makeClient({ updateEnvironment: vi.fn().mockResolvedValue({ environment: { ...environment, name: "Production EU" } }) });
+    const refreshProjects = vi.fn();
+    function Host() {
+      const [seq, setSeq] = useState(0);
+      return <div key={seq}><SettingsScreen ctx={makeCtx({ client, refreshProjects, reload: () => setSeq((value) => value + 1) })} /></div>;
+    }
+    render(<Host />);
+    fireEvent.click(screen.getByRole("button", { name: "Rename Acme" }));
+    fireEvent.change(screen.getByLabelText("Rename project"), { target: { value: "Unsaved project name" } });
+    fireEvent.click(screen.getByRole("button", { name: "Environments" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rename production" }));
+    fireEvent.change(screen.getByLabelText("Rename environment"), { target: { value: "Production EU" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+    await waitFor(() => expect(client.updateEnvironment).toHaveBeenCalledWith("env_1", { name: "Production EU" }));
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Rename environment" })).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "General" }));
+    expect(screen.getByRole("textbox", { name: "Rename project" })).toHaveValue("Unsaved project name");
+    expect(refreshProjects).toHaveBeenCalledOnce();
+  });
+
+  it("shows a newly created browser key in credentials without mounting installation", async () => {
+    render(<SettingsScreen ctx={makeCtx({ createdSecret: { kind: "browserApiKey", value: "browser-settings-secret" } })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Credentials & origins" }));
+    fireEvent.click(await screen.findByTitle("Reveal"));
+    expect(await screen.findByText("browser-settings-secret")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Install SDK" })).not.toBeInTheDocument();
+  });
+
+  it("keeps environment creation available before the first environment exists", () => {
+    render(<SettingsScreen ctx={makeCtx({ environment: undefined, environments: [] })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Environments" }));
+    expect(screen.getByRole("button", { name: "New environment" })).toBeInTheDocument();
+  });
+
+  it("preserves a failed project creation draft", async () => {
+    const client = makeClient({ createProject: vi.fn().mockRejectedValue(new Error("offline")) });
+    render(<AdministrationScreen ctx={makeCtx({ client })} />);
+    fireEvent.click(screen.getByRole("button", { name: "New project" }));
+    fireEvent.change(screen.getByLabelText("New project name"), { target: { value: "Keep my draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    await screen.findByRole("alert");
+    expect(screen.getByLabelText("New project name")).toHaveValue("Keep my draft");
+  });
+
   it("renders the page head and onboarding stepper", async () => {
     render(<SetupScreen ctx={makeCtx()} />);
-    expect(await screen.findByText("Setup")).toBeInTheDocument();
+    expect(await screen.findByText("Installation & SDK")).toBeInTheDocument();
     expect(screen.getByText("Create project")).toBeInTheDocument();
     expect(screen.getByText("Send first signal")).toBeInTheDocument();
   });
 
-  it("shows the active project with the selected tag", async () => {
+  it("keeps project management out of installation", async () => {
     render(<SetupScreen ctx={makeCtx()} />);
-    expect(await screen.findByText("selected")).toBeInTheDocument();
-    expect(screen.getAllByText("Acme").length).toBeGreaterThanOrEqual(1);
+    await screen.findByRole("heading", { name: "Install SDK" });
+    expect(screen.queryByRole("heading", { name: "Projects" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Project settings" })).not.toBeInTheDocument();
   });
 
   it("renders a connected SDK banner from operations data", async () => {
@@ -186,18 +257,18 @@ describe("SetupScreen", () => {
 
   it("creates a project from the inline input", async () => {
     const client = makeClient();
-    render(<SetupScreen ctx={makeCtx({ client })} />);
+    render(<AdministrationScreen ctx={makeCtx({ client, onArchiveProject: client.archiveProject, onUpdateProject: async (id, input) => { await client.updateProject(id, input); } })} />);
     await screen.findByText("Projects");
     fireEvent.click(screen.getByRole("button", { name: "New project" }));
     const input = screen.getByLabelText("New project name");
     fireEvent.change(input, { target: { value: "New API" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.submit(input.closest("form")!);
     await waitFor(() => expect(client.createProject).toHaveBeenCalledWith({ name: "New API" }));
   });
 
   it("archives a project", async () => {
     const client = makeClient();
-    render(<SetupScreen ctx={makeCtx({ client })} />);
+    render(<AdministrationScreen ctx={makeCtx({ client, onArchiveProject: client.archiveProject, onUpdateProject: async (id, input) => { await client.updateProject(id, input); } })} />);
     const archive = await screen.findByRole("button", { name: "Archive Acme" });
     fireEvent.click(archive);
     fireEvent.click(screen.getByRole("button", { name: "Confirm archive Acme" }));
@@ -206,30 +277,32 @@ describe("SetupScreen", () => {
 
   it("renames a project from the inline editor", async () => {
     const client = makeClient();
-    render(<SetupScreen ctx={makeCtx({ client })} />);
+    render(<AdministrationScreen ctx={makeCtx({ client, onArchiveProject: client.archiveProject, onUpdateProject: async (id, input) => { await client.updateProject(id, input); } })} />);
     const rename = await screen.findByRole("button", { name: "Rename Acme" });
     fireEvent.click(rename);
     const input = screen.getByLabelText("Rename project");
     fireEvent.change(input, { target: { value: "Acme Corp" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.submit(input.closest("form")!);
     await waitFor(() => expect(client.updateProject).toHaveBeenCalledWith("prj_1", { name: "Acme Corp" }));
   });
 
   it("renames an environment from the inline editor", async () => {
     const client = makeClient({ updateEnvironment: vi.fn().mockResolvedValue({ environment }) });
-    render(<SetupScreen ctx={makeCtx({ client })} />);
+    render(<SettingsScreen ctx={makeCtx({ client })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Environments" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "Rename production" }));
     const input = screen.getByLabelText("Rename environment");
     fireEvent.change(input, { target: { value: "Production EU" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.submit(input.closest("form")!);
 
     await waitFor(() => expect(client.updateEnvironment).toHaveBeenCalledWith("env_1", { name: "Production EU" }));
   });
 
   it("archives an environment", async () => {
     const client = makeClient({ archiveEnvironment: vi.fn().mockResolvedValue(undefined) });
-    render(<SetupScreen ctx={makeCtx({ client })} />);
+    render(<SettingsScreen ctx={makeCtx({ client })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Environments" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "Archive production" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm archive production" }));
@@ -237,22 +310,46 @@ describe("SetupScreen", () => {
     await waitFor(() => expect(client.archiveEnvironment).toHaveBeenCalledWith("env_1"));
   });
 
-  it("stubs the test ping with a toast", async () => {
-    const ctx = makeCtx();
-    render(<SetupScreen ctx={ctx} />);
-    const ping = await screen.findByRole("button", { name: "Send ping" });
-    fireEvent.click(ping);
-    expect(ctx.pushToast).toHaveBeenCalledWith("Test ping is not yet available");
+  it("checks telemetry with a scoped read after the user runs the snippet", async () => {
+    const client = makeClient();
+    render(<SetupScreen ctx={makeCtx({ client })} />);
+    const check = await screen.findByRole("button", { name: "Check for telemetry" });
+    const previousCalls = vi.mocked(client.getOperations!).mock.calls.length;
+    fireEvent.click(check);
+    await waitFor(() => expect(client.getOperations).toHaveBeenCalledTimes(previousCalls + 1));
+    expect(client.getOperations).toHaveBeenLastCalledWith({ projectId: "prj_1", environmentId: "env_1", window: "24h" });
+    expect(client.createApiKey).not.toHaveBeenCalled();
+  });
+
+  it("flushes browser and Node events and keeps browser credentials out of server examples", async () => {
+    render(<SetupScreen ctx={makeCtx({ createdSecret: { kind: "browserApiKey", value: "browser-only-key" } })} />);
+    const browser = (await screen.findByText(/@sigmon\/sdk\/browser/)).closest(".sh-code");
+    expect(browser?.textContent).toContain("await signal.flush()");
+    for (const tab of ["Node", "Python", "HTTP"]) {
+      fireEvent.click(screen.getByRole("button", { name: tab }));
+      expect(screen.queryByText(/browser-only-key/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Generate API key/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Manage server credentials" })).toBeInTheDocument();
+    }
+    expect(screen.getByText(/content-type: application\/json/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Node" }));
+    const node = screen.getByText(/@sigmon\/sdk\/node/).closest(".sh-code");
+    expect(node?.textContent).toContain("await signal.flush()");
+    expect(node?.textContent).not.toContain("captureError(err)");
+    fireEvent.click(screen.getByRole("button", { name: "Python" }));
+    expect(screen.getByText(/python -m pip install requests/)).toBeInTheDocument();
   });
 
   it("mounts the artifacts section", async () => {
-    render(<SetupScreen ctx={makeCtx()} />);
+    render(<SettingsScreen ctx={makeCtx()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
     expect(await screen.findByText("Source map artifacts")).toBeInTheDocument();
     expect(screen.getByText("CI upload tokens")).toBeInTheDocument();
   });
 
   it("hides the feedback section when the client does not expose the feedback API", async () => {
-    render(<SetupScreen ctx={makeCtx()} />);
+    render(<SettingsScreen ctx={makeCtx()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
     await screen.findByText("Source map artifacts");
     expect(screen.queryByText("Widget settings")).not.toBeInTheDocument();
   });
@@ -277,8 +374,9 @@ describe("SetupScreen", () => {
       listFeedbackItems: vi.fn().mockResolvedValue({ feedback: [feedbackItem] }),
       updateFeedbackStatus: vi.fn().mockResolvedValue({ feedback: { ...feedbackItem, status: "reviewed" } }),
     });
-    render(<SetupScreen ctx={makeCtx({ client })} />);
+    render(<SettingsScreen ctx={makeCtx({ client })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Integrations" }));
     expect(await screen.findByText("Widget settings")).toBeInTheDocument();
-    expect(screen.getByText("Broke on save")).toBeInTheDocument();
+    expect(screen.queryByText("Broke on save")).not.toBeInTheDocument();
   });
 });

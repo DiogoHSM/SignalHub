@@ -231,7 +231,7 @@ describe("TopBar", () => {
       />
     );
 
-    const search = screen.getByRole("button", { name: /search events/i });
+    const search = screen.getByRole("button", { name: /jump to a section/i });
     expect(search).toHaveAttribute("type", "button");
     search.focus();
     expect(search).toHaveFocus();

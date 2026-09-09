@@ -27,6 +27,6 @@
   },
   "devDependencies": {
     "@sigmon/worker": "workspace:*",
-    "vitest": "^3.2.7"
+    "vitest": "^4.1.11"
   }
 }

@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Environment, Project } from "../../api/types";
+import * as feedbackModule from "./FeedbackSection";
 import { AnalyticsScreen } from "./AnalyticsScreen";
 import type { ScreenCtx } from "./registry";
 import type { UseAnalyticsPanelsResult } from "./useAnalyticsPanels";
@@ -240,4 +241,17 @@ describe("AnalyticsScreen", () => {
     expect(screen.getByText("Type conflict")).toBeInTheDocument();
     expect(screen.getByText(/Similar: prop_alt/)).toBeInTheDocument();
   });
+});
+
+
+it("opens scoped feedback triage from analytics without mounting widget configuration", async () => {
+  mockPanels();
+  mockSegments();
+  const feedback = vi.spyOn(feedbackModule, "FeedbackSection").mockReturnValue(<div>Feedback triage</div>);
+  const ctx = makeCtx();
+  render(<AnalyticsScreen ctx={ctx} />);
+  expect(feedback).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "Feedback" }));
+  expect(screen.getByText("Feedback triage")).toBeInTheDocument();
+  expect(feedback).toHaveBeenLastCalledWith(expect.objectContaining({ ctx, view: "recent" }), undefined);
 });
