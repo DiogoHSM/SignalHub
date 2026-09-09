@@ -158,18 +158,18 @@ describe("App", () => {
   it("renders the authenticated console workspace", async () => {
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Operations" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
     expect((await screen.findAllByRole("button", { name: /Acme App/ }))[0]).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Production" })).toBeInTheDocument();
     expect(createApiClient).toHaveBeenNthCalledWith(1);
     expect(createApiClient).toHaveBeenNthCalledWith(2, "/api");
     expect(operationalClient.getMe).toHaveBeenCalled();
 
-    await userEvent.click(screen.getByText("Search events, errors, tenants, traces…"));
+    await userEvent.click(screen.getByRole("button", { name: "Jump to a section" }));
     const commandPalette = screen.getByRole("dialog", { name: "Command palette" });
-    await userEvent.type(within(commandPalette).getByRole("textbox", { name: "Search commands" }), "settings");
-    await userEvent.click(within(commandPalette).getByRole("button", { name: "Open Settings" }));
-    expect(await screen.findByRole("heading", { name: "Setup" })).toBeInTheDocument();
+    await userEvent.type(within(commandPalette).getByRole("textbox", { name: "Search commands" }), "installation");
+    await userEvent.click(within(commandPalette).getByRole("button", { name: "Open Installation & SDK" }));
+    expect(await screen.findByRole("heading", { name: "Installation & SDK" })).toBeInTheDocument();
     await waitFor(() => expect(document.body).toHaveTextContent('endpoint: "https://sigmon.example.com"'));
   });
 

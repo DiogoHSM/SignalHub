@@ -11,7 +11,8 @@ import { useToasts } from "./useToasts";
 import { useFleet } from "./useFleet";
 import { renderIncidentDetail, renderSection, renderTenantDetail } from "./screens/registry";
 import type { ScreenCtx, CreatedSecret, DrillTarget, DrillParams, FilterableSection, NavPayload, SecretKind, SectionFilters } from "./screens/registry";
-import type { NavSection } from "./nav";
+import { NAV_GROUPS, navGroup, isInstanceSection, type NavSection, type NavMode } from "./nav";
+import { useIncidentCount } from "./useIncidentCount";
 import type { BreadcrumbItem } from "./shell/TopBar";
 import { EmptyHint, Icon } from "../components/ui/v2";
 import {
@@ -20,7 +21,6 @@ import {
   parseConsoleRoute,
   type ConsoleDetail,
 } from "./console-route";
-import { NarrowConsoleBoundary } from "./NarrowConsoleBoundary";
 
 // ─── persistence ─────────────────────────────────────────────────────────────
 
@@ -33,6 +33,7 @@ type PersistedState = {
   /** Legacy localStorage key from the first v2 shell. Prefer environmentId. */
   env?: string;
   railCollapsed?: boolean;
+  navMode?: NavMode;
 };
 
 type DesiredScope = {
@@ -83,27 +84,14 @@ function saveState(patch: Partial<PersistedState>) {
 
 // ─── breadcrumb derivation ───────────────────────────────────────────────────
 
-const NAV_LABELS: Record<NavSection, string> = {
-  overview: "Operations",
-  investigate: "Investigate",
-  incidents: "Incidents",
-  llm: "LLM",
-  traces: "Traces",
-  entities: "Entities",
-  users: "Users",
-  events: "Events",
-  analytics: "Analytics",
-  alerts: "Alerts",
-  monitors: "Monitors",
-  experiments: "Experiments",
-  system: "System",
-  settings: "Settings",
-};
+const NAV_LABELS = Object.fromEntries(NAV_GROUPS.flatMap((group) => group.items).map((item) => [item.id, item.label])) as Record<NavSection, string>;
 
 function buildCrumb(nav: NavSection, drillStack: string[]): BreadcrumbItem[] {
   const root: BreadcrumbItem = { label: NAV_LABELS[nav] };
-  if (drillStack.length === 0) return [root];
-  return [root, ...drillStack.map((label) => ({ label }))];
+  const group = navGroup(nav);
+  const prefix: BreadcrumbItem[] = group.label ? [{ label: group.label }] : [];
+  if (drillStack.length === 0) return [...prefix, root];
+  return [...prefix, root, ...drillStack.map((label) => ({ label }))];
 }
 
 // ─── ConsoleShellV2 ──────────────────────────────────────────────────────────
@@ -218,7 +206,9 @@ function DenseConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleSh
       : "overview";
 
   const [nav, setNavRaw] = useState<NavSection>(initialNav);
-  const [railCollapsed, setRailCollapsedRaw] = useState(persisted.railCollapsed ?? false);
+  const [railCollapsed, setRailCollapsedRaw] = useState(persisted.railCollapsed ?? true);
+  const [navMode, setNavMode] = useState<NavMode>(["open", "compact", "auto"].includes(persisted.navMode ?? "") ? persisted.navMode! : "open");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [drillStack, setDrillStack] = useState<string[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<NavPayload | null>(null);
@@ -255,6 +245,7 @@ function DenseConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleSh
     projectError,
     environmentError,
     reload: reloadProjects,
+    refreshInBackground,
   } = useConsoleProjects(client);
 
   // One-time secrets (API keys, read tokens, ...) live here, not in the
@@ -569,8 +560,9 @@ function DenseConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleSh
   // ─── breadcrumb ──────────────────────────────────────────────────────────
   const crumb = buildCrumb(nav, drillStack);
 
-  // ─── fleet critical count (for nav badge) ────────────────────────────────
-  const fleetCritical = fleet.rollup.counts.critical;
+  const instanceScope = isInstanceSection(nav);
+  const category = navGroup(nav);
+  const incidentCount = useIncidentCount(client, activeProject?.id, activeEnvironment?.id, seq);
 
   // ─── screen context callbacks ─────────────────────────────────────────────
 
@@ -690,6 +682,7 @@ function DenseConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleSh
     drill: handleDrill,
     back: handleBack,
     pushToast: (message: string) => toast({ title: message }),
+    refreshProjects: () => { void refreshInBackground().catch(() => toast({ title: "Changes saved, but the project list could not refresh. Refresh when your drafts are saved.", tone: "warn" })); },
     reload: () => {
       reloadProjects();
       setSeq((s) => s + 1);
@@ -710,25 +703,31 @@ function DenseConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleSh
     { section: "alerts", title: "Alerts", description: "Alert rules and recent alerts" },
     { section: "monitors", title: "Monitors", description: "HTTP uptime and heartbeat checks" },
     { section: "experiments", title: "Experiments", description: "A/B tests, feature flags, surveys, campaigns, and beta programs" },
-    { section: "system", title: "System", description: "Server health, workers, and scheduler" },
+    { section: "system", title: "Sigmon health", description: "Health of this Sigmon installation" },
+    { section: "installation", title: "Installation & SDK", description: "Connect your application and verify telemetry" },
+    { section: "administration", title: "Administration", description: "Manage projects and console access across this instance" },
     { section: "settings", title: "Settings", description: "Project and environment settings" },
   ];
 
   const commandItems: CommandPaletteItem[] = commandDestinations.map((destination) => ({
     id: destination.section,
-    title: destination.title,
+    title: NAV_LABELS[destination.section],
     description: destination.description
   }));
 
   return (
-    <div className="sh-v2">
-      <div className="app" data-rail={railCollapsed ? "collapsed" : "open"}>
+    <div className="sh-v2" data-category={category.id}>
+      <div className="app" data-nav={navMode} data-rail={instanceScope ? "hidden" : railCollapsed ? "collapsed" : "open"}>
         {/* Left navigation rail */}
-        <NavRail active={nav} onNavigate={navigate} fleetCritical={fleetCritical} />
+        {mobileNavOpen ? <button className="nv-backdrop" type="button" aria-label="Close navigation" onClick={() => setMobileNavOpen(false)} /> : null}
+        <NavRail active={nav} onNavigate={navigate} incidentCount={incidentCount} mode={navMode}
+          onModeChange={(mode) => { setNavMode(mode); saveState({ navMode: mode }); }} mobileOpen={mobileNavOpen} onClose={() => setMobileNavOpen(false)} />
 
         {/* Main content area */}
-        <div className="app-main">
+        <div className="app-main" inert={mobileNavOpen ? true : undefined}>
           <TopBar
+            instanceScope={instanceScope}
+            onOpenNavigation={() => setMobileNavOpen(true)}
             projects={projects}
             project={activeProject ?? { id: "", name: "Loading…", createdAt: "", updatedAt: "", archivedAt: null }}
             environments={environments}
@@ -746,7 +745,7 @@ function DenseConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleSh
 
           <div className="app-workspace">
             <div className="page" key={seq} data-anim={anim}>
-              {isLoadingProjects || isRestoringScope
+              {instanceScope ? renderSection(nav, screenCtx) : isLoadingProjects || isRestoringScope
                 ? (
                   <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
                     <EmptyHint icon="activity" title="Loading projects…" sub="Fetching project and environment data." />
@@ -775,7 +774,7 @@ function DenseConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleSh
                     : renderIncidentDetail(screenCtx, detail.groupId, detail.errorId)
                   : renderSection(nav, screenCtx)
                 : activeProject
-                  ? renderSection("settings", screenCtx)
+                  ? renderSection(nav === "installation" ? "installation" : "settings", screenCtx)
                 : (
                   <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
                     <EmptyHint
@@ -790,7 +789,7 @@ function DenseConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleSh
         </div>
 
         {/* Health rail */}
-        <HealthRail
+        {!instanceScope ? <HealthRail
           collapsed={railCollapsed}
           onToggleCollapse={toggleRail}
           selectedProjectId={activeProject?.id}
@@ -804,7 +803,7 @@ function DenseConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleSh
             lastUpdated: fleet.lastUpdated,
             environments: fleet.environments,
           }}
-        />
+        /> : null}
 
         {/* Toast stack */}
         <ToastStack toasts={toasts} onDismiss={dismiss} />
@@ -826,9 +825,5 @@ function DenseConsoleShellV2({ client, apiEndpoint, user, onSignOut }: ConsoleSh
 }
 
 export function ConsoleShellV2(props: ConsoleShellV2Props) {
-  return (
-    <NarrowConsoleBoundary>
-      <DenseConsoleShellV2 {...props} />
-    </NarrowConsoleBoundary>
-  );
+  return <DenseConsoleShellV2 {...props} />;
 }

@@ -821,6 +821,7 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
   const {
     data,
     status,
+    reload,
     busy,
     createRule,
     updateRule,
@@ -855,7 +856,7 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
   if (status === "error" || !data) {
     return (
       <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
-        <EmptyHint icon="alert" title="Could not load alerts" sub="Check your connection or try again." />
+        <EmptyHint icon="alert" title="Could not load alerts" sub="Retry to load rules, notification channels, and recent alerts." cta={<button className="sh-btn" onClick={reload}>Retry alert rules</button>} />
       </div>
     );
   }
@@ -987,8 +988,8 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
   return (
     <>
       <PageHead
-        title="Alerts"
-        sub={`${header.activeRuleCount} active rules · ${header.fires7d} fires in the last 7 days`}
+        title="Alert rules"
+        sub={`${ctx.project.name} · ${ctx.environment.name} — ${header.activeRuleCount} active rules · ${header.fires7d} alerts fired in the last 7 days. Review thresholds and where notifications are delivered.`}
         actions={
           <>
             <button
@@ -1103,7 +1104,7 @@ export function AlertsScreen({ ctx }: { ctx: ScreenCtx }) {
           </div>
           <div className="sh-card__body flush">
             {channels.length === 0 ? (
-              <EmptyHint icon="webhook" title="No channels" sub="No notification channels configured." />
+              <EmptyHint icon="webhook" title="No channels" sub="Add a notification channel, then connect it to a rule so alerts reach the right responder." />
             ) : (
               channels.map((row) => (
                 <ChannelRow

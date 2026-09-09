@@ -4,6 +4,7 @@ import type {
   OperationsAnomaly,
   OperationsPrediction,
   OperationsResponse,
+  OverviewResponse,
   OverviewWindow,
   ReleaseSummary
 } from "../../api/types";
@@ -121,7 +122,7 @@ export type AnomalyVM = {
 
 export type OperationsVM = {
   posture: {
-    status: OperationsResponse["status"];
+    status: OperationsResponse["status"] | "unknown";
     monitors: { total: number; up: number; down: number; degraded: number; paused: number; unknown: number };
     alerts: { enabledRules: number; events: number; critical: number; deliveryFailed: number };
     setupGaps: Array<{
@@ -138,6 +139,7 @@ export type OperationsVM = {
 };
 
 export type OverviewVM = {
+  coverage?: TelemetryCoverageVM;
   banner: BannerVM;
   operations: OperationsVM;
   kpis: KpisVM;
@@ -148,6 +150,37 @@ export type OverviewVM = {
   selectRelease: (release: string | null) => void;
   activity: ActivityItemVM[];
 };
+
+export type TelemetryCoverageVM = {
+  state: "missing" | "insufficient" | "stale" | "healthy" | "incidents" | "attention" | "unknown";
+  signalCount: number;
+  lastSignalAt: string | null;
+  generatedAt: string;
+};
+
+export function buildTelemetryCoverage(overview: OverviewResponse, ops: OperationsResponse | null): TelemetryCoverageVM {
+  const signalCount = overview.kpis.events + overview.kpis.errors + overview.kpis.traces + overview.kpis.llmCalls;
+  const timestamps = ops ? [ops.summary.telemetry.lastEventAt, ops.summary.telemetry.lastErrorAt, ops.summary.telemetry.lastTraceAt] : [];
+  const lastSignalAt = timestamps.filter((value): value is string => !!value && Number.isFinite(Date.parse(value)))
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+  const baselineSupported = ops?.predictions?.some((prediction) => prediction.validation.sampleSize > 0 && prediction.validation.baselineSampleSize > 0 && prediction.confidence !== "low");
+  let state: TelemetryCoverageVM["state"] = "unknown";
+  if (ops) {
+    if (ops.summary.incidents.open + ops.summary.incidents.investigating > 0) state = "incidents";
+    // Operations timestamps exclude LLM calls. Current LLM activity prevents a
+    // stale verdict based only on the older event/error/trace timestamps.
+    else if (lastSignalAt && Date.parse(lastSignalAt) < Date.parse(overview.range.from)) state = overview.kpis.llmCalls > 0 ? "unknown" : "stale";
+    else if (signalCount === 0) state = "missing";
+    else if (!lastSignalAt) state = "unknown";
+    else if (!baselineSupported) state = "insufficient";
+    else state = ops.status === "healthy" ? "healthy" : "attention";
+  }
+  return { state, signalCount, lastSignalAt, generatedAt: overview.generatedAt };
+}
+
+function supportedPrediction(prediction: OperationsPrediction): boolean {
+  return prediction.validation.sampleSize > 0 && prediction.validation.baselineSampleSize > 0;
+}
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -182,7 +215,7 @@ function buildBanner(ops: OperationsResponse | null): BannerVM {
 
   const incidents = (ops.summary.incidents.open ?? 0) + (ops.summary.incidents.investigating ?? 0);
   const alerts = ops.summary.alerts.events.total;
-  const topIncident = ops.recent.incidents[0] ?? null;
+  const topIncident = ops.recent.incidents.find((incident) => incident.status === "open" || incident.status === "investigating") ?? null;
 
   return {
     incidents,
@@ -223,7 +256,7 @@ function actionLabel(destination: OperationsDestination): string {
 
 function buildRecommendedActions(data: OperationsResponse): RecommendedActionVM[] {
   const actions: RecommendedActionVM[] = [];
-  const predictions = [...(data.predictions ?? [])].sort((left, right) => {
+  const predictions = [...(data.predictions ?? [])].filter(supportedPrediction).sort((left, right) => {
     const severity = predictionSeverityRank(right.severity) - predictionSeverityRank(left.severity);
     return severity || right.score - left.score;
   });
@@ -240,7 +273,7 @@ function buildRecommendedActions(data: OperationsResponse): RecommendedActionVM[
     actions.push({
       key: `prediction-${topPrediction.id}`,
       title: topPrediction.severity === "critical" ? "Act on critical predicted risk" : "Review high predicted risk",
-      description: `${topPrediction.label}: ${Math.round(topPrediction.probabilityPercent)}% probability with ${topPrediction.confidence} confidence.`,
+      description: `${topPrediction.label}: review the contributing signals across ${topPrediction.validation.sampleSize} current samples.`,
       action: actionLabel(destination),
       tone: topPrediction.severity === "critical" ? "critical" : "warning",
       destination
@@ -331,7 +364,7 @@ function buildOperations(ops: OperationsResponse | null): OperationsVM {
   if (!ops) {
     return {
       posture: {
-        status: "healthy",
+        status: "unknown",
         monitors: { total: 0, up: 0, down: 0, degraded: 0, paused: 0, unknown: 0 },
         alerts: { enabledRules: 0, events: 0, critical: 0, deliveryFailed: 0 },
         setupGaps: []
@@ -345,6 +378,7 @@ function buildOperations(ops: OperationsResponse | null): OperationsVM {
 
   const monitorStatus = [ops.summary.monitors.http, ops.summary.monitors.heartbeat];
   const predictions = [...(ops.predictions ?? [])]
+    .filter(supportedPrediction)
     .sort((left, right) => {
       const severity = predictionSeverityRank(right.severity) - predictionSeverityRank(left.severity);
       return severity || right.score - left.score;
@@ -546,6 +580,7 @@ export function useOverview({
         ].sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0));
 
         setData({
+          coverage: buildTelemetryCoverage(overview, ops),
           banner,
           operations,
           kpis: kpisVM,

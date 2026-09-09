@@ -1,4 +1,4 @@
-import type { NavSection } from "./nav";
+import { isInstanceSection, type NavSection } from "./nav";
 
 export type ConsoleDetail =
   | { target: "incident"; groupId: string; errorId?: string }
@@ -33,6 +33,8 @@ const SECTIONS: readonly NavSection[] = [
   "experiments",
   "system",
   "settings",
+  "installation",
+  "administration",
 ];
 
 const SECTION_SET = new Set<string>(SECTIONS);
@@ -95,8 +97,10 @@ export function buildConsoleUrl(nav: NavSection, detail: ConsoleDetail | null, s
   }
 
   const params = new URLSearchParams();
-  if (scope.projectId) params.set("project_id", scope.projectId);
-  if (scope.environmentId) params.set("environment_id", scope.environmentId);
+  if (!isInstanceSection(nav) || detail) {
+    if (scope.projectId) params.set("project_id", scope.projectId);
+    if (scope.environmentId) params.set("environment_id", scope.environmentId);
+  }
   if (detail?.target === "incident" && detail.errorId) params.set("error_id", detail.errorId);
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;

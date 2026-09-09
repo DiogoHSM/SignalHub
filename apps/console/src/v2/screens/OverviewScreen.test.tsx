@@ -192,11 +192,11 @@ afterEach(() => {
 
 describe("OverviewScreen", () => {
   describe("page header", () => {
-    it("identifies the promoted screen as Operations", () => {
+    it("identifies the screen as Overview", () => {
       mockUseOverview(ALL_CLEAR_VM);
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      expect(screen.getByRole("heading", { name: "Operations" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Overview" })).toBeInTheDocument();
     });
 
     it("renders 24h/7d/30d window options", () => {
@@ -225,6 +225,16 @@ describe("OverviewScreen", () => {
   });
 
   describe("attention zone", () => {
+    it("leads an empty project with coverage and SDK action without an all-clear verdict", async () => {
+      const navigate = vi.fn();
+      mockUseOverview({ ...ALL_CLEAR_VM, coverage: { state: "missing", signalCount: 0, lastSignalAt: null, generatedAt: "2026-09-09T00:00:00Z" }, operations: { ...ALL_CLEAR_VM.operations, predictions: [], anomalies: [], recommendedActions: [] } });
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={navigate} />);
+      expect(screen.getByRole("region", { name: "Telemetry coverage" })).toHaveTextContent("No telemetry in this window");
+      expect(screen.queryByRole("region", { name: "No active incidents" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/% probability/)).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Check SDK installation" }));
+      expect(navigate).toHaveBeenCalledWith("installation");
+    });
     it("renders incident attention card when incidents > 0", () => {
       mockUseOverview(INCIDENT_VM);
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
@@ -251,8 +261,9 @@ describe("OverviewScreen", () => {
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
       expect(screen.getByRole("region", { name: "No active incidents" })).toBeInTheDocument();
-      expect(screen.getByText(/no active incidents/i)).toBeInTheDocument();
-      expect(screen.getByText(/operating within expected range/i)).toBeInTheDocument();
+      expect(screen.getByText(/^no active incidents$/i)).toBeInTheDocument();
+      expect(screen.queryByText(/operating within expected range/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/vs\. prior window/i)).not.toBeInTheDocument();
     });
 
     it("navigates to alerts on 'View rules' click in all-clear banner", async () => {
@@ -391,7 +402,7 @@ describe("OverviewScreen", () => {
       });
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
 
-      expect(screen.getByText("No predictive risk")).toBeInTheDocument();
+      expect(screen.getByText("No predictive risk estimate")).toBeInTheDocument();
       expect(screen.getByText("No anomalies detected")).toBeInTheDocument();
     });
   });
@@ -472,6 +483,12 @@ describe("OverviewScreen", () => {
   });
 
   describe("loading state", () => {
+    it.each(["loading", "error"] as const)("preserves the scoped Overview heading during %s", (status) => {
+      mockUseOverview(null, status);
+      render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);
+      expect(screen.getByRole("heading", { name: "Overview" })).toBeInTheDocument();
+      expect(screen.getByText(/Signals, incidents and coverage for/)).toHaveTextContent("Acme Prod · production");
+    });
     it("renders a loading indicator when status is loading", () => {
       mockUseOverview(null, "loading");
       render(<OverviewScreen ctx={makeMockCtx()} navigate={vi.fn()} />);

@@ -12,6 +12,7 @@ import type {
   PredictionVM,
   RecommendedActionVM,
   TenantVM,
+  TelemetryCoverageVM,
 } from "./useOverview";
 import type { OverviewWindow, ReleaseSummary } from "../../api/types";
 import {
@@ -114,6 +115,32 @@ function IncidentAttentionCard({
   );
 }
 
+const COVERAGE_COPY: Record<TelemetryCoverageVM["state"], [string, string]> = {
+  missing: ["No telemetry in this window", "Send a test event and confirm the project and environment in your SDK configuration."],
+  insufficient: ["Insufficient baseline", "Telemetry is arriving, but the comparison does not yet support a reliable baseline. Review the collected signals."],
+  stale: ["Telemetry is outside this window", "The latest reported signal predates this window. Check ingestion or choose a wider window."],
+  healthy: ["No active incidents reported", "Available operational checks report healthy. Review coverage before treating this as complete service health."],
+  incidents: ["Active incidents need attention", "Review the affected signals and open the incident below to investigate impact."],
+  attention: ["Operational checks need attention", "Review the findings below and inspect the affected monitors or signals."],
+  unknown: ["Telemetry status unavailable", "Freshness or operational evidence is unavailable. Refresh the overview to try again."],
+};
+
+function CoveragePanel({ coverage, onSetup, onReload }: { coverage: TelemetryCoverageVM; onSetup: () => void; onReload: () => void }) {
+  const [title, description] = COVERAGE_COPY[coverage.state];
+  return <section className="sh-card" aria-label="Telemetry coverage">
+    <div className="sh-card__body">
+      <h2 className="sh-h2">{title}</h2>
+      <p className="sh-muted sh-copy-12">{coverage.signalCount} signals in the selected scope and window · Latest reported event, error or trace: {coverage.lastSignalAt ? new Date(coverage.lastSignalAt).toLocaleString() : "unavailable"}</p>
+      <p className="sh-muted sh-copy-12">{description}</p>
+      <div className="sh-cluster-8 sh-cluster-wrap">
+        <span className="sh-faint sh-copy-11">Snapshot: {new Date(coverage.generatedAt).toLocaleString()}</span>
+        {coverage.state === "missing" || coverage.state === "stale" ? <button className="sh-btn" onClick={onSetup}>Check SDK installation</button> : null}
+        <button className="sh-btn" onClick={onReload}>Refresh overview</button>
+      </div>
+    </div>
+  </section>;
+}
+
 function AllClearBanner({
   projectName,
   envName,
@@ -126,7 +153,7 @@ function AllClearBanner({
   onViewRules: () => void;
 }) {
   return (
-    <section aria-label="No active incidents" className="sh-card sh-stripe ok">
+    <section aria-label="No active incidents" className="sh-card">
       <div
         className="sh-card__body"
         style={{ display: "flex", alignItems: "center", gap: 16, paddingLeft: 24 }}
@@ -147,7 +174,7 @@ function AllClearBanner({
         <div className="sh-grow">
           <div className="sh-copy-14-strong">No active incidents</div>
           <div className="sh-muted sh-copy-12" style={{ marginTop: 2 }}>
-            {projectName} · {envName} operating within expected range over the last {timeWindow}.
+            {projectName} · {envName}: no active incidents reported over the last {timeWindow}. Check telemetry coverage above.
           </div>
         </div>
         <button className="sh-btn" onClick={onViewRules}>
@@ -176,7 +203,7 @@ function UpNextPanel({ actions, onOpen }: { actions: RecommendedActionVM[]; onOp
         <span className="sh-tag">priority order</span>
       </div>
       {actions.length === 0 ? (
-        <EmptyHint icon="check" title="No urgent actions" sub="Operational signals are stable for this window." />
+        <EmptyHint icon="activity" title="No urgent actions" sub="No recommended actions were returned. Review telemetry coverage before drawing conclusions." />
       ) : (
         <div className="sh-stack">
           {actions.slice(0, 4).map((action, i) => (
@@ -369,11 +396,7 @@ function MetricsStrip({ kpis, window: timeWindow }: { kpis: KpisVM; window: Over
                 <div style={{ marginTop: "auto" }}>
                   <Sparkline data={m.spark} color={m.color} height={24} />
                 </div>
-              ) : (
-                <span className="sh-faint" style={{ fontSize: 11.5, marginTop: "auto" }}>
-                  vs. prior window
-                </span>
-              )}
+              ) : null}
             </div>
           ))}
         </div>
@@ -426,16 +449,16 @@ function PredictiveRiskPanel({
     <SignalCard
       title="Predictive risk"
       badge={
-        <span className={`sh-tag ${predictions.length ? (hasCritical ? "critical" : "warn") : "ok"}`}>
-          {predictions.length ? `${predictions.length} projected` : "stable"}
+        <span className={`sh-tag ${predictions.length ? (hasCritical ? "critical" : "warn") : "solid"}`}>
+          {predictions.length ? `${predictions.length} projected` : "no estimate"}
         </span>
       }
     >
       {predictions.length === 0 ? (
         <EmptyHint
           icon="sparkles"
-          title="No predictive risk"
-          sub="The current window is tracking close to the learned baseline."
+          title="No predictive risk estimate"
+          sub="No supported prediction is available for this window. This does not establish a healthy baseline."
         />
       ) : (
         predictions.map((prediction) => (
@@ -456,6 +479,8 @@ function PredictiveRiskPanel({
             >
               <div className="sh-min-w-0">
                 <strong className="sh-copy-13">{prediction.label}</strong>
+                <p className="sh-muted sh-copy-12">{prediction.sampleSize} current samples contribute to this finding. Review the affected signals before acting.</p>
+                <details><summary>Prediction model details</summary>
                 <div className="sh-muted sh-meta-line-md">
                   {Math.round(prediction.probabilityPercent)}% probability · {prediction.confidence} confidence · score{" "}
                   {prediction.score.toFixed(2)} vs {prediction.baselineRiskScore.toFixed(2)} baseline
@@ -494,6 +519,7 @@ function PredictiveRiskPanel({
                     ))}
                   </div>
                 ) : null}
+                </details>
               </div>
               <button className="sh-btn compact" onClick={() => onOpen(prediction.destination)}>
                 Open <Icon name="arrow" size={11} />
@@ -518,8 +544,8 @@ function AnomaliesPanel({
     <SignalCard
       title="Detected anomalies"
       badge={
-        <span className={`sh-tag ${anomalies.length ? (hasCritical ? "critical" : "warn") : "ok"}`}>
-          {anomalies.length ? `${anomalies.length} detected` : "stable"}
+        <span className={`sh-tag ${anomalies.length ? (hasCritical ? "critical" : "warn") : "solid"}`}>
+          {anomalies.length ? `${anomalies.length} detected` : "none reported"}
         </span>
       }
     >
@@ -527,7 +553,7 @@ function AnomaliesPanel({
         <EmptyHint
           icon="check"
           title="No anomalies detected"
-          sub="Volume, errors, latency, and cost are within baseline."
+          sub="No anomalies were returned for this scope. Coverage and baseline availability determine what can be detected."
         />
       ) : (
         anomalies.map((anomaly) => (
@@ -549,6 +575,7 @@ function AnomaliesPanel({
                 Drill down <Icon name="arrow" size={11} />
               </button>
             </div>
+            <details><summary>Anomaly comparison details</summary>
             <div className="sh-faint" style={{ fontSize: 11, marginTop: 7 }}>
               Observed {anomaly.observedValue} · Baseline {anomaly.baselineValue} ·{" "}
               {anomaly.changePercent == null
@@ -561,6 +588,7 @@ function AnomaliesPanel({
               Threshold: {anomaly.threshold}
               {anomaly.suggestedAlertRuleType ? ` · Suggested rule: ${anomaly.suggestedAlertRuleType}` : ""}
             </div>
+            </details>
           </div>
         ))
       )}
@@ -1063,26 +1091,48 @@ export function OverviewScreen({
   const projectName = ctx.project?.name ?? "—";
   const envName = ctx.environment?.name ?? "—";
 
-  const { data, status } = useOverview({
+  const { data, status, reload } = useOverview({
     client: ctx.client,
     projectId,
     environmentId,
     window,
   });
 
-  if (status === "loading" && !data) {
+  const pageHead = (
+      <PageHead
+        title="Overview"
+        sub={
+          <>
+            Signals, incidents and coverage for{" "}
+            <strong style={{ color: "var(--fg)" }}>
+              {projectName} · {envName}
+            </strong>
+          </>
+        }
+        actions={
+          <Segmented
+            options={WINDOW_OPTIONS}
+            value={window}
+            onChange={(v) => setWindow(v as OverviewWindow)}
+          />
+        }
+      />
+  );
+
+  if (status === "loading") {
     return (
-      <div className="sh-empty-region">
+      <>{pageHead}<div className="sh-empty-region">
         <EmptyHint icon="activity" title="Loading…" sub="Fetching overview data." />
-      </div>
+      </div></>
     );
   }
 
   if (status === "error" || !data) {
     return (
-      <div className="sh-empty-region">
+      <>{pageHead}<div className="sh-empty-region">
         <EmptyHint icon="alert" title="Could not load overview" sub="Check your connection or try again." />
-      </div>
+        <button className="sh-btn" onClick={reload}>Retry overview</button>
+      </div></>
     );
   }
 
@@ -1117,24 +1167,9 @@ export function OverviewScreen({
 
   return (
     <>
-      <PageHead
-        title="Operations"
-        sub={
-          <>
-            Pulse of{" "}
-            <strong style={{ color: "var(--fg)" }}>
-              {projectName} · {envName}
-            </strong>
-          </>
-        }
-        actions={
-          <Segmented
-            options={WINDOW_OPTIONS}
-            value={window}
-            onChange={(v) => setWindow(v as OverviewWindow)}
-          />
-        }
-      />
+      {pageHead}
+
+      {data.coverage ? <CoveragePanel coverage={data.coverage} onSetup={() => navigate("installation")} onReload={reload} /> : null}
 
       {/* Attention zone */}
       <div
@@ -1158,7 +1193,7 @@ export function OverviewScreen({
             }
             onViewIncidents={() => navigate("incidents")}
           />
-        ) : (
+        ) : data.coverage && ["missing", "stale", "unknown"].includes(data.coverage.state) ? null : (
           <AllClearBanner
             projectName={projectName}
             envName={envName}

@@ -40,7 +40,7 @@ export function ExperimentsScreen({ ctx }: { ctx: ScreenCtx }) {
     <>
       <PageHead
         title="Experiments"
-        sub="A/B tests, feature flags, surveys, message campaigns, and beta programs."
+        sub={`${ctx.project.name} · ${ctx.environment.name} — manage rollouts and measure responses. Choose a test, flag, or audience program to review its configuration and results.`}
         actions={<Segmented options={[...TABS]} value={tab} onChange={(v) => setTab(v as ExperimentsTab)} />}
       />
       {tab === "A/B" ? <AbTestsTab ctx={ctx} enabled={tab === "A/B"} /> : null}

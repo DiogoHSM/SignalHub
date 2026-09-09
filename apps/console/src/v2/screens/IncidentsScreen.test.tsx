@@ -332,6 +332,8 @@ describe("IncidentsScreen", () => {
         expect.objectContaining({ view: "history", statusFilter: "all" })
       );
       expect(screen.getByRole("button", { name: /active/i })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Incident history" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Active incidents" })).not.toBeInTheDocument();
     });
 
     it("opens real filters and passes priority/status/assignee to the hook", async () => {
@@ -354,6 +356,33 @@ describe("IncidentsScreen", () => {
         })
       );
     });
+  });
+
+  it("retries a failed history request without losing its filters", async () => {
+    const reload = vi.fn();
+    const spy = mockUseIncidents(INCIDENTS_VM);
+    const ctx = makeMockCtx();
+    const { rerender } = render(<IncidentsScreen ctx={ctx} />);
+    await userEvent.click(screen.getByRole("button", { name: "History" }));
+    await userEvent.click(screen.getByRole("button", { name: "Filters" }));
+    await userEvent.click(screen.getByRole("button", { name: "P1" }));
+    spy.mockReturnValue({ data: null, status: "error", reload });
+    rerender(<IncidentsScreen ctx={ctx} />);
+    await userEvent.click(screen.getByRole("button", { name: "Retry incidents" }));
+    expect(reload).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ view: "history", priorityFilter: "P1" }));
+  });
+
+  it("distinguishes no filter matches from no incidents and clears filters in place", async () => {
+    const spy = mockUseIncidents(EMPTY_VM);
+    render(<IncidentsScreen ctx={makeMockCtx()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Filters" }));
+    await userEvent.click(screen.getByRole("button", { name: "P1" }));
+    expect(screen.getByText("No matching incidents")).toBeInTheDocument();
+    expect(screen.queryByText("No active incidents")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Clear incident filters" }));
+    expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ priorityFilter: "all", statusFilter: "all", assigneeFilter: "all" }));
+    expect(screen.getByText("No active incidents")).toBeInTheDocument();
   });
 
   describe("empty state", () => {

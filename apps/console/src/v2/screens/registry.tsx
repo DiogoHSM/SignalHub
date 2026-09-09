@@ -78,6 +78,8 @@ export type ScreenCtx = {
   drill: (target: DrillTarget, params: DrillParams) => void;
   /** Push a transient toast notification. */
   pushToast: (message: string) => void;
+  /** Refresh project/environment data without remounting the current screen or dropping form drafts. */
+  refreshProjects?: () => void;
   /** Reload shell-level project/environment data after a mutation. */
   reload?: () => void;
 };
@@ -114,6 +116,8 @@ const analyticsScreen = selectLazyExport<typeof import("./screen-groups/analytic
 const experimentsScreen = selectLazyExport<typeof import("./screen-groups/analytics-experiments"), "ExperimentsScreen", CtxProps>(analyticsExperimentsGroup, "ExperimentsScreen");
 
 const setupScreen = selectLazyExport<typeof import("./screen-groups/admin"), "SetupScreen", CtxProps>(adminGroup, "SetupScreen");
+const settingsScreen = selectLazyExport<typeof import("./screen-groups/admin"), "SettingsScreen", CtxProps>(adminGroup, "SettingsScreen");
+const administrationScreen = selectLazyExport<typeof import("./screen-groups/admin"), "AdministrationScreen", CtxProps>(adminGroup, "AdministrationScreen");
 const systemScreen = selectLazyExport<typeof import("./screen-groups/admin"), "SystemScreen", CtxProps>(adminGroup, "SystemScreen");
 
 export const SCREENS: Record<NavSection, ScreenEntry> = {
@@ -169,9 +173,11 @@ export const SCREENS: Record<NavSection, ScreenEntry> = {
     render: (ctx) => <LazyScreen loader={systemScreen} props={{ ctx }} />,
   },
 
-  settings: {
+  installation: {
     render: (ctx) => <LazyScreen loader={setupScreen} props={{ ctx }} />,
   },
+  settings: { render: (ctx) => <LazyScreen loader={settingsScreen} props={{ ctx }} /> },
+  administration: { render: (ctx) => <LazyScreen loader={administrationScreen} props={{ ctx }} /> },
 };
 
 // ─── renderSection ────────────────────────────────────────────────────────────

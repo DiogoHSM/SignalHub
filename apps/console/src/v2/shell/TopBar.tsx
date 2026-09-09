@@ -10,6 +10,8 @@ export type BreadcrumbItem = {
 };
 
 export interface TopBarProps {
+  instanceScope?: boolean;
+  onOpenNavigation?: () => void;
   projects: Project[];
   project: Project;
   environments: Environment[];
@@ -175,6 +177,8 @@ function deriveInitials(email: string | undefined): string {
 }
 
 export function TopBar({
+  instanceScope = false,
+  onOpenNavigation,
   projects,
   project,
   environments,
@@ -243,26 +247,27 @@ export function TopBar({
 
   return (
     <header className="tb">
-      <ProjectSwitcher
+      <button className="tb-icon nv-mobile-trigger sh-hit-target" type="button" aria-label="Open navigation" onClick={onOpenNavigation}><Icon name="sidebar" size={18} /></button>
+      {instanceScope ? <span className="tb-instance"><Icon name="server" size={16} />Sigmon instance</span> : <ProjectSwitcher
         projects={projects}
         project={project}
         environments={environments}
         env={env}
         onSelectProject={onSelectProject}
         onSelectEnv={onSelectEnv}
-      />
+      />}
       <Icon name="chev" size={13} style={{ color: "var(--fg-faint)", margin: "0 2px" }} />
       <Breadcrumb items={crumb} />
-      <button className="tb-search sh-hit-target" type="button" onClick={onOpenSearch}>
+      <button className="tb-search sh-hit-target" type="button" aria-label="Jump to a section" onClick={onOpenSearch}>
         <Icon name="search" size={14} />
-        <span>Search events, errors, tenants, traces…</span>
-        <kbd>⌘K</kbd>
+        <span>Jump to a section…</span>
+        <kbd>{typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K"}</kbd>
       </button>
       <div className="tb-actions">
         <button className="tb-icon sh-hit-target" type="button" title="Refresh now" onClick={onRefresh}>
           <Icon name="refresh" size={15} />
         </button>
-        {railCollapsed ? (
+        {!instanceScope && railCollapsed ? (
           <button className="tb-icon sh-hit-target" type="button" title="Show project radar" onClick={onToggleRail}>
             <Icon name="panelExpand" size={15} />
           </button>

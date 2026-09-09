@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApiClient } from "../api/client";
+import type { Environment, Project } from "../api/types";
 import { useConsoleProjects } from "./useConsoleProjects";
 
 function client(overrides: Partial<ApiClient>): ApiClient {
@@ -73,6 +74,98 @@ afterEach(() => {
 });
 
 describe("useConsoleProjects", () => {
+  const project: Project = { id: "project-a", name: "Alpha", createdAt: "", updatedAt: "", archivedAt: null };
+  const otherProject: Project = { ...project, id: "project-b", name: "Beta" };
+  const environment: Environment = { id: "env-a", projectId: project.id, name: "production", createdAt: "", updatedAt: "", archivedAt: null };
+  const canary: Environment = { ...environment, id: "env-canary", name: "canary" };
+
+  it("refreshes metadata in place without loading gaps or losing the selected environment", async () => {
+    const listProjects = vi.fn().mockResolvedValue({ projects: [project] });
+    const listEnvironments = vi.fn().mockResolvedValue({ environments: [environment, canary] });
+    const api = client({ listProjects, listEnvironments });
+    const observations: Array<{ loading: boolean; environment: string | undefined }> = [];
+    const { result } = renderHook(() => { const state = useConsoleProjects(api); observations.push({ loading: state.isLoading, environment: state.activeEnvironment?.id }); return state; });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    act(() => result.current.selectEnvironment(canary.id));
+    observations.length = 0;
+    listProjects.mockResolvedValue({ projects: [{ ...project, name: "Renamed" }] });
+    listEnvironments.mockResolvedValue({ environments: [environment, { ...canary, name: "preview" }] });
+    await act(async () => result.current.refreshInBackground());
+    expect(result.current.activeProject?.name).toBe("Renamed");
+    expect(result.current.activeEnvironment?.name).toBe("preview");
+    expect(observations.length).toBeGreaterThan(0);
+    expect(observations.every((value) => !value.loading && value.environment === canary.id)).toBe(true);
+  });
+
+  it("preserves usable scope and rejects a failed background refresh atomically", async () => {
+    const listProjects = vi.fn().mockResolvedValue({ projects: [project] });
+    const listEnvironments = vi.fn().mockResolvedValue({ environments: [environment] });
+    const clientApi = client({ listProjects, listEnvironments });
+    const { result } = renderHook(() => useConsoleProjects(clientApi));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    listProjects.mockResolvedValue({ projects: [{ ...project, name: "Uncommitted metadata" }] });
+    listEnvironments.mockRejectedValue(new Error("refresh failed"));
+    await act(async () => { await expect(result.current.refreshInBackground()).rejects.toThrow("refresh failed"); });
+    expect(result.current.activeProject).toEqual(project);
+    expect(result.current.activeEnvironment).toEqual(environment);
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.environmentError).toBe(false);
+  });
+
+  it("ignores a background response after navigating away from its project", async () => {
+    const listProjects = vi.fn().mockResolvedValue({ projects: [project, otherProject] });
+    const otherEnvironment = { ...environment, id: "env-b", projectId: otherProject.id };
+    const listEnvironments = vi.fn((id: string) => Promise.resolve({ environments: id === project.id ? [environment] : [otherEnvironment] }));
+    const api = client({ listProjects, listEnvironments });
+    const { result } = renderHook(() => useConsoleProjects(api));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    let resolveRefresh!: (value: { projects: Project[] }) => void;
+    listProjects.mockReturnValueOnce(new Promise((resolve) => { resolveRefresh = resolve; }));
+    let refresh!: Promise<void>;
+    act(() => { refresh = result.current.refreshInBackground(); result.current.selectProject(otherProject.id); });
+    await waitFor(() => expect(result.current.activeEnvironment?.id).toBe(otherEnvironment.id));
+    await act(async () => { resolveRefresh({ projects: [project] }); await refresh; });
+    expect(result.current.activeProject?.id).toBe(otherProject.id);
+    expect(result.current.activeEnvironment?.id).toBe(otherEnvironment.id);
+  });
+
+  it("settles on a surviving environment when a refresh confirms the selected environment was archived", async () => {
+    const listEnvironments = vi.fn().mockResolvedValue({ environments: [environment, canary] });
+    const api = client({ listProjects: vi.fn().mockResolvedValue({ projects: [project] }), listEnvironments });
+    const { result } = renderHook(() => useConsoleProjects(api));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    act(() => result.current.selectEnvironment(canary.id));
+    listEnvironments.mockResolvedValue({ environments: [environment] });
+    await act(async () => result.current.refreshInBackground());
+    expect(result.current.activeEnvironment?.id).toBe(environment.id);
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it("keeps an environment selected while the background request is in flight", async () => {
+    const listProjects = vi.fn().mockResolvedValue({ projects: [project] });
+    const api = client({ listProjects, listEnvironments: vi.fn().mockResolvedValue({ environments: [environment, canary] }) });
+    const { result } = renderHook(() => useConsoleProjects(api));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    let resolveRefresh!: (value: { projects: Project[] }) => void;
+    listProjects.mockReturnValueOnce(new Promise((resolve) => { resolveRefresh = resolve; }));
+    let refresh!: Promise<void>;
+    act(() => { refresh = result.current.refreshInBackground(); result.current.selectEnvironment(canary.id); });
+    await act(async () => { resolveRefresh({ projects: [project] }); await refresh; });
+    expect(result.current.activeEnvironment?.id).toBe(canary.id);
+  });
+
+  it("moves to a surviving project only when refresh confirms the active project disappeared", async () => {
+    const listProjects = vi.fn().mockResolvedValue({ projects: [project, otherProject] });
+    const otherEnvironment = { ...environment, id: "env-b", projectId: otherProject.id };
+    const api = client({ listProjects, listEnvironments: vi.fn((id: string) => Promise.resolve({ environments: id === project.id ? [environment] : [otherEnvironment] })) });
+    const { result } = renderHook(() => useConsoleProjects(api));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    listProjects.mockResolvedValue({ projects: [otherProject] });
+    await act(async () => result.current.refreshInBackground());
+    await waitFor(() => expect(result.current.activeEnvironment?.id).toBe(otherEnvironment.id));
+    expect(result.current.activeProject?.id).toBe(otherProject.id);
+    expect(result.current.isLoading).toBe(false);
+  });
   it("reports a project load failure instead of treating it as an empty installation", async () => {
     const api = client({ listProjects: vi.fn().mockRejectedValue(new Error("offline")) });
 

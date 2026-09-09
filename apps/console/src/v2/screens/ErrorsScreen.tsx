@@ -9,6 +9,7 @@ import {
   Divider,
   EmptyHint,
   Icon,
+  PageHead,
   PriorityPill,
   Segmented,
   Sparkline,
@@ -257,7 +258,7 @@ export function ErrorsScreen({
   const projectId = ctx.project?.id ?? "";
   const environmentId = ctx.environment?.id ?? "";
 
-  const { data, status } = useErrors({
+  const { data, status, reload } = useErrors({
     client: ctx.client,
     projectId,
     environmentId,
@@ -304,7 +305,7 @@ export function ErrorsScreen({
         <EmptyHint
           icon="alert"
           title="Could not load errors"
-          sub="Check your connection or try again."
+          sub="Retry this request. Your filters are preserved." cta={<button className="sh-btn" onClick={reload}>Retry errors</button>}
         />
       </div>
     );
@@ -313,11 +314,11 @@ export function ErrorsScreen({
   const { tabs, summary, volume, rows } = data;
 
   const tabDefs: TabDef[] = [
-    { label: "Events", icon: "activity", count: formatCompact(tabs.events), dest: "overview" },
+    { label: "Events", icon: "activity", count: formatCompact(tabs.events), dest: "events" },
     { label: "Errors", icon: "error", count: formatCompact(tabs.errors), active: true },
     { label: "Traces", icon: "waterfall", count: formatCompact(tabs.traces), dest: "traces" },
-    { label: "LLM", icon: "sparkles", count: formatCompact(tabs.llm), dest: "llm" },
-    { label: "Entities", icon: "cube", count: formatCompact(tabs.tenants), dest: "entities" },
+    { label: "AI calls", icon: "sparkles", count: formatCompact(tabs.llm), dest: "llm" },
+    { label: "Accounts", icon: "cube", count: formatCompact(tabs.tenants), dest: "entities" },
     { label: "Users", icon: "users", count: formatCompact(tabs.users), dest: "users" },
   ];
 
@@ -329,6 +330,7 @@ export function ErrorsScreen({
 
   return (
     <>
+      <PageHead title="Errors" sub={`${ctx.project.name} · ${ctx.environment.name} — grouped failures in the last ${window}. Open a group to assess affected users and inspect the evidence.`} />
       {/* Tab bar */}
       <InvestigateTabs tabs={tabDefs} navigate={navigate} />
 
@@ -506,7 +508,7 @@ export function ErrorsScreen({
             <EmptyHint
               icon="error"
               title="No error groups"
-              sub="No errors match the current filters."
+              sub="Nothing matches this window and filter selection. Widen the window or clear a filter to inspect other failures."
             />
           ) : (
             rows.map((row) => (

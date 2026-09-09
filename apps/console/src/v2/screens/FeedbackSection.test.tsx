@@ -61,6 +61,21 @@ function makeCtx(over: Partial<ScreenCtx> = {}): ScreenCtx {
 }
 
 describe("FeedbackSection", () => {
+  it("shows only widget configuration in settings", async () => {
+    render(<FeedbackSection ctx={makeCtx()} view="configuration" />);
+    expect(await screen.findByText("Widget settings")).toBeInTheDocument();
+    expect(screen.queryByText("Recent feedback")).not.toBeInTheDocument();
+  });
+
+  it("shows only submissions in the product view and retains triage", async () => {
+    const ctx = makeCtx();
+    render(<FeedbackSection ctx={ctx} view="recent" />);
+    expect(await screen.findByText("Recent feedback")).toBeInTheDocument();
+    expect(screen.queryByText("Widget settings")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mark reviewed: Broke on save" }));
+    await waitFor(() => expect(ctx.client.updateFeedbackStatus).toHaveBeenCalled());
+  });
+
   it("renders widget settings and the recent feedback list", async () => {
     render(<FeedbackSection ctx={makeCtx()} />);
     expect(await screen.findByText("Widget settings")).toBeInTheDocument();

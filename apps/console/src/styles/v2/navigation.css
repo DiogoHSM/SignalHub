@@ -1,0 +1,76 @@
+/* Category identity is independent of severity and primary action colors. */
+.sh-v2 { --category: #87c4ff; --nav-width: 232px; }
+.sh-v2 [data-category="operate"], .sh-v2[data-category="operate"] { --category: #a8c7ff; }
+.sh-v2 [data-category="investigate"], .sh-v2[data-category="investigate"] { --category: #cbb5ff; }
+.sh-v2 [data-category="understand"], .sh-v2[data-category="understand"] { --category: #7ddbd0; }
+.sh-v2 [data-category="configure"], .sh-v2[data-category="configure"] { --category: #e6c495; }
+.sh-v2 [data-category="instance"], .sh-v2[data-category="instance"] { --category: #c2c9d2; }
+.sh-v2 .app[data-nav] { grid-template-columns: var(--nav-width) minmax(0, 1fr) var(--rail-w, 322px); transition: none; position: relative; }
+.sh-v2 .app[data-nav="compact"], .sh-v2 .app[data-nav="auto"] { --nav-width: 64px; }
+.sh-v2 .app[data-rail="hidden"] { --rail-w: 0px; }
+.sh-v2 .nv { position: relative; z-index: 120; width: var(--nav-width); min-height: 0; align-items: stretch; padding: 10px 8px; gap: 8px; }
+.sh-v2 .nv[data-mode="auto"][data-expanded="true"] { width: 232px; box-shadow: 12px 0 24px rgb(0 0 0 / .22); }
+.sh-v2 .nv-brand { display: flex; align-items: center; gap: 10px; padding: 0 4px 4px; min-height: 40px; font-size: 17px; font-weight: 650; }
+.sh-v2 .nv-logo { margin: 0; flex-shrink: 0; width: 34px; height: 34px; }
+.sh-v2 .nv-links { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.sh-v2 .nv-group { margin-bottom: 9px; }
+.sh-v2 .nv-group-label { padding: 8px 12px 4px; color: var(--fg-muted); font-size: 11px; font-weight: 600; }
+.sh-v2 .nv-group[data-category="instance"] { border-top: 1px solid var(--border-subtle); padding-top: 6px; }
+.sh-v2 .nv .nv-item { display: flex; gap: 11px; justify-content: flex-start; width: 100%; height: 36px; min-height: 36px; padding: 7px 12px; border-radius: 6px; text-align: left; font-size: 12.5px; }
+.sh-v2 .nv-item > svg { flex-shrink: 0; }
+.sh-v2 .nv-item.is-active { color: var(--fg); background: color-mix(in srgb, var(--category) 12%, var(--bg-surface)); }
+.sh-v2 .nv-item.is-active::before { display: none; }
+.sh-v2 .nv-item.is-active > svg { color: var(--category); }
+.sh-v2 .nv-label { white-space: nowrap; }
+.sh-v2 .nv-count { margin-left: auto; padding: 1px 5px; border-radius: 4px; color: var(--sev-critical); background: var(--sev-critical-bg); font-size: 11px; font-variant-numeric: tabular-nums; }
+.sh-v2 .nv-count.is-unknown { color: var(--fg-muted); background: transparent; }
+.sh-v2 .nv[data-expanded="false"] .nv-label { display: none; }
+.sh-v2 .nv[data-expanded="false"] .nv-group-label { height: 9px; padding: 0; overflow: hidden; font-size: 0; }
+.sh-v2 .nv[data-expanded="false"] .nv-count { position: absolute; right: 0; top: 0; font-size: 9px; padding: 0 3px; }
+.sh-v2 .nv[data-expanded="false"] .nv-links { overflow: visible; overflow-y: auto; }
+.sh-v2 .nv-preferences { position: relative; border-top: 1px solid var(--border-subtle); padding-top: 6px; }
+.sh-v2 .nv-mode-menu { position: absolute; left: 0; bottom: calc(100% + 8px); min-width: 216px; padding: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-surface); box-shadow: var(--shadow-lg); }
+.sh-v2 .nv-item:focus-visible .nv-tip { opacity: 1; transform: translateY(-50%); }
+.sh-v2 .tb-instance { display: flex; align-items: center; gap: 8px; white-space: nowrap; color: var(--fg-secondary); font-weight: 600; font-size: 13px; }
+.sh-v2 .bc-seg--current { color: var(--category); }
+.sh-v2 .nv-mobile-trigger, .sh-v2 .nv-mobile-close, .sh-v2 .nv-backdrop { display: none; }
+.sh-v2 .tb-search { margin-left: auto; }
+.sh-v2 .tb-search kbd { white-space: nowrap; }
+.sh-v2 details > summary { cursor: pointer; color: var(--fg-secondary); padding: 8px 0; min-height: 36px; }
+.sh-v2 details > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.sh-v2 .sh-input, .sh-v2 textarea { caret-color: var(--accent); }
+.sh-v2 .alert-row:focus-within .alert-row__actions { opacity: 1; }
+@media (max-height: 850px) and (min-width: 900px) {
+  .sh-v2 .nv-group { margin-bottom: 3px; }
+  .sh-v2 .nv-group-label { padding-top: 4px; }
+}
+@media (max-width: 1200px) {
+  .sh-v2 .app { --rail-w: 58px; }
+  .sh-v2 .tb { gap: 6px; padding-inline: 12px; }
+  .sh-v2 .tb-search { flex: 0; min-width: 44px; padding: 8px; }
+  .sh-v2 .tb-search > span, .sh-v2 .tb-search > kbd { display: none; }
+  .sh-v2 .bc-seg { font-size: 12px; }
+}
+@media (max-width: 899px) {
+  .sh-v2 .app[data-nav] { grid-template-columns: minmax(0, 1fr); }
+  .sh-v2 .nv { position: fixed; inset: 0 auto 0 0; width: min(280px, 85vw); transform: translateX(-100%); visibility: hidden; }
+  .sh-v2 .nv[data-mobile-open="true"] { transform: none; visibility: visible; }
+  .sh-v2 .nv[data-mobile-open="true"] .nv-label { display: inline; }
+  .sh-v2 .nv[data-mobile-open="true"] .nv-group-label { font-size: 11px; height: auto; padding: 8px 12px 4px; }
+  .sh-v2 .nv .nv-item { min-height: 44px; }
+  .sh-v2 .nv-mobile-trigger, .sh-v2 .nv-mobile-close { display: grid; place-items: center; background: transparent; border: 0; color: var(--fg); }
+  .sh-v2 .nv-mobile-close { margin-left: auto; }
+  .sh-v2 .nv-backdrop { display: block; position: fixed; inset: 0; z-index: 110; background: rgb(0 0 0 / .55); border: 0; }
+  .sh-v2 .hr { display: none; }
+  .sh-v2 .tb { flex-wrap: wrap; height: auto; min-height: 56px; gap: 6px; }
+  .sh-v2 .app-main { grid-template-rows: auto minmax(0, 1fr); }
+  .sh-v2 .bc { display: none; }
+  .sh-v2 .tb > svg { display: none; }
+  .sh-v2 .tb-actions { margin-left: auto; }
+  .sh-v2 .tb-icon[title="Show project radar"] { display: none; }
+  .sh-v2 .tb .sw-pill { max-width: 130px; overflow: hidden; }
+  .sh-v2 .tb .sw-pill > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sh-v2 .page { padding: 16px; overflow-x: auto; }
+  .sh-v2 .overview-kpi-grid, .sh-v2 .tenant-kpi-grid, .sh-v2 .traces-kpi-grid, .sh-v2 .llm-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sh-v2 .overview-attention, .sh-v2 .overview-signals, .sh-v2 .tenant-panels, .sh-v2 .llm-panels { grid-template-columns: minmax(0, 1fr); }
+}

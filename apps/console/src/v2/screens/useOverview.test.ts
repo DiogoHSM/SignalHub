@@ -2,7 +2,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AggregateResponse, OperationsResponse, OverviewResponse, ReleaseListResponse, TenantListResponse } from "../../api/types";
-import { useOverview } from "./useOverview";
+import { buildTelemetryCoverage, useOverview } from "./useOverview";
 
 // ---------------------------------------------------------------------------
 // Canned data
@@ -395,6 +395,41 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("useOverview", () => {
+  it("distinguishes telemetry evidence without interpreting an empty scope as healthy", () => {
+    const overview = structuredClone(OVERVIEW);
+    const ops = structuredClone(OPERATIONS);
+    ops.status = "healthy";
+    ops.summary.incidents.open = 0;
+    ops.summary.incidents.investigating = 0;
+    ops.predictions = [{ ...ops.predictions![0], confidence: "high", validation: { ...ops.predictions![0].validation, sampleSize: 10, baselineSampleSize: 10 } }];
+    ops.summary.telemetry.lastEventAt = overview.range.to;
+    expect(buildTelemetryCoverage(overview, ops).state).toBe("healthy");
+    ops.predictions[0].validation.baselineSampleSize = 0;
+    expect(buildTelemetryCoverage(overview, ops).state).toBe("insufficient");
+    ops.summary.incidents.open = 1;
+    expect(buildTelemetryCoverage(overview, ops).state).toBe("incidents");
+    ops.summary.incidents.open = 0;
+    ops.summary.telemetry.lastEventAt = "2026-01-01T00:00:00Z";
+    ops.summary.telemetry.lastErrorAt = null;
+    ops.summary.telemetry.lastTraceAt = null;
+    overview.kpis.llmCalls = 0;
+    expect(buildTelemetryCoverage(overview, ops).state).toBe("stale");
+    overview.kpis.llmCalls = 4;
+    expect(buildTelemetryCoverage(overview, ops).state).toBe("unknown");
+    overview.kpis.events = overview.kpis.errors = overview.kpis.traces = overview.kpis.llmCalls = 0;
+    ops.summary.telemetry.lastEventAt = null;
+    expect(buildTelemetryCoverage(overview, ops).state).toBe("missing");
+    expect(buildTelemetryCoverage(overview, null).state).toBe("unknown");
+  });
+
+  it("suppresses predictions without samples in either comparison window", async () => {
+    const ops = structuredClone(OPERATIONS);
+    ops.predictions![0].validation.sampleSize = 0;
+    const { result } = renderHook(() => useOverview({ client: makeClient(OVERVIEW, ops), ...BASE_PARAMS }));
+    await waitFor(() => expect(result.current.status).toBe("ok"));
+    expect(result.current.data!.operations.predictions).toEqual([]);
+    expect(result.current.data!.operations.recommendedActions.some((action) => action.key.startsWith("prediction-"))).toBe(false);
+  });
   it("starts in loading status and transitions to ok", async () => {
     const client = makeClient();
     const { result } = renderHook(() => useOverview({ client, ...BASE_PARAMS }));
@@ -1005,7 +1040,7 @@ describe("useOverview", () => {
     expect(result.current.data!.kpis.topModel).toBeNull();
   });
 
-  it("handles missing getOperations gracefully (all-clear banner)", async () => {
+  it("marks missing operations as unknown instead of healthy", async () => {
     const client = {
       getOverview: vi.fn().mockResolvedValue({ data: OVERVIEW }),
       getOperations: undefined,
@@ -1018,5 +1053,7 @@ describe("useOverview", () => {
 
     expect(result.current.data!.banner.incidents).toBe(0);
     expect(result.current.data!.banner.top).toBeNull();
+    expect(result.current.data!.coverage?.state).toBe("unknown");
+    expect(result.current.data!.operations.posture.status).toBe("unknown");
   });
 });

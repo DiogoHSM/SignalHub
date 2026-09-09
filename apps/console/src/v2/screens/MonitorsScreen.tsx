@@ -429,7 +429,7 @@ export function MonitorsScreen({ ctx }: { ctx: ScreenCtx }) {
   if (monitors.status === "error" || !monitors.data) {
     return (
       <div style={{ padding: "48px 24px", display: "grid", placeItems: "center" }}>
-        <EmptyHint icon="alert" title="Could not load monitors" sub="Check your connection or try again." />
+        <EmptyHint icon="alert" title="Could not load monitors" sub="Retry to load checks and notification channels." cta={<button className="sh-btn" onClick={monitors.reload}>Retry monitors</button>} />
       </div>
     );
   }
@@ -443,7 +443,7 @@ export function MonitorsScreen({ ctx }: { ctx: ScreenCtx }) {
     <>
       <PageHead
         title="Monitors"
-        sub={`HTTP uptime and heartbeat checks for ${ctx.project.name} / ${ctx.environment.name}.`}
+        sub={`HTTP uptime and heartbeat checks for ${ctx.project.name} · ${ctx.environment.name}. Open a monitor to inspect recent checks and its failure response.`}
         actions={
           <>
             <Segmented options={[...KIND_FILTERS]} value={filter} onChange={(v) => setFilter(v as KindFilter)} />
@@ -479,7 +479,14 @@ export function MonitorsScreen({ ctx }: { ctx: ScreenCtx }) {
         </div>
         <div style={{ overflow: "auto", flex: 1 }}>
           {shownRows.length === 0 ? (
-            <EmptyHint icon="pulse" title="No monitors yet" sub="Create an HTTP or heartbeat monitor to start tracking uptime." />
+            <EmptyHint
+              icon="pulse"
+              title={rows.length === 0 ? "No monitors yet" : `No ${filter === "HTTP" ? "HTTP" : "heartbeat"} monitors`}
+              sub={rows.length === 0
+                ? "No monitor coverage is configured here. Create an HTTP check for an endpoint or a heartbeat for a scheduled job."
+                : "Other monitor types are configured in this environment. Clear the kind filter to view them."}
+              cta={rows.length > 0 ? <button className="sh-btn" onClick={() => setFilter("All")}>Show all monitors</button> : undefined}
+            />
           ) : (
             shownRows.map((row) => (
               <div key={row.id}>

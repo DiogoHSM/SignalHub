@@ -2,6 +2,7 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AdministrationScreen } from "./AdministrationScreen";
 import { SystemScreen } from "./SystemScreen";
 import type { ScreenCtx } from "./registry";
 import * as hookModule from "./useSystemHealth";
@@ -15,6 +16,7 @@ afterEach(() => {
 function makeCtx(over: Partial<ScreenCtx> = {}): ScreenCtx {
   return {
     client: {
+      listProjects: vi.fn().mockResolvedValue({ projects: [] }),
       runSystemDoctor: vi.fn().mockResolvedValue({ message: "Doctor completed: system is operational." }),
       runSystemBackup: vi.fn().mockResolvedValue({ message: "Backup queued." }),
       runSystemRetention: vi.fn().mockResolvedValue({ message: "Retention completed." }),
@@ -81,7 +83,7 @@ describe("SystemScreen", () => {
     };
     mockHook({ status: "ok", data: vm });
     render(
-      <SystemScreen
+      <AdministrationScreen
         ctx={makeCtx({
           client: api as never,
           user: { id: "usr_admin", email: "admin@example.com", isAdmin: true },
@@ -123,7 +125,7 @@ describe("SystemScreen", () => {
     const listUsers = vi.fn();
     mockHook({ status: "ok", data: vm });
     render(
-      <SystemScreen
+      <AdministrationScreen
         ctx={makeCtx({
           client: { ...makeCtx().client, listUsers } as never,
           user: { id: "usr_operator", email: "operator@example.com", isAdmin: false },
@@ -146,7 +148,7 @@ describe("SystemScreen", () => {
     };
     mockHook({ status: "ok", data: vm });
     render(
-      <SystemScreen
+      <AdministrationScreen
         ctx={makeCtx({
           client: api as never,
           user: { id: "usr_admin", email: "admin@example.com", isAdmin: true },
@@ -161,6 +163,22 @@ describe("SystemScreen", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not create console user.");
     expect(screen.getByLabelText("New user email")).toHaveValue("duplicate@example.com");
     expect(screen.getByLabelText("Temporary password")).toHaveValue("");
+  });
+
+  it("keeps console access off the health page even for administrators", () => {
+    const listUsers = vi.fn();
+    mockHook({ status: "ok", data: vm });
+    render(<SystemScreen ctx={makeCtx({ client: { ...makeCtx().client, listUsers } as never, user: { id: "admin", email: "admin@example.com", isAdmin: true } })} />);
+    expect(screen.queryByRole("heading", { name: "Console access" })).not.toBeInTheDocument();
+    expect(listUsers).not.toHaveBeenCalled();
+  });
+
+  it("retries failed health data locally", async () => {
+    const reload = vi.fn();
+    mockHook({ status: "error", data: null, reload });
+    render(<SystemScreen ctx={makeCtx()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Retry health" }));
+    expect(reload).toHaveBeenCalledOnce();
   });
 
   it("shows a loading state", () => {
@@ -180,7 +198,7 @@ describe("SystemScreen", () => {
     mockHook({ status: "ok", data: vm, reload });
     const ctx = makeCtx();
     render(<SystemScreen ctx={ctx} />);
-    expect(screen.getByText("System health")).toBeTruthy();
+    expect(screen.getByText("Sigmon health")).toBeTruthy();
     expect(screen.getAllByText(/Operational/).length).toBeGreaterThanOrEqual(1);
     await userEvent.click(screen.getByRole("button", { name: /Run doctor/i }));
     expect(ctx.client.runSystemDoctor).toHaveBeenCalled();

@@ -123,7 +123,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { ctx.clearPendingFilters?.(); }, []);
 
-  const { data, status } = useLlm({
+  const { data, status, reload } = useLlm({
     client: ctx.client,
     projectId,
     environmentId,
@@ -162,7 +162,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
         <EmptyHint
           icon="alert"
           title="Could not load LLM observability"
-          sub="Check your connection or try again."
+          sub="Retry this request. Your filters are preserved." cta={<button className="sh-btn" onClick={reload}>Retry AI calls</button>}
         />
       </div>
     );
@@ -175,8 +175,8 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
   return (
     <>
       <PageHead
-        title="LLM observability"
-        sub="Cost, latency, quality, and attribution by tenant, prompt, and model."
+        title="AI calls"
+        sub={`${ctx.project.name} · ${ctx.environment.name} — compare model cost, latency, and quality. Compare prompt rows and recent calls to understand their contribution.`}
         actions={
           <>
             {hasSeededFilters ? (
@@ -235,7 +235,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
           </div>
           <div className="sh-card__body">
             {costByModel.series.length === 0 ? (
-              <EmptyHint icon="activity" title="No LLM cost data" sub="No model cost in this window." />
+              <EmptyHint icon="activity" title="No LLM cost data" sub="No model cost is available for this window and filter selection." />
             ) : (
               <StackedArea buckets={costByModel.buckets} series={costByModel.series} />
             )}
@@ -249,7 +249,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
           </div>
           <div className="sh-card__body flush">
             {tenants.length === 0 ? (
-              <EmptyHint icon="activity" title="No tenant cost" sub="No attributed tenant cost in this window." />
+              <EmptyHint icon="activity" title="No tenant cost" sub="No attributed tenant cost is available for this window and filter selection." />
             ) : (
               tenants.map((row) => <TenantRow key={row.tenantId} row={row} ctx={ctx} />)
             )}
@@ -281,7 +281,7 @@ export function LlmScreen({ ctx }: { ctx: ScreenCtx }) {
             </div>
             <div className="sh-wide-table__body sh-wide-table__body--fill">
               {prompts.length === 0 ? (
-                <EmptyHint icon="activity" title="No prompt data" sub="No LLM calls in this window." />
+                <EmptyHint icon="activity" title="No prompt data" sub="No prompt aggregates are available for this window and filter selection. Clear a filter or widen the window; if you expected data, check AI call capture." />
               ) : (
                 prompts.map((row) => <PromptRow key={`${row.promptName}:${row.model}`} row={row} />)
               )}
