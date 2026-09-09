@@ -19,7 +19,7 @@
     "@sigmon/db": "workspace:*",
     "@sigmon/queues": "workspace:*",
     "@sigmon/telemetry": "workspace:*",
-    "@smithy/node-http-handler": "^4.6.1",
+    "@smithy/node-http-handler": "^4.11.3",
     "bullmq": "^5.76.4",
     "ioredis": "^5.10.1",
     "kysely": "^0.28.17",
