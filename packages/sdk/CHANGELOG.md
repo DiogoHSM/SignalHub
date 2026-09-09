@@ -2,6 +2,12 @@
 
 All notable changes to `@sigmon/sdk` are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this package follows semantic versioning.
 
+## Unreleased
+
+### Fixed
+
+- Bind the default fetch transport to the global object so browser signal delivery does not fail with `Illegal invocation` and retain signals in the queue.
+
 ## 0.2.1
 
 ### Fixed

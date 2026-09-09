@@ -68,7 +68,8 @@ export function createSignalMonitorClient(options: SignalMonitorClientOptions): 
     throw new Error("apiKey is required");
   }
 
-  const fetchImpl = options.fetch ?? globalThis.fetch;
+  // Native browser fetch requires the global receiver when called as a transport method.
+  const fetchImpl = options.fetch ?? globalThis.fetch?.bind(globalThis);
 
   if (!fetchImpl) {
     throw new Error("fetch is required");
